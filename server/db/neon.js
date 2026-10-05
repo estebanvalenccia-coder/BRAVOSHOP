@@ -1,3 +1,5 @@
 import{neon}from"@neondatabase/serverless";
-if(!process.env.DATABASE_URL)throw new Error("DATABASE_URL no configurada");
-export const sql=neon(process.env.DATABASE_URL);
+const configured=Boolean(process.env.DATABASE_URL);
+const client=configured?neon(process.env.DATABASE_URL):null;
+export const databaseConfigured=configured;
+export function sql(strings,...values){if(!client){const error=new Error("Base de datos BravoShop no configurada");error.code="DATABASE_NOT_CONFIGURED";throw error}return client(strings,...values)}
