@@ -1,0 +1,1 @@
+export const FEATURES=["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist","gift_cards","reservations","subscriptions","pos","blog","marketing","ai_assistant","ai_images","image_analysis","automations","b2b"];export const resolveFeature=({global=true,plan=true,storeOverride,userPermission=true})=>global&&plan&&(storeOverride??true)&&userPermission;
