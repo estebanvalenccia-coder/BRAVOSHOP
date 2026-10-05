@@ -1,0 +1,3 @@
+import{readSessionToken,tokenFromRequest}from"../auth/session.js";import{sql}from"../db/neon.js";
+export async function requireAuth(req,res,next){const user=await readSessionToken(tokenFromRequest(req));if(!user)return res.status(401).json({error:"Sesión requerida"});req.user=user;next()}
+export async function requireStore(req,res,next){const storeId=req.params.storeId||req.body?.store_id||req.query?.store_id;if(!storeId)return res.status(400).json({error:"store_id requerido"});const rows=await sql`select role from store_members where store_id=${storeId}::uuid and user_id=${req.user.id}::uuid limit 1`;if(!rows.length)return res.status(403).json({error:"No tienes acceso a esta tienda"});req.storeId=storeId;req.storeRole=rows[0].role;next()}
