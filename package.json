@@ -13,7 +13,8 @@
     "start:api": "node server/index.js",
     "preview": "vite preview",
     "check": "npm run build",
-    "server": "node server/index.js"
+    "server": "node server/index.js",
+    "db:migrate": "node scripts/migrate.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",
