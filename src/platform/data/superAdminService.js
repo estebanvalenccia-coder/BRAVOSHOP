@@ -26,3 +26,6 @@ export async function getPlatformSettings(){const data=await api("/api/admin/set
 
 export async function getPlatformHealth(){return api("/api/admin/health")}
 export async function listPlatformTemplates(){const data=await api("/api/admin/templates");return data.templates??[]}
+
+export async function listPlatformPaymentAccounts(q=""){const data=await api("/api/admin/payment-accounts"+(q?"?q="+encodeURIComponent(q):""));return data.payment_accounts??[]}
+export async function listPlatformRefunds(){const data=await api("/api/admin/refunds");return data.refunds??[]}

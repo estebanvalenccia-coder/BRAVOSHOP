@@ -1,13 +1,78 @@
-import{Router}from"express";import Stripe from"stripe";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";
-export const stripeWebhookRouter=Router();
-stripeWebhookRouter.post("/",async(req,res)=>{
- if(!process.env.STRIPE_SECRET_KEY||!process.env.STRIPE_WEBHOOK_SECRET)return res.status(503).json({error:"Stripe webhook no configurado"});
- const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);let event;
- try{event=stripe.webhooks.constructEvent(req.body,req.headers["stripe-signature"],process.env.STRIPE_WEBHOOK_SECRET)}catch{return res.status(400).send("Webhook signature invalid")}
- try{
-  if(event.type==="payment_intent.succeeded"){await completePaidCheckout(event.data.object,event.id)}else if(event.type==="payment_intent.payment_failed"){const intent=event.data.object,checkoutId=intent.metadata?.bravoshop_checkout_id;if(checkoutId)await sql`update checkout_sessions set status='payment_failed',provider_payment_id=${intent.id} where id=${checkoutId}::uuid and status<>'completed'`}
-  else if(event.type==="account.updated"){const a=event.data.object,status=a.charges_enabled&&a.payouts_enabled?"active":a.details_submitted?"restricted":"onboarding";await sql`update store_payment_accounts set status=${status},charges_enabled=${Boolean(a.charges_enabled)},payouts_enabled=${Boolean(a.payouts_enabled)},details_submitted=${Boolean(a.details_submitted)},updated_at=now() where provider_account_id=${a.id}`}
-  res.json({received:true});
- }catch(e){console.error("Stripe webhook failed",event?.id,e);res.status(500).json({error:"Webhook processing failed"})}
+import { Router } from "express";
+import Stripe from "stripe";
+import { sql } from "../db/neon.js";
+
+export const stripeWebhookRouter = Router();
+
+stripeWebhookRouter.post("/", async (req, res) => {
+    if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
+        return res.status(503).json({ error: "Stripe webhook no configurado" });
+    }
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    let event;
+    try {
+        event = stripe.webhooks.constructEvent(
+            req.body,
+            req.headers["stripe-signature"],
+            process.env.STRIPE_WEBHOOK_SECRET
+        );
+    } catch {
+        return res.status(400).send("Webhook signature invalid");
+    }
+
+    try {
+        if (event.type === "payment_intent.succeeded") {
+            await completePaidCheckout(event.data.object, event.id);
+        } else if (event.type === "payment_intent.payment_failed") {
+            const intent = event.data.object;
+            const checkoutId = intent.metadata?.bravoshop_checkout_id;
+            if (checkoutId) {
+                await sql`select bravoshop_release_checkout_inventory(${checkoutId}::uuid,'payment_failed')`;
+            }
+        } else if (event.type === "refund.updated") {
+            await updateRefundFromStripe(event.data.object);
+        } else if (event.type === "charge.refunded") {
+            for (const refund of event.data.object.refunds?.data || []) {
+                await updateRefundFromStripe(refund);
+            }
+        } else if (event.type === "account.updated") {
+            const account = event.data.object;
+            const status = account.charges_enabled && account.payouts_enabled
+                ? "active"
+                : account.details_submitted ? "restricted" : "onboarding";
+            await sql`
+                update store_payment_accounts
+                set status=${status},charges_enabled=${Boolean(account.charges_enabled)},
+                        payouts_enabled=${Boolean(account.payouts_enabled)},details_submitted=${Boolean(account.details_submitted)},updated_at=now()
+                where provider_account_id=${account.id}
+            `;
+        }
+        res.json({ received: true });
+    } catch (error) {
+        console.error("Stripe webhook failed", event?.id, error);
+        res.status(500).json({ error: "Webhook processing failed" });
+    }
 });
-async function completePaidCheckout(intent,eventId){const checkoutId=intent.metadata?.bravoshop_checkout_id;if(!checkoutId)return;const rows=await sql`select * from checkout_sessions where id=${checkoutId}::uuid limit 1`;const c=rows[0];if(!c||c.status==="completed")return;const items=await sql`select * from checkout_items where checkout_id=${c.id}::uuid order by id`;const orderId=randomUUID(),number="BS-"+Date.now().toString(36).toUpperCase();await sql.transaction([sql`insert into orders(id,store_id,order_number,status,payment_status,fulfillment_status,currency,subtotal,shipping_total,tax_total,total,customer_email,shipping_address,payment_provider,provider_payment_id) values(${orderId}::uuid,${c.store_id}::uuid,${number},'confirmed','paid','unfulfilled',${c.currency},${c.subtotal},${c.shipping_total},${c.tax_total},${c.total},${c.customer_email},${JSON.stringify(c.shipping_address||{})}::jsonb,'stripe',${intent.id})`,...items.map(i=>sql`insert into order_items(id,order_id,product_id,variant_id,title,sku,quantity,unit_price,total,snapshot) values(${randomUUID()}::uuid,${orderId}::uuid,${i.product_id}::uuid,${i.variant_id}::uuid,${i.title},${i.sku},${i.quantity},${i.unit_price},${i.total},${JSON.stringify(i.snapshot||{})}::jsonb)`),...items.map(i=>sql`update inventory_levels set quantity=greatest(0,quantity-${Number(i.quantity)}),updated_at=now() where variant_id=${i.variant_id}::uuid and track_inventory=true`),sql`update checkout_sessions set status='completed',completed_order_id=${orderId}::uuid,provider_payment_id=${intent.id} where id=${c.id}::uuid and completed_order_id is null`,sql`insert into order_events(order_id,event_type,message,metadata) values(${orderId}::uuid,'payment.succeeded','Pago confirmado por Stripe',${JSON.stringify({payment_intent:intent.id,event_id:eventId})}::jsonb)`])}
+
+async function completePaidCheckout(intent, eventId) {
+    const checkoutId = intent.metadata?.bravoshop_checkout_id;
+    if (!checkoutId) return;
+    const rows = await sql`
+        select bravoshop_complete_paid_checkout(
+            ${checkoutId}::uuid,${intent.id},${eventId},${Number(intent.amount_received ?? intent.amount)},${String(intent.currency || "")}
+        ) as order_id
+    `;
+    if (!rows[0]?.order_id) throw new Error("No se pudo completar el pedido del pago confirmado");
+}
+
+async function updateRefundFromStripe(refund) {
+    let refundId = refund.metadata?.bravoshop_refund_id;
+    if (!refundId) {
+        const rows = await sql`select id from order_refunds where provider_refund_id=${refund.id} limit 1`;
+        refundId = rows[0]?.id;
+    }
+    if (!refundId) return;
+    const status = refund.status === "succeeded" ? "succeeded" : refund.status === "failed" || refund.status === "canceled" ? "failed" : "pending";
+    await sql`select bravoshop_update_refund(${refundId}::uuid,${refund.id},${status})`;
+}

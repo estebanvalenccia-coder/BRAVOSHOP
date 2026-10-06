@@ -14,5 +14,5 @@ app.get("/api/ready",async(_req,res)=>{
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
 });
 app.use("/api/public",publicRouter);app.use("/api/auth",authRouter);app.use("/api/admin",adminRouter);app.use("/api/stores",storesRouter);app.use("/api/stores/:storeId",commerceRouter);app.use("/api/stores/:storeId",mediaRouter);app.use("/api/stores/:storeId",insightsRouter);
-app.use((err,_req,res,_next)=>{console.error(err);res.status(500).json({error:err.code==="DATABASE_NOT_CONFIGURED"?"Base de datos BravoShop no configurada":"Error interno"});});
+app.use((err,_req,res,_next)=>{console.error(err);const databaseUnavailable=err.code==="DATABASE_NOT_CONFIGURED";res.status(databaseUnavailable?503:500).json({error:databaseUnavailable?"Base de datos BravoShop no configurada":"Error interno"});});
 const port=Number(process.env.PORT||3001);app.listen(port,()=>console.log(`BravoShop API listening on ${port}`));
