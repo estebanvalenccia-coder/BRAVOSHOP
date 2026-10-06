@@ -8,3 +8,5 @@ export async function createPublicPayment(token){return api("/api/public/checkou
 
 export async function getPublicPaymentConfig(host){return api("/api/public/payment-config?host="+h(host))}
 export async function getPublicCheckout(token){const data=await api("/api/public/checkout/"+encodeURIComponent(token));return data.checkout}
+
+export async function listPublicCategories(host){const data=await api("/api/public/categories?host="+h(host));return data.categories??[]}
