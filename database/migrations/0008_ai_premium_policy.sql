@@ -1,7 +1,6 @@
 -- Seed stable plan identities and enforce the platform rule: every AI capability is Premium.
 insert into plans(name,slug,status,is_public,metadata)
 values
-('Free','free','active',true,'{"tier":0}'::jsonb),
 ('Premium','premium','active',true,'{"tier":2,"ai":true}'::jsonb)
 on conflict (slug) do update set name=excluded.name,status='active',is_public=true,metadata=plans.metadata||excluded.metadata;
 
