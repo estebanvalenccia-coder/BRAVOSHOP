@@ -18,3 +18,7 @@ export async function createAccessCode(input){const data=await api("/api/admin/a
 export async function setAccessCodeActive(id,active){const data=await api("/api/admin/access-codes/"+id,{method:"PATCH",body:{active}});return data.access_code}
 
 export async function listPlatformUsers(){const data=await api("/api/admin/users");return data.users??[]}
+
+export async function listPlatformModules(){const data=await api("/api/admin/modules");return data.modules??[]}
+export async function listPlatformDomains(){const data=await api("/api/admin/domains");return data.domains??[]}
+export async function getPlatformSettings(){const data=await api("/api/admin/settings");return data.settings??{}}
