@@ -24,3 +24,8 @@ export async function listStoreMembers(storeId){const data=await api(`/api/store
 export async function addStoreMember(storeId,input){return api(`/api/stores/${storeId}/members`,{method:"POST",body:input})}
 export async function updateStoreMember(storeId,userId,role){return api(`/api/stores/${storeId}/members/${userId}`,{method:"PATCH",body:{role}})}
 export async function removeStoreMember(storeId,userId){return api(`/api/stores/${storeId}/members/${userId}`,{method:"DELETE"})}
+
+export async function listDomains(storeId){const data=await api(`/api/stores/${storeId}/domains`);return data.domains??[]}
+export async function addDomain(storeId,hostname){return api(`/api/stores/${storeId}/domains`,{method:"POST",body:{hostname}})}
+export async function verifyDomain(storeId,domainId){return api(`/api/stores/${storeId}/domains/${domainId}/verify`,{method:"POST",body:{}})}
+export async function removeDomain(storeId,domainId){return api(`/api/stores/${storeId}/domains/${domainId}`,{method:"DELETE"})}
