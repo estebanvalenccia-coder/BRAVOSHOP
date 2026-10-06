@@ -1,7 +1,7 @@
-import"dotenv/config";import express from"express";import cors from"cors";import helmet from"helmet";import{authRouter}from"./routes/auth.js";import{storesRouter}from"./routes/stores.js";import{commerceRouter}from"./routes/commerce.js";import{mediaRouter}from"./routes/media.js";import{insightsRouter}from"./routes/insights.js";import{adminRouter}from"./routes/admin.js";import{publicRouter}from"./routes/public.js";import{sql,databaseConfigured}from"./db/neon.js";
+import"dotenv/config";import express from"express";import cors from"cors";import helmet from"helmet";import{authRouter}from"./routes/auth.js";import{storesRouter}from"./routes/stores.js";import{commerceRouter}from"./routes/commerce.js";import{mediaRouter}from"./routes/media.js";import{insightsRouter}from"./routes/insights.js";import{adminRouter}from"./routes/admin.js";import{publicRouter}from"./routes/public.js";import{stripeWebhookRouter}from"./routes/stripeWebhook.js";import{sql,databaseConfigured}from"./db/neon.js";
 const app=express();app.disable("x-powered-by");
 const allowedOrigin=origin=>{if(!origin)return true;try{const u=new URL(origin);const h=u.hostname.toLowerCase();return h==="bravoshop.online"||h==="www.bravoshop.online"||h==="app.bravoshop.online"||h==="admin.bravoshop.online"||h.endsWith(".bravoshop.online")||h==="localhost"||h==="127.0.0.1"}catch{return false}};
-app.use(helmet());app.use(cors({origin(origin,cb){cb(null,allowedOrigin(origin))},credentials:true}));app.use(express.json({limit:"2mb"}));
+app.use(helmet());app.use(cors({origin(origin,cb){cb(null,allowedOrigin(origin))},credentials:true}));app.use("/api/webhooks/stripe",express.raw({type:"application/json"}),stripeWebhookRouter);app.use(express.json({limit:"2mb"}));
 app.get("/api/health",(_req,res)=>res.json({ok:true,service:"bravoshop-api"}));
 app.get("/api/ready",async(_req,res)=>{
  if(!databaseConfigured)return res.status(503).json({ok:false,database:"unconfigured"});
