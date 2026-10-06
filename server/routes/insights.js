@@ -55,3 +55,14 @@ insightsRouter.get("/inventory", requirePermission("analytics.read"), async (req
 	`;
 	res.json({ inventory: rows });
 });
+
+insightsRouter.get("/analytics", requirePermission("analytics.read"), async (req, res) => {
+	const [daily, topProducts, statuses, repeatCustomers] = await Promise.all([
+		sql`select to_char(d::date,'YYYY-MM-DD') as day,coalesce(sum(o.total) filter(where o.payment_status='paid'),0)::numeric as sales,count(o.id)::int as orders from generate_series(current_date-29,current_date,'1 day') d left join orders o on o.store_id=${req.storeId}::uuid and o.created_at>=d and o.created_at<d+'1 day'::interval group by d order by d`,
+		sql`select oi.title,coalesce(sum(oi.quantity),0)::int as units,coalesce(sum(oi.line_total),0)::numeric as revenue from order_items oi join orders o on o.id=oi.order_id where o.store_id=${req.storeId}::uuid and o.payment_status='paid' group by oi.title order by revenue desc limit 8`,
+		sql`select coalesce(fulfillment_status,'unfulfilled') as status,count(*)::int as value from orders where store_id=${req.storeId}::uuid group by fulfillment_status order by value desc`,
+		sql`select count(*)::int as value from (select customer_email from orders where store_id=${req.storeId}::uuid and customer_email is not null group by customer_email having count(*)>1) x`
+	]);
+	const sales30=daily.reduce((n,x)=>n+Number(x.sales),0),orders30=daily.reduce((n,x)=>n+Number(x.orders),0);
+	res.json({period_days:30,metrics:{sales:sales30,orders:orders30,average_order:orders30?sales30/orders30:0,repeat_customers:repeatCustomers[0].value},daily:daily.map(x=>({...x,sales:Number(x.sales)})),top_products:topProducts.map(x=>({...x,revenue:Number(x.revenue)})),order_statuses:statuses});
+});
