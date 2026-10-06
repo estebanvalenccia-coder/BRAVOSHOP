@@ -16,3 +16,5 @@ export async function assignStorePlan(id,plan){return api("/api/admin/stores/"+i
 export async function listAccessCodes(){const data=await api("/api/admin/access-codes");return data.access_codes??[]}
 export async function createAccessCode(input){const data=await api("/api/admin/access-codes",{method:"POST",body:input});return data.access_code}
 export async function setAccessCodeActive(id,active){const data=await api("/api/admin/access-codes/"+id,{method:"PATCH",body:{active}});return data.access_code}
+
+export async function listPlatformUsers(){const data=await api("/api/admin/users");return data.users??[]}
