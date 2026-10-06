@@ -11,3 +11,9 @@ export async function updatePaymentPreferences(storeId,input){return api(`/api/s
 export async function redeemAccessCode(storeId,code){return api(`/api/stores/${storeId}/access-codes/redeem`,{method:"POST",body:{code}})}
 export async function getEntitlements(storeId){const data=await api(`/api/stores/${storeId}/entitlements`);return data.entitlements||[]}
 export async function getEffectiveFeatures(storeId){return api(`/api/stores/${storeId}/features/effective`)}
+
+export async function getShipping(storeId){const data=await api(`/api/stores/${storeId}/shipping`);return data.zones||[]}
+export async function createShippingZone(storeId,input){return api(`/api/stores/${storeId}/shipping/zones`,{method:"POST",body:input})}
+export async function createShippingRate(storeId,zoneId,input){return api(`/api/stores/${storeId}/shipping/zones/${zoneId}/rates`,{method:"POST",body:input})}
+export async function getTaxSettings(storeId){const data=await api(`/api/stores/${storeId}/taxes`);return data.tax}
+export async function updateTaxSettings(storeId,input){const data=await api(`/api/stores/${storeId}/taxes`,{method:"PUT",body:input});return data.tax}
