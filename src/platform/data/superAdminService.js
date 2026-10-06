@@ -22,3 +22,6 @@ export async function listPlatformUsers(){const data=await api("/api/admin/users
 export async function listPlatformModules(){const data=await api("/api/admin/modules");return data.modules??[]}
 export async function listPlatformDomains(){const data=await api("/api/admin/domains");return data.domains??[]}
 export async function getPlatformSettings(){const data=await api("/api/admin/settings");return data.settings??{}}
+
+export async function getPlatformHealth(){return api("/api/admin/health")}
+export async function listPlatformTemplates(){const data=await api("/api/admin/templates");return data.templates??[]}
