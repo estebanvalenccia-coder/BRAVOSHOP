@@ -6,7 +6,7 @@ app.get("/api/health",(_req,res)=>res.json({ok:true,service:"bravoshop-api"}));
 app.get("/api/ready",async(_req,res)=>{
  if(!databaseConfigured)return res.status(503).json({ok:false,database:"unconfigured"});
  try{
-  const required=["app_users","organizations","stores","store_members","products","product_variants","inventory_levels","orders","plans","platform_controls","media_assets","checkout_sessions","checkout_items","store_payment_accounts"];
+  const required=["app_users","organizations","stores","store_members","products","product_variants","inventory_levels","orders","plans","platform_controls","media_assets","checkout_sessions","checkout_items","store_payment_accounts","store_feature_entitlements","access_codes","access_code_redemptions"];
   const rows=await sql`select table_name from information_schema.tables where table_schema='public' and table_name = any(${required})`;
   const found=new Set(rows.map(r=>r.table_name));const missing=required.filter(t=>!found.has(t));
   if(missing.length)return res.status(503).json({ok:false,database:"schema_incomplete",missing_count:missing.length});
