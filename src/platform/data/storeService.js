@@ -6,3 +6,4 @@ export async function updateStore(storeId,input){return api(`/api/stores/${store
 export async function updateStoreFeatures(storeId,features){return api(`/api/stores/${storeId}/features`,{method:"PUT",body:{features}})}
 
 export async function getPaymentAccount(storeId){const data=await api(`/api/stores/${storeId}/payments`);return data.payment_account}
+export async function updatePaymentPreferences(storeId,input){return api(`/api/stores/${storeId}/payments/preferences`,{method:"PUT",body:input})}
