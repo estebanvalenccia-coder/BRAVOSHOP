@@ -6,3 +6,5 @@ export async function listCustomers(storeId){const data=await api(`/api/stores/$
 
 export async function getOrder(storeId,orderId){const data=await api(`/api/stores/${storeId}/orders/${orderId}`);return data.order}
 export async function updateFulfillment(storeId,orderId,input){const data=await api(`/api/stores/${storeId}/orders/${orderId}/fulfillment`,{method:"PATCH",body:input});return data.order}
+
+export async function requestRefund(storeId,orderId,input){const data=await api(`/api/stores/${storeId}/orders/${orderId}/refunds`,{method:"POST",body:input});return data}
