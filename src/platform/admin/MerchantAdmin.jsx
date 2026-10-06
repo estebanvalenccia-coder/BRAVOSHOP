@@ -17,7 +17,7 @@ export function MerchantAdmin({store,onExit}){
 	const visibleMenu=menu.filter(([, ,key])=>key!=="team"||current.role==="owner"||current.role==="admin");
 	let content;
 	if(section==="home")content=<HomeView store={current} navigate={setSection}/>;
-	else if(section==="products")content=<ProductManager storeId={current?.id}/>;
+	else if(section==="products")content=<ProductManager storeId={current?.id} storeSlug={current?.slug}/>;
 	else if(section==="orders")content=<OrdersManager storeId={current?.id}/>;
 	else if(section==="customers")content=<CustomersManager storeId={current?.id}/>;
 	else if(section==="team")content=<TeamManager store={current}/>;
