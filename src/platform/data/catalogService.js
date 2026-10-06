@@ -7,3 +7,9 @@ export async function saveVariant(storeId,productId,input){const path=input.id?`
 export async function setInventory(storeId,variantId,input){const data=await api(`/api/stores/${storeId}/variants/${variantId}/inventory`,{method:"PUT",body:input});return data.inventory}
 
 export async function setProductMedia(storeId,productId,mediaIds){const data=await api(`/api/stores/${storeId}/products/${productId}/media`,{method:"PUT",body:{media_ids:mediaIds}});return data.media??[]}
+
+export async function listCategories(storeId){const data=await api(`/api/stores/${storeId}/categories`);return data.categories??[]}
+export async function createCategory(storeId,input){const data=await api(`/api/stores/${storeId}/categories`,{method:"POST",body:input});return data.category}
+export async function updateCategory(storeId,id,input){const data=await api(`/api/stores/${storeId}/categories/${id}`,{method:"PATCH",body:input});return data.category}
+export async function deleteCategory(storeId,id){return api(`/api/stores/${storeId}/categories/${id}`,{method:"DELETE"})}
+export async function setProductCategories(storeId,productId,categoryIds){const data=await api(`/api/stores/${storeId}/products/${productId}/categories`,{method:"PUT",body:{category_ids:categoryIds}});return data.categories??[]}
