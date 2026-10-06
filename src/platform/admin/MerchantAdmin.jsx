@@ -10,7 +10,7 @@ import{loadStore,updateStore,updateStoreFeatures,getPaymentAccount,updatePayment
 import{FEATURES,AI_FEATURES}from"../config/features.js";
 import{MediaLibrary}from"../media/MediaLibrary.jsx";
 import{STORE_TEMPLATES,normalizeTheme,ADDABLE_SECTIONS,applyTemplate}from"../config/storeTemplates.js";
-const menu=[[Home,"Inicio","home"],[Package,"Productos","products"],[ShoppingBag,"Pedidos","orders"],[Users,"Clientes","customers"],[Users,"Equipo","team"],[Boxes,"Inventario","inventory"],[Palette,"Diseño","design"],[Package,"Multimedia","media"],[Ticket,"Marketing","marketing"],[Brain,"IA","ai"],[BarChart3,"Analítica","analytics"],[Globe2,"Dominios","domains"],[CreditCard,"Pagos","payments"],[Globe2,"Envíos e impuestos","shipping"],[ShieldCheck,"Legal y cumplimiento","legal"],[Settings,"Configuración","settings"]];
+const menu=[[Home,"Inicio","home"],[Package,"Productos","products"],[Package,"Categorías","categories"],[ShoppingBag,"Pedidos","orders"],[Users,"Clientes","customers"],[Users,"Equipo","team"],[Boxes,"Inventario","inventory"],[Palette,"Diseño","design"],[Package,"Multimedia","media"],[Ticket,"Marketing","marketing"],[Brain,"IA","ai"],[BarChart3,"Analítica","analytics"],[Globe2,"Dominios","domains"],[CreditCard,"Pagos","payments"],[Globe2,"Envíos e impuestos","shipping"],[ShieldCheck,"Legal y cumplimiento","legal"],[Settings,"Configuración","settings"]];
 export function MerchantAdmin({store,onExit}){
 	const[section,setSection]=useState("home");
 	const[current,setCurrent]=useState(store);
