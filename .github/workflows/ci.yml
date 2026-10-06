@@ -1,0 +1,44 @@
+name: BravoShop CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run unit and tenant authorization tests
+        run: npm run test:unit
+      - name: Build frontend
+        run: npm run build
+
+  production-smoke:
+    # This mutating smoke test targets the live API; only run it when explicitly requested.
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Verify production API and tenant isolation
+        env:
+          SMOKE_API_URL: https://bravoshop-api-production.up.railway.app
+        run: npm run test:smoke

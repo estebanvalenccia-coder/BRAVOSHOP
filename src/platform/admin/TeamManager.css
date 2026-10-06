@@ -1,0 +1,75 @@
+.teamInviteForm {
+	display: grid;
+	grid-template-columns: minmax(220px, 1fr) minmax(160px, 0.55fr) auto;
+	gap: 14px;
+	align-items: end;
+}
+
+.teamInviteForm label,
+.teamMemberActions {
+	display: grid;
+	gap: 7px;
+}
+
+.teamInviteForm input,
+.teamInviteForm select,
+.teamMember select {
+	min-height: 42px;
+	border: 1px solid #d4ddd6;
+	border-radius: 10px;
+	padding: 9px 12px;
+	font: inherit;
+	background: white;
+}
+
+.teamMemberList {
+	display: grid;
+}
+
+.teamMember {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 20px;
+	padding: 15px 0;
+	border-bottom: 1px solid #edf0ed;
+}
+
+.teamMember > div:first-child {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+
+.teamMember small {
+	color: #7a837e;
+	overflow-wrap: anywhere;
+}
+
+.teamMemberActions {
+	grid-template-columns: minmax(140px, auto) auto;
+	align-items: center;
+}
+
+.teamRole {
+	color: #536159;
+	font-size: 13px;
+	font-weight: 700;
+}
+
+@media (max-width: 700px) {
+	.teamInviteForm {
+		grid-template-columns: 1fr;
+	}
+
+	.teamMember {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.teamMemberActions {
+		width: 100%;
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+}

@@ -1,0 +1,189 @@
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import Stripe from"stripe";import{requireAuth,requireStore}from"../middleware/auth.js";import{requirePermission}from"../middleware/permissions.js";
+export const commerceRouter=Router({mergeParams:true});commerceRouter.use(requireAuth,requireStore);
+const SLUG_PATTERN=/^[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?$/;
+
+commerceRouter.get("/products",requirePermission("products.read"),async(req,res)=>{const rows=await sql`select * from products where store_id=${req.storeId}::uuid order by created_at desc`;res.json({products:rows})});
+commerceRouter.get("/products/:id",requirePermission("products.read"),async(req,res)=>{const rows=await sql`select * from products where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;if(!rows.length)return res.status(404).json({error:"Producto no encontrado"});const variants=await sql`select v.*,i.quantity,i.reserved,i.track_inventory,i.allow_backorder from product_variants v left join inventory_levels i on i.variant_id=v.id where v.product_id=${req.params.id}::uuid order by v.created_at`;const media=await sql`select m.*,pm.position,pm.is_primary from product_media pm join media_assets m on m.id=pm.media_id where pm.product_id=${req.params.id}::uuid order by pm.position`;const categories=await sql`select category_id from product_categories where product_id=${req.params.id}::uuid`;res.json({product:{...rows[0],variants,media,categories:categories.map(x=>x.category_id)}})});
+commerceRouter.post("/products",requirePermission("products.create"),async(req,res)=>{
+	const p=req.body||{};
+	const name=typeof p.name==="string"?p.name.trim():"";
+	const slug=typeof p.slug==="string"?p.slug.trim().toLowerCase():"";
+	const price=Number(p.price??0);
+	if(!name||name.length>180||!SLUG_PATTERN.test(slug))return res.status(400).json({error:"Nombre o slug no válido"});
+	if(!Number.isFinite(price)||price<0)return res.status(400).json({error:"Precio no válido"});
+	const id=randomUUID();
+	const rows=await sql`
+		insert into products(id,store_id,name,slug,description,price,status,product_type,vendor,metadata,seo)
+		values(
+			${id}::uuid,${req.storeId}::uuid,${name},${slug},${String(p.description||"").slice(0,10000)},
+			${price},${p.status||"draft"},${p.product_type||null},${p.vendor||null},
+			${JSON.stringify(p.metadata||{})}::jsonb,${JSON.stringify(p.seo||{})}::jsonb
+		)
+		returning *
+	`;
+	res.status(201).json({product:rows[0]});
+});
+commerceRouter.put("/products/:id",requirePermission("products.update"),async(req,res)=>{
+	const p=req.body||{};
+	const name=typeof p.name==="string"?p.name.trim():"";
+	const slug=typeof p.slug==="string"?p.slug.trim().toLowerCase():"";
+	const price=Number(p.price??0);
+	if(!name||name.length>180||!SLUG_PATTERN.test(slug))return res.status(400).json({error:"Nombre o slug no válido"});
+	if(!Number.isFinite(price)||price<0)return res.status(400).json({error:"Precio no válido"});
+	const rows=await sql`
+		update products
+		set name=${name},slug=${slug},description=${String(p.description||"").slice(0,10000)},
+			price=${price},status=${p.status||"draft"},product_type=${p.product_type||null},vendor=${p.vendor||null},
+			metadata=${JSON.stringify(p.metadata||{})}::jsonb,seo=${JSON.stringify(p.seo||{})}::jsonb,updated_at=now()
+		where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid
+		returning *
+	`;
+	if(!rows.length)return res.status(404).json({error:"Producto no encontrado"});
+	if(rows[0].status==="active"){
+		await sql`
+			update media_assets m
+			set visibility='public'
+			where m.store_id=${req.storeId}::uuid
+				and exists(select 1 from product_media pm where pm.product_id=${rows[0].id} and pm.media_id=m.id)
+		`;
+	}
+	res.json({product:rows[0]});
+});
+
+commerceRouter.get("/categories",requirePermission("products.read"),async(req,res)=>{const rows=await sql`select * from categories where store_id=${req.storeId}::uuid order by position,name`;res.json({categories:rows})});
+commerceRouter.post("/categories",requirePermission("products.create"),async(req,res)=>{
+	const category=req.body||{};
+	const name=typeof category.name==="string"?category.name.trim():"";
+	const slug=typeof category.slug==="string"?category.slug.trim().toLowerCase():"";
+	const position=Number(category.position??0);
+	if(!name||name.length>120||!SLUG_PATTERN.test(slug)||!Number.isSafeInteger(position)||position<0)return res.status(400).json({error:"Nombre, slug o posición no válida"});
+	const parentId=category.parent_id||null;
+	if(parentId!==null){
+		if(typeof parentId!=="string"||! /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parentId))return res.status(400).json({error:"Categoría padre no válida"});
+		const parent=await sql`select id from categories where id=${parentId}::uuid and store_id=${req.storeId}::uuid`;
+		if(!parent.length)return res.status(404).json({error:"Categoría padre no encontrada"});
+	}
+	const rows=await sql`
+		insert into categories(id,store_id,name,slug,description,parent_id,position,active)
+		values(
+			${randomUUID()}::uuid,${req.storeId}::uuid,${name},${slug},
+			${String(category.description||"").slice(0,5000)},${parentId}::uuid,${position},${category.active!==false}
+		)
+		returning *
+	`;
+	res.status(201).json({category:rows[0]});
+});
+
+commerceRouter.post("/products/:id/variants",requirePermission("products.update"),async(req,res)=>{const exists=await sql`select 1 from products where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid`;if(!exists.length)return res.status(404).json({error:"Producto no encontrado"});const v=req.body||{};const rows=await sql`insert into product_variants(id,store_id,product_id,sku,title,price,compare_at_price,options,active) values(${randomUUID()}::uuid,${req.storeId}::uuid,${req.params.id}::uuid,${v.sku||null},${v.title||"Default"},${v.price===""?null:Number(v.price)},${v.compare_at_price?Number(v.compare_at_price):null},${JSON.stringify(v.options||{})}::jsonb,${v.active!==false}) returning *`;res.status(201).json({variant:rows[0]})});
+commerceRouter.put("/products/:productId/variants/:variantId",requirePermission("products.update"),async(req,res)=>{const v=req.body||{};const rows=await sql`update product_variants pv set sku=${v.sku||null},title=${v.title||"Default"},price=${v.price===""?null:Number(v.price)},compare_at_price=${v.compare_at_price?Number(v.compare_at_price):null},options=${JSON.stringify(v.options||{})}::jsonb,active=${v.active!==false} from products p where pv.id=${req.params.variantId}::uuid and pv.product_id=${req.params.productId}::uuid and p.id=pv.product_id and p.store_id=${req.storeId}::uuid returning pv.*`;if(!rows.length)return res.status(404).json({error:"Variante no encontrada"});res.json({variant:rows[0]})});
+commerceRouter.put("/variants/:variantId/inventory",requirePermission("inventory.update"),async(req,res)=>{const i=req.body||{};const quantity=Number(i.quantity);if(!Number.isSafeInteger(quantity)||quantity<0)return res.status(400).json({error:"La cantidad debe ser un entero no negativo"});const rows=await sql`select * from bravoshop_set_inventory(${req.storeId}::uuid,${req.params.variantId}::uuid,${quantity},${i.track_inventory!==false},${Boolean(i.allow_backorder)},${req.user.id}::uuid)`;if(!rows.length){const owns=await sql`select 1 from product_variants v where v.id=${req.params.variantId}::uuid and v.store_id=${req.storeId}::uuid`;if(!owns.length)return res.status(404).json({error:"Variante no encontrada"});return res.status(409).json({error:"La cantidad no puede quedar por debajo del inventario reservado"})}res.json({inventory:rows[0]})});
+
+commerceRouter.put("/products/:id/media",requirePermission("products.update"),async(req,res)=>{
+	const supplied=req.body?.media_ids??[];
+	if(!Array.isArray(supplied)||supplied.length>20)return res.status(400).json({error:"Lista de imágenes inválida"});
+	const ids=[...new Set(supplied)];
+	if(ids.some(id=>typeof id!=="string"||! /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)))return res.status(400).json({error:"Identificador de imagen inválido"});
+	const owns=await sql`select 1 from products where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid`;
+	if(!owns.length)return res.status(404).json({error:"Producto no encontrado"});
+	if(ids.length){
+		const valid=await sql`select id from media_assets where store_id=${req.storeId}::uuid and id=any(${ids}::uuid[])`;
+		if(valid.length!==ids.length)return res.status(400).json({error:"Una o más imágenes no pertenecen a esta tienda"});
+	}
+	const queries=[
+		sql`delete from product_media where product_id=${req.params.id}::uuid`,
+		...ids.map((id,position)=>sql`
+			insert into product_media(product_id,media_id,store_id,position,is_primary)
+			values(${req.params.id}::uuid,${id}::uuid,${req.storeId}::uuid,${position},${position===0})
+		`),
+		sql`
+			update media_assets m
+			set visibility=case when exists(
+				select 1 from product_media pm where pm.media_id=m.id
+			) then 'public' else 'private' end
+			where m.store_id=${req.storeId}::uuid
+		`,
+	];
+	await sql.transaction(queries);
+	const media=await sql`
+		select m.*,pm.position,pm.is_primary
+		from product_media pm
+		join media_assets m on m.id=pm.media_id and m.store_id=${req.storeId}::uuid
+		where pm.product_id=${req.params.id}::uuid
+		order by pm.position
+	`;
+	res.json({media});
+});
+
+commerceRouter.get("/orders",requirePermission("orders.read"),async(req,res)=>{const rows=await sql`select * from orders where store_id=${req.storeId}::uuid order by created_at desc limit 200`;res.json({orders:rows})});
+commerceRouter.get("/orders/:id",requirePermission("orders.read"),async(req,res)=>{const rows=await sql`select * from orders where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;if(!rows.length)return res.status(404).json({error:"Pedido no encontrado"});const items=await sql`select * from order_items where order_id=${req.params.id}::uuid order by id`;const events=await sql`select event_type,message,metadata,created_at from order_events where order_id=${req.params.id}::uuid order by created_at desc`;res.json({order:{...rows[0],items,events}})});
+commerceRouter.patch("/orders/:id/fulfillment",requirePermission("orders.fulfill"),async(req,res)=>{const p=req.body||{};const allowed=new Set(["unfulfilled","preparing","fulfilled","delivered","cancelled"]);if(!allowed.has(p.fulfillment_status))return res.status(400).json({error:"Estado logístico no válido"});const rows=await sql`update orders set fulfillment_status=${p.fulfillment_status},tracking_number=coalesce(${p.tracking_number||null},tracking_number),tracking_url=coalesce(${p.tracking_url||null},tracking_url),carrier=coalesce(${p.carrier||null},carrier),merchant_notes=coalesce(${p.merchant_notes||null},merchant_notes),shipped_at=case when ${p.fulfillment_status}='fulfilled' then coalesce(shipped_at,now()) else shipped_at end,delivered_at=case when ${p.fulfillment_status}='delivered' then coalesce(delivered_at,now()) else delivered_at end,cancelled_at=case when ${p.fulfillment_status}='cancelled' then coalesce(cancelled_at,now()) else cancelled_at end,updated_at=now() where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid returning *`;if(!rows.length)return res.status(404).json({error:"Pedido no encontrado"});await sql`insert into order_events(order_id,event_type,message,actor_user_id,metadata) values(${req.params.id}::uuid,'fulfillment.updated',${p.fulfillment_status},${req.user.id}::uuid,${JSON.stringify({carrier:p.carrier||null,tracking_number:p.tracking_number||null})}::jsonb)`;res.json({order:rows[0]})});
+commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),async(req,res)=>{
+	const rows=await sql`
+		select o.id,o.store_id,o.total,o.refunded_total,o.refund_reserved_total,o.currency,
+			o.payment_status,o.payment_provider,o.provider_payment_id,pa.provider_account_id
+		from orders o
+		left join store_payment_accounts pa on pa.store_id=o.store_id and pa.provider='stripe'
+		where o.id=${req.params.id}::uuid and o.store_id=${req.storeId}::uuid
+		limit 1
+	`;
+	if(!rows.length)return res.status(404).json({error:"Pedido no encontrado"});
+	const order=rows[0];
+	if(!["paid","partially_refunded"].includes(order.payment_status)||order.payment_provider!=="stripe"||!order.provider_payment_id)return res.status(409).json({error:"El pedido no tiene un pago Stripe reembolsable"});
+	if(!order.provider_account_id)return res.status(409).json({error:"La cuenta Stripe de la tienda no está conectada"});
+	if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Stripe no está configurado"});
+
+	const remainingCents=Math.round(Number(order.total)*100)
+		-Math.round(Number(order.refunded_total||0)*100)
+		-Math.round(Number(order.refund_reserved_total||0)*100);
+	const amountCents=req.body?.amount==null?remainingCents:Math.round(Number(req.body.amount)*100);
+	if(!Number.isSafeInteger(amountCents)||amountCents<=0||amountCents>remainingCents)return res.status(400).json({error:"Importe de reembolso inválido o ya reservado"});
+	const amount=amountCents/100;
+	const reason=String(req.body?.reason||"").trim().slice(0,500)||null;
+	const reserved=await sql`
+		select bravoshop_create_refund(
+			${order.id}::uuid,${req.storeId}::uuid,${amount},${reason},${req.user.id}::uuid
+		) as refund_id
+	`;
+	const refundId=reserved[0]?.refund_id;
+	if(!refundId)return res.status(409).json({error:"El importe disponible cambió; vuelve a consultar el pedido"});
+
+	const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+	let providerRefund;
+	try{
+		providerRefund=await stripe.refunds.create(
+			{
+				payment_intent:order.provider_payment_id,
+				amount:amountCents,
+				metadata:{bravoshop_refund_id:refundId,bravoshop_store_id:req.storeId},
+			},
+			{
+				stripeAccount:order.provider_account_id,
+				idempotencyKey:"bravoshop-refund-"+refundId,
+			},
+		);
+	}catch(error){
+		const outcomeUnknown=error.statusCode>=500
+			||["StripeConnectionError","StripeAPIError","StripeRateLimitError"].includes(error.type);
+		if(!outcomeUnknown){
+			await sql`select bravoshop_update_refund(${refundId}::uuid,null,'failed')`;
+		}
+		console.error(JSON.stringify({
+			level:"error",
+			request_id:req.requestId,
+			store_id:req.storeId,
+			resource_id:order.id,
+			error_code:error.type||"STRIPE_REFUND_FAILED",
+		}));
+		return res.status(502).json({error:"Stripe no pudo confirmar el reembolso",request_id:req.requestId});
+	}
+
+	const status=providerRefund.status==="succeeded"
+		?"succeeded"
+		:providerRefund.status==="failed"||providerRefund.status==="canceled"
+			?"failed"
+			:"pending";
+	await sql`select bravoshop_update_refund(${refundId}::uuid,${providerRefund.id},${status})`;
+	const refund=await sql`select * from order_refunds where id=${refundId}::uuid`;
+	res.status(201).json({refund:refund[0]});
+});
+commerceRouter.get("/customers",requirePermission("customers.read"),async(req,res)=>{const rows=await sql`select * from customers where store_id=${req.storeId}::uuid order by created_at desc limit 200`;res.json({customers:rows})});
