@@ -1,4 +1,4 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth,requireStore}from"../middleware/auth.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import Stripe from"stripe";import{requireAuth,requireStore}from"../middleware/auth.js";
 export const commerceRouter=Router({mergeParams:true});commerceRouter.use(requireAuth,requireStore);
 
 commerceRouter.get("/products",async(req,res)=>{const rows=await sql`select * from products where store_id=${req.storeId}::uuid order by created_at desc`;res.json({products:rows})});
