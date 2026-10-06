@@ -5,7 +5,8 @@ export async function updateStoreStatus(id,status){const data=await api("/api/ad
 export async function listControls(){const data=await api("/api/admin/controls");return data.controls??[]}
 export async function updateControl(key,enabled,reason=""){const data=await api("/api/admin/controls/"+encodeURIComponent(key),{method:"PUT",body:{enabled,reason}});return data.control}
 export async function listPlans(){const data=await api("/api/admin/plans");return data.plans??[]}
-export async function createPlan(input){const data=await api("/api/admin/plans",{method:"POST",body:input});return data.plan}\nexport async function updatePlan(id,input){const data=await api("/api/admin/plans/"+id,{method:"PATCH",body:input});return data.plan}
+export async function createPlan(input){const data=await api("/api/admin/plans",{method:"POST",body:input});return data.plan}
+export async function updatePlan(id,input){const data=await api("/api/admin/plans/"+id,{method:"PATCH",body:input});return data.plan}
 export async function listPromotions(){const data=await api("/api/admin/promotions");return data.promotions??[]}
 export async function createPromotion(input){const data=await api("/api/admin/promotions",{method:"POST",body:input});return data.promotion}
 export async function listFlags(){const data=await api("/api/admin/feature-flags");return data.flags??[]}
