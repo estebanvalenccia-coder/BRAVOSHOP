@@ -13,6 +13,41 @@ const product=await owner(`/api/stores/${created.store.id}/products`,{method:"PO
 await intruder(`/api/stores/${created.store.id}/products`,{expect:403});
 const variant=await owner(`/api/stores/${created.store.id}/products/${product.product.id}/variants`,{method:"POST",body:{title:"Default",sku:`SMOKE-${stamp}`,price:19.95}});assert.ok(variant.variant.id);
 await owner(`/api/stores/${created.store.id}/variants/${variant.variant.id}/inventory`,{method:"PUT",body:{quantity:10,track_inventory:true}});
+const secondOwnerStore=await owner("/api/stores",{method:"POST",body:{name:"Second Smoke Store",slug:`smoke-second-${stamp}`,sector:"fashion",features:["catalog","inventory"]}});assert.ok(secondOwnerStore.store.id);
+const secondProduct=await owner(`/api/stores/${secondOwnerStore.store.id}/products`,{method:"POST",body:{name:"Second Store Product",slug:"second-store-product",price:29.95,status:"active"}});assert.ok(secondProduct.product.id);
+const secondVariant=await owner(`/api/stores/${secondOwnerStore.store.id}/products/${secondProduct.product.id}/variants`,{method:"POST",body:{title:"Default",sku:`SMOKE-SECOND-${stamp}`,price:29.95}});assert.ok(secondVariant.variant.id);
+await owner(`/api/stores/${secondOwnerStore.store.id}/variants/${secondVariant.variant.id}/inventory`,{method:"PUT",body:{quantity:5,track_inventory:true}});
+// A user who belongs to both stores still cannot address one store's resource through the other.
+await owner(`/api/stores/${created.store.id}/products/${secondProduct.product.id}`,{expect:404});
+await owner(`/api/stores/${created.store.id}/products/${secondProduct.product.id}`,{method:"PUT",body:{name:"Cross-store edit",slug:"second-store-product",price:1},expect:404});
+await owner(`/api/stores/${created.store.id}/variants/${secondVariant.variant.id}/inventory`,{method:"PUT",body:{quantity:999},expect:404});
+// Selected tenant endpoints must reject a user with no active membership in the store.
+await intruder(`/api/stores/${created.store.id}/products/${product.product.id}`,{expect:403});
+await intruder(`/api/stores/${created.store.id}/products/${product.product.id}/variants`,{method:"POST",body:{title:"Hack",sku:"HACK"},expect:403});
+await intruder(`/api/stores/${created.store.id}/variants/${variant.variant.id}/inventory`,{method:"PUT",body:{quantity:999},expect:403});
+await intruder(`/api/stores/${created.store.id}/orders`,{expect:403});
+await intruder(`/api/stores/${created.store.id}/customers`,{expect:403});
+await intruder(`/api/stores/${created.store.id}/shipping`,{expect:403});
+await intruder(`/api/stores/${created.store.id}/shipping/zones`,{method:"POST",body:{name:"Hack Zone",countries:["ES"]},expect:403});
+await intruder(`/api/stores/${created.store.id}/taxes`,{expect:403});
+await intruder(`/api/stores/${created.store.id}/taxes`,{method:"PUT",body:{enabled:true,default_rate:99},expect:403});
+await intruder(`/api/stores/${created.store.id}/payments`,{expect:403});
+await intruder(`/api/stores/${created.store.id}/payments/connect`,{method:"POST",body:{},expect:403});
+await intruder(`/api/stores/${created.store.id}/access-codes/redeem`,{method:"POST",body:{code:"ANY"},expect:403});
+await intruder(`/api/stores/${created.store.id}/entitlements`,{expect:403});
+const intruderSlug=`smoke-intruder-${stamp}`;const intruderStore=await intruder("/api/stores",{method:"POST",body:{name:"Intruder Store",slug:intruderSlug,sector:"fashion",features:["catalog"]}});assert.ok(intruderStore.store.id);
+// Missing order IDs return the same not-found response for an authorized store member.
+await intruder(`/api/stores/${intruderStore.store.id}/orders/${"00000000-0000-0000-0000-000000000000"}`,{expect:404});
+await owner(`/api/stores/${created.store.id}/orders/${"00000000-0000-0000-0000-000000000000"}`,{expect:404});
+const membership=await owner(`/api/stores/${created.store.id}/members`,{method:"POST",body:{email:intruderEmail,role:"staff"}});
+assert.ok(membership.member.id);
+await intruder(`/api/stores/${created.store.id}`);
+await intruder(`/api/stores/${created.store.id}/products`,{method:"POST",body:{name:"Unauthorized Product",slug:"unauthorized-product",price:1},expect:403});
+await owner(`/api/stores/${created.store.id}/members/${membership.member.id}`,{method:"PATCH",body:{role:"viewer"}});
+await intruder(`/api/stores/${created.store.id}/products`);
+await intruder(`/api/stores/${created.store.id}/variants/${variant.variant.id}/inventory`,{method:"PUT",body:{quantity:1},expect:403});
+await owner(`/api/stores/${created.store.id}/members/${membership.member.id}`,{method:"DELETE",expect:204});
+await intruder(`/api/stores/${created.store.id}`,{expect:403});
 const store=await owner(`/api/public/store?host=${encodeURIComponent(slug+".bravoshop.online")}`);assert.equal(store.store.slug,slug);
 const products=await owner(`/api/public/products?host=${encodeURIComponent(slug+".bravoshop.online")}`);assert.ok(products.products.some(p=>p.id===product.product.id));
 const checkout=await owner("/api/public/checkout",{method:"POST",body:{host:slug+".bravoshop.online",items:[{variant_id:variant.variant.id,quantity:2}],currency:"EUR"}});assert.equal(Number(checkout.checkout.total),39.9);

@@ -44,11 +44,11 @@ const matchesActivationToken = candidate => {
 authRouter.get("/owner/status", async (_req, res) => {
 	const emails = [...superAdmins()];
 	if (!emails.length) return res.json({ configured: false, activated: false, activationAvailable: false });
-	const rows = await sql`select 1 from app_users where lower(email)=any(${emails}) and role='super_admin' and status='active' limit 1`;
+	const rows = await sql`select initial_super_admin_activated_at from platform_bootstrap_state where singleton=true limit 1`;
 	res.json({
 		configured: true,
-		activated: rows.length > 0,
-		activationAvailable: activationTokenConfigured() && Boolean(process.env.SESSION_SECRET),
+		activated: Boolean(rows[0]?.initial_super_admin_activated_at),
+		activationAvailable: !rows[0]?.initial_super_admin_activated_at && activationTokenConfigured() && Boolean(process.env.SESSION_SECRET),
 	});
 });
 
@@ -65,10 +65,12 @@ authRouter.post("/owner/activate", authLimiter, async (req, res) => {
 	}
 
 	const rows = await sql`
-		insert into app_users(id,email,password_hash,name,role)
-		values(${randomUUID()}::uuid,${normalized},${hashPassword(password)},${name || "Propietario"},'super_admin')
-		on conflict(email) do nothing
-		returning id,email,name,role
+		select * from bravoshop_activate_initial_super_admin(
+			${randomUUID()}::uuid,
+			${normalized},
+			${hashPassword(password)},
+			${String(name || "Propietario").slice(0, 120)}
+		)
 	`;
 	if (!rows.length) return res.status(409).json({ error: "La cuenta de propietario ya existe; la activación solo se permite una vez" });
 

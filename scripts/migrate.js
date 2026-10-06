@@ -17,8 +17,11 @@ for (const name of files) {
 		continue;
 	}
 	const source = await readFile(join(dir.pathname, name), "utf8");
-	for (const statement of splitSqlStatements(source)) await sql.query(statement, []);
-	await sql`insert into _bravoshop_migrations(name) values(${name})`;
+	const statements = splitSqlStatements(source);
+	await sql.transaction([
+		...statements.map(statement => sql.query(statement, [])),
+		sql`insert into _bravoshop_migrations(name) values(${name})`,
+	]);
 	console.log("applied", name);
 }
 console.log("BravoShop migrations complete");
