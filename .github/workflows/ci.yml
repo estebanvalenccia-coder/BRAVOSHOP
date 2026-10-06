@@ -22,7 +22,8 @@ jobs:
         run: npm run build
 
   production-smoke:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    # Run after a green build on develop. PR validation remains build-only.
+    if: github.ref == 'refs/heads/develop'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
