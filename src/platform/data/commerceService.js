@@ -8,3 +8,6 @@ export async function getOrder(storeId,orderId){const data=await api(`/api/store
 export async function updateFulfillment(storeId,orderId,input){const data=await api(`/api/stores/${storeId}/orders/${orderId}/fulfillment`,{method:"PATCH",body:input});return data.order}
 
 export async function requestRefund(storeId,orderId,input){const data=await api(`/api/stores/${storeId}/orders/${orderId}/refunds`,{method:"POST",body:input});return data}
+
+export async function getCustomer(storeId,id){const data=await api(`/api/stores/${storeId}/customers/${id}`);return data.customer}
+export async function updateCustomer(storeId,id,input){const data=await api(`/api/stores/${storeId}/customers/${id}`,{method:"PATCH",body:input});return data.customer}
