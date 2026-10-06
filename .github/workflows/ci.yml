@@ -22,8 +22,7 @@ jobs:
         run: npm run build
 
   production-smoke:
-    # Run after a green build on develop. PR validation remains build-only.
-    if: github.ref == 'refs/heads/develop'
+    # Run against the isolated BravoShop Railway API after every green validation.
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
