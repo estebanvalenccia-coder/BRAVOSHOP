@@ -47,7 +47,9 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
 			products: products[0].value,
 			low_stock: lowStock[0].value,
 		},
-		recent_orders: recent,\n\t\toperations:{store_status:legal[0]?.status||"draft",slug:legal[0]?.slug||null,active_products:activeProducts[0].value,pending_orders:pendingOrders[0].value,payments_ready:Boolean(payment[0]?.charges_enabled),payouts_ready:Boolean(payment[0]?.payouts_enabled),shipping_ready:shipping[0].value>0,custom_domain_ready:domain[0].value>0,legal_ready:legalComplete},\n\t});
+		recent_orders: recent,
+		operations:{store_status:legal[0]?.status||"draft",slug:legal[0]?.slug||null,active_products:activeProducts[0].value,pending_orders:pendingOrders[0].value,payments_ready:Boolean(payment[0]?.charges_enabled),payouts_ready:Boolean(payment[0]?.payouts_enabled),shipping_ready:shipping[0].value>0,custom_domain_ready:domain[0].value>0,legal_ready:legalComplete},
+	});
 });
 
 insightsRouter.get("/inventory", requirePermission("analytics.read"), async (req, res) => {
