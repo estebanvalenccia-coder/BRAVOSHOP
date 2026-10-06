@@ -16,3 +16,5 @@ adminRouter.put("/feature-flags/:key",async(req,res)=>{const{enabled,rollout_per
 adminRouter.get("/audit",async(_req,res)=>{const rows=await sql`select a.*,u.email as actor_email from audit_log a left join app_users u on u.id=a.actor_user_id order by a.created_at desc limit 200`;res.json({audit:rows})});
 
 adminRouter.get("/access-codes",async(_req,res)=>{const rows=await sql`select * from access_codes order by created_at desc limit 200`;res.json({access_codes:rows})});
+
+adminRouter.post("/access-codes",async(req,res)=>{const p=req.body||{};const code=String(p.code||"").trim().toUpperCase();if(!code)return res.status(400).json({error:"Código requerido"});const id=randomUUID();const rows=await sql`insert into access_codes(id,code,name,grant_type,feature_key,permanent,max_uses,active) values(${id}::uuid,${code},${p.name||null},${p.grant_type||"feature"},${p.feature_key||null},${Boolean(p.permanent)},${p.max_uses??null},true) returning *`;await audit(req,"access_code.created","access_code",id,{code});res.status(201).json({access_code:rows[0]})});
