@@ -29,6 +29,16 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
 		order by created_at desc
 		limit 6
 	`;
+	const [payment,shipping,domain,legal,activeProducts,pendingOrders]=await Promise.all([
+		sql`select charges_enabled,payouts_enabled,status from store_payment_accounts where store_id=${req.storeId}::uuid limit 1`,
+		sql`select count(*)::int as value from shipping_zones where store_id=${req.storeId}::uuid and active=true`,
+		sql`select count(*)::int as value from domains where store_id=${req.storeId}::uuid and status='verified'`,
+		sql`select ss.settings,s.status,s.slug from stores s left join store_settings ss on ss.store_id=s.id where s.id=${req.storeId}::uuid limit 1`,
+		sql`select count(*)::int as value from products where store_id=${req.storeId}::uuid and status='active'`,
+		sql`select count(*)::int as value from orders where store_id=${req.storeId}::uuid and coalesce(fulfillment_status,'unfulfilled') in ('unfulfilled','preparing')`
+	]);
+	const settings=legal[0]?.settings||{};
+	const legalComplete=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
 	res.json({
 		metrics: {
 			sales: Number(sales[0].value),
@@ -37,8 +47,7 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
 			products: products[0].value,
 			low_stock: lowStock[0].value,
 		},
-		recent_orders: recent,
-	});
+		recent_orders: recent,\n\t\toperations:{store_status:legal[0]?.status||"draft",slug:legal[0]?.slug||null,active_products:activeProducts[0].value,pending_orders:pendingOrders[0].value,payments_ready:Boolean(payment[0]?.charges_enabled),payouts_ready:Boolean(payment[0]?.payouts_enabled),shipping_ready:shipping[0].value>0,custom_domain_ready:domain[0].value>0,legal_ready:legalComplete},\n\t});
 });
 
 insightsRouter.get("/inventory", requirePermission("analytics.read"), async (req, res) => {
