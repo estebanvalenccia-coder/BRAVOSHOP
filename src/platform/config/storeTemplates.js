@@ -9,12 +9,12 @@ export const STORE_TEMPLATES=[
 {id:"service-booking",name:"Servicios",sector:"Servicios · profesionales",tier:"standard",description:"Presenta profesionales, servicios y llamadas a reserva sin forzar un catálogo tradicional.",defaults:{primary_color:"#1766c2",font_style:"modern",hero_layout:"service",card_style:"service",header_style:"clean"}}
 ];
 export const DEFAULT_SECTIONS=[
-{id:"hero",type:"hero",label:"Portada",visible:true},
+{id:"hero",type:"hero",label:"Portada",visible:true,content:{eyebrow:"NUEVA COLECCIÓN",title:"Descubre nuestra selección.",text:"Productos escogidos y una experiencia de compra sencilla.",button:"Explorar catálogo",button_url:"#catalog",image:"",image_position_x:50,image_position_y:50,image_zoom:100}},
 {id:"benefits",type:"benefits",label:"Ventajas",visible:true},
 {id:"categories",type:"categories",label:"Categorías",visible:true},
 {id:"featured",type:"products",label:"Productos destacados",visible:true},
-{id:"story",type:"story",label:"Historia / editorial",visible:true},
-{id:"newsletter",type:"newsletter",label:"Newsletter / cierre",visible:true}
+{id:"story",type:"story",label:"Historia / editorial",visible:true,content:{eyebrow:"NUESTRA HISTORIA",title:"Una tienda con identidad.",text:"Cuenta aquí qué hace especial a tu marca.",button:"Descubrir productos",button_url:"#catalog",image:""}},
+{id:"newsletter",type:"newsletter",label:"Newsletter / cierre",visible:true,content:{eyebrow:"MANTENTE CERCA",title:"Novedades, lanzamientos y favoritos.",text:"Vuelve pronto para descubrir lo nuevo.",button:"Seguir comprando",button_url:"#catalog"}}
 ];
 export function getTemplate(id){return STORE_TEMPLATES.find(x=>x.id===id)||STORE_TEMPLATES[0]}
-export function normalizeTheme(theme={}){const t=getTemplate(theme.template);return{...t.defaults,...theme,template:t.id,sections:Array.isArray(theme.sections)&&theme.sections.length?theme.sections:DEFAULT_SECTIONS}}
+export function normalizeTheme(theme={}){const t=getTemplate(theme.template);const incoming=Array.isArray(theme.sections)&&theme.sections.length?theme.sections:DEFAULT_SECTIONS;const sections=incoming.map(x=>{const base=DEFAULT_SECTIONS.find(d=>d.id===x.id)||{};return{...base,...x,content:{...(base.content||{}),...(x.content||{})}}});return{...t.defaults,...theme,template:t.id,sections}}\nexport const ADDABLE_SECTIONS=[{type:"banner",label:"Banner promocional"},{type:"text",label:"Texto editorial"},{type:"products",label:"Colección de productos"},{type:"imageText",label:"Imagen + texto"}];
