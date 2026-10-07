@@ -16,6 +16,7 @@ function validateCheckoutBody(req,res,next){
 	if(req.body.email!==undefined&&(typeof req.body.email!=="string"||req.body.email.length>254||! /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(req.body.email)))return res.status(400).json({error:"Email no válido"});
 	if(req.body.currency!==undefined&&(typeof req.body.currency!=="string"||! /^[A-Za-z]{3}$/.test(req.body.currency)))return res.status(400).json({error:"Moneda no válida"});
 	if(req.body.discount_code!==undefined&&(typeof req.body.discount_code!=="string"||req.body.discount_code.length>80))return res.status(400).json({error:"Código de descuento no válido"});
+	if(req.body.recovery_consent!==undefined&&typeof req.body.recovery_consent!=="boolean")return res.status(400).json({error:"Consentimiento de recuperación no válido"});
 	if(req.body.shipping_rate_id!==undefined&&(typeof req.body.shipping_rate_id!=="string"||!uuid.test(req.body.shipping_rate_id)))return res.status(400).json({error:"Tarifa de envío no válida"});
 	const address=req.body.shipping_address??{};
 	if(!address||typeof address!=="object"||Array.isArray(address))return res.status(400).json({error:"Dirección no válida"});
@@ -211,10 +212,10 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 		...(discountCode?[sql`select bravoshop_claim_discount_exact(${req.publicStore.id}::uuid,${discountCode},${subtotal},${discount})`]:[]),
 		sql`
 			insert into checkout_sessions(
-				id,store_id,token,status,currency,subtotal,discount_total,discount_code,shipping_total,shipping_rate_id,shipping_rate_name,tax_total,total,customer_email,shipping_address
+				id,store_id,token,status,currency,subtotal,discount_total,discount_code,shipping_total,shipping_rate_id,shipping_rate_name,tax_total,total,customer_email,shipping_address,recovery_consent
 			) values(
 				${id}::uuid,${req.publicStore.id}::uuid,${token}::uuid,'open',${currency},
-				${subtotal},${discount},${discountCode},${shipping},${shippingRateId}::uuid,${shippingRateName},${tax},${total},${req.body.email||null},${addressJson}::jsonb
+				${subtotal},${discount},${discountCode},${shipping},${shippingRateId}::uuid,${shippingRateName},${tax},${total},${req.body.email||null},${addressJson}::jsonb,${Boolean(req.body.recovery_consent)}
 			)
 		`,
 		...normalized.map(item=>sql`
@@ -241,6 +242,28 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 			})),
 		},
 	});
+});
+publicRouter.get("/recovery/:token",checkoutLimiter,requirePublicStore,async(req,res)=>{
+ const rows=await sql`
+  select c.id
+  from checkout_sessions c
+  where c.token=${req.params.token}::uuid
+   and c.store_id=${req.publicStore.id}::uuid
+   and c.completed_order_id is null
+   and c.created_at>now()-interval '14 days'
+  limit 1`;
+ if(!rows.length)return res.status(404).json({error:"Carrito de recuperación no disponible"});
+ const items=await sql`
+  select v.id as variant_id,p.name as product_name,v.title as variant_title,
+   coalesce(v.price,p.price)::numeric as price,ci.quantity
+  from checkout_items ci
+  join checkout_sessions c on c.id=ci.checkout_id
+  join product_variants v on v.id=ci.variant_id and v.store_id=c.store_id
+  join products p on p.id=v.product_id and p.store_id=c.store_id
+  where c.id=${rows[0].id}::uuid and p.status='active' and v.active=true
+  order by ci.id`;
+ if(!items.length)return res.status(410).json({error:"Los artículos de este carrito ya no están disponibles"});
+ res.json({items:items.map(x=>({variant_id:x.variant_id,title:x.product_name+(x.variant_title&&x.variant_title!=="Default"?" · "+x.variant_title:""),price:Number(x.price),quantity:Math.max(1,Math.min(99,Number(x.quantity)||1))}))});
 });
 publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{const rows=await sql`select c.id,c.store_id,c.status,c.currency,c.total,s.status as store_status,pa.provider,pa.status as account_status,pa.charges_enabled,pa.provider_account_id from checkout_sessions c join stores s on s.id=c.store_id left join store_payment_accounts pa on pa.store_id=c.store_id where c.token=${req.params.token}::uuid and c.expires_at>now() limit 1`;if(!rows.length)return res.status(404).json({error:"Checkout no encontrado o caducado"});const c=rows[0];if(!await publicFeatureEnabled(c.store_id,"checkout"))return res.status(503).json({error:"La tienda ha desactivado temporalmente el checkout"});if(c.status==="completed")return res.status(409).json({error:"Checkout ya pagado"});if(!["active","trial"].includes(c.store_status))return res.status(423).json({error:"Tienda no disponible"});if(c.provider!=="stripe"||!c.provider_account_id||!c.charges_enabled)return res.status(503).json({error:"La tienda todavía no tiene pagos reales habilitados"});if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Proveedor de pagos pendiente de configuración"});await sql`select bravoshop_release_expired_inventory_reservations()`;const reservation=await sql`select bravoshop_reserve_checkout_inventory(${c.id}::uuid) as reserved`;if(!reservation[0]?.reserved)return res.status(409).json({error:"Stock insuficiente o checkout caducado"});const claim=await sql`select bravoshop_claim_checkout_payment(${c.id}::uuid) as claimed`;if(!claim[0]?.claimed)return res.status(409).json({error:"El pago ya se está preparando; inténtalo de nuevo en unos segundos"});const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);let intent;try{intent=await stripe.paymentIntents.create({amount:Math.round(Number(c.total)*100),currency:String(c.currency).toLowerCase(),automatic_payment_methods:{enabled:true},metadata:{bravoshop_checkout_id:String(c.id),bravoshop_store_id:String(c.store_id)}},{stripeAccount:c.provider_account_id,idempotencyKey:"bravoshop-checkout-"+c.id});const finished=await sql`select bravoshop_finish_checkout_payment_claim(${c.id}::uuid,${intent.id}) as finished`;if(!finished[0]?.finished)return res.status(409).json({error:"El checkout cambió mientras se preparaba el pago"})}catch(error){await sql`select bravoshop_release_checkout_payment_claim(${c.id}::uuid)`;throw error}res.json({provider:"stripe",client_secret:intent.client_secret,status:intent.status})});
 publicRouter.get("/checkout/:token",checkoutLimiter,async(req,res)=>{
