@@ -59,7 +59,7 @@ insightsRouter.get("/inventory", requirePermission("analytics.read"), async (req
 			coalesce(i.track_inventory,true) as track_inventory,
 			coalesce(i.allow_backorder,false) as allow_backorder
 		from products p
-		join product_variants v on v.product_id=p.id
+		join product_variants v on v.product_id=p.id and v.store_id=${req.storeId}::uuid
 		left join inventory_levels i on i.variant_id=v.id
 		where p.store_id=${req.storeId}::uuid
 		order by p.name,v.title
