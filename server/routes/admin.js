@@ -1,4 +1,4 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";
 export const adminRouter=Router();adminRouter.use(requireAuth,requireSuperAdmin);
 async function audit(req,action,resourceType,resourceId,details={}){const storeId=resourceType==="store"?resourceId:null;await sql`insert into audit_log(actor_user_id,actor_type,store_id,action,resource_type,resource_id,request_id,ip,user_agent,details) values(${req.user.id}::uuid,'super_admin',${storeId}::uuid,${action},${resourceType},${resourceId||null},${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},${JSON.stringify(details)}::jsonb)`}
 adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=await Promise.all([sql`select count(*)::int as n from stores where status in ('active','trial')`,sql`select count(*)::int as n from app_users where status='active'`,sql`select count(*)::int as n from orders where created_at>=date_trunc('day',now())`,sql`select coalesce(sum(p.monthly_price),0)::numeric as n from store_subscriptions s join plans p on p.id=s.plan_id where s.status='active' and s.complimentary_reason is null`]);const controls=await sql`select key,enabled,reason,updated_at from platform_controls order by key`;res.json({metrics:{stores:stores[0].n,users:users[0].n,orders_today:orders[0].n,mrr:Number(mrr[0].n)},controls})});
@@ -32,7 +32,27 @@ adminRouter.get("/promotions",async(_req,res)=>{const rows=await sql`select * fr
 adminRouter.post("/promotions",async(req,res)=>{const p=req.body||{};if(!p.code||!p.kind)return res.status(400).json({error:"Código y tipo requeridos"});const rows=await sql`insert into promotions(id,code,kind,value,free_months,starts_at,ends_at,max_uses,active,metadata) values(${randomUUID()}::uuid,${String(p.code).toUpperCase()},${p.kind},${p.value??null},${p.free_months??null},${p.starts_at||null}::timestamptz,${p.ends_at||null}::timestamptz,${p.max_uses??null},${p.active!==false},${JSON.stringify(p.metadata||{})}::jsonb) returning *`;await audit(req,"promotion.created","promotion",rows[0].id,{code:rows[0].code});res.status(201).json({promotion:rows[0]})});
 adminRouter.get("/feature-flags",async(_req,res)=>{const rows=await sql`select * from platform_feature_flags order by key`;res.json({flags:rows})});
 adminRouter.put("/feature-flags/:key",async(req,res)=>{const{enabled,rollout_percent=0,config={}}=req.body||{};const rows=await sql`insert into platform_feature_flags(key,enabled,rollout_percent,config,updated_at) values(${req.params.key},${Boolean(enabled)},${Math.max(0,Math.min(100,Number(rollout_percent)))},${JSON.stringify(config)}::jsonb,now()) on conflict(key) do update set enabled=excluded.enabled,rollout_percent=excluded.rollout_percent,config=excluded.config,updated_at=now() returning *`;await audit(req,"feature_flag.updated","feature_flag",req.params.key,rows[0]);res.json({flag:rows[0]})});
-adminRouter.get("/health",async(_req,res)=>{const started=Date.now();try{const db=await sql`select now() as now`;const tables=await sql`select count(*)::int as n from information_schema.tables where table_schema='public'`;res.json({ok:true,api:"online",database:"online",database_time:db[0].now,table_count:tables[0].n,latency_ms:Date.now()-started})}catch(e){res.status(503).json({ok:false,api:"online",database:"unavailable",latency_ms:Date.now()-started})}});
+adminRouter.get("/health",async(_req,res)=>{
+ const started=Date.now();
+ const integrations={
+  stripe:{
+   configured:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET),
+   secret_key:Boolean(process.env.STRIPE_SECRET_KEY),
+   publishable_key:Boolean(process.env.STRIPE_PUBLISHABLE_KEY),
+   webhook_secret:Boolean(process.env.STRIPE_WEBHOOK_SECRET)
+  },
+  email:{configured:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM)},
+  media:{configured:mediaReady()},
+  custom_domains:{configured:railwayDomainsReady()}
+ };
+ try{
+  const db=await sql`select now() as now`;
+  const tables=await sql`select count(*)::int as n from information_schema.tables where table_schema='public'`;
+  res.json({ok:true,api:"online",database:"online",database_time:db[0].now,table_count:tables[0].n,latency_ms:Date.now()-started,integrations});
+ }catch(e){
+  res.status(503).json({ok:false,api:"online",database:"unavailable",latency_ms:Date.now()-started,integrations});
+ }
+});
 adminRouter.get("/templates",async(_req,res)=>{const rows=await sql`select coalesce(theme->>'template','default') as template,count(*)::int as stores from store_theme group by coalesce(theme->>'template','default') order by stores desc,template`;res.json({templates:rows})});
 adminRouter.get("/modules",async(_req,res)=>{const rows=await sql`select feature_key,count(*) filter(where enabled=true)::int as enabled_stores,count(*)::int as configured_stores from store_features group by feature_key order by feature_key`;res.json({modules:rows})});
 adminRouter.get("/domains",async(_req,res)=>{const rows=await sql`select d.id,d.hostname,d.kind,d.status,d.verified_at,s.id as store_id,s.name as store_name,s.slug from domains d join stores s on s.id=d.store_id order by d.hostname limit 300`;res.json({domains:rows})});
