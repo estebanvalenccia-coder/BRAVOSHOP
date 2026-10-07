@@ -30,10 +30,13 @@ export async function updateTaxSettings(storeId,input){const data=await api(`/ap
 
 export async function connectPaymentAccount(storeId){return api(`/api/stores/${storeId}/payments/connect`,{method:"POST"})}
 export async function syncPaymentAccount(storeId){return api(`/api/stores/${storeId}/payments/sync`,{method:"POST"})}
-export async function listStoreMembers(storeId){const data=await api(`/api/stores/${storeId}/members`);return data.members??[]}
+export async function listStoreTeam(storeId){const data=await api(`/api/stores/${storeId}/members`);return{members:data.members??[],invitations:data.invitations??[]}}
+export async function listStoreMembers(storeId){const data=await listStoreTeam(storeId);return data.members}
 export async function addStoreMember(storeId,input){return api(`/api/stores/${storeId}/members`,{method:"POST",body:input})}
 export async function updateStoreMember(storeId,userId,role){return api(`/api/stores/${storeId}/members/${userId}`,{method:"PATCH",body:{role}})}
 export async function removeStoreMember(storeId,userId){return api(`/api/stores/${storeId}/members/${userId}`,{method:"DELETE"})}
+export async function updateStoreInvitation(storeId,invitationId,role){return api(`/api/stores/${storeId}/members/invitations/${invitationId}`,{method:"PATCH",body:{role}})}
+export async function removeStoreInvitation(storeId,invitationId){return api(`/api/stores/${storeId}/members/invitations/${invitationId}`,{method:"DELETE"})}
 
 export async function listDomains(storeId){const data=await api(`/api/stores/${storeId}/domains`);return data.domains??[]}
 export async function addDomain(storeId,hostname){return api(`/api/stores/${storeId}/domains`,{method:"POST",body:{hostname}})}
