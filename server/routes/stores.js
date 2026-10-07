@@ -1,4 +1,4 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth,requireStore}from"../middleware/auth.js";import{codeRedemptionLimiter}from"../middleware/rateLimit.js";import{requirePermission}from"../middleware/permissions.js";import{persistPlatformSubscription}from"../services/platformBilling.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth,requireStore}from"../middleware/auth.js";import{codeRedemptionLimiter,storeCreationLimiter}from"../middleware/rateLimit.js";import{requirePermission}from"../middleware/permissions.js";import{persistPlatformSubscription}from"../services/platformBilling.js";
 export const storesRouter=Router();storesRouter.use(requireAuth);
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const AI_FEATURE_KEYS=new Set(["ai_assistant","ai_images","image_analysis"]);const FEATURE_KEYS=new Set(["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist","gift_cards","reservations","subscriptions","pos","blog","marketing","automations","b2b"]);const MERCHANT_FEATURE_KEYS=new Set(["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist"]);
@@ -17,7 +17,7 @@ async function canUsePremiumTemplate(storeId){
  return rows.length>0;
 }
 storesRouter.get("/",async(req,res)=>{await sql`select bravoshop_expire_billing_access(200)`;const rows=await sql`select s.*,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme from stores s join store_members sm on sm.store_id=s.id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where sm.user_id=${req.user.id}::uuid and sm.status='active' order by s.created_at desc`;res.json({stores:rows})});
-storesRouter.post("/",async(req,res)=>{
+storesRouter.post("/",storeCreationLimiter,async(req,res)=>{
  const{name,slug,sector,theme={},settings={},features=[]}=req.body||{};
  const baseSlug=String(slug||"").trim().toLowerCase();
  if(!name||!SLUG.test(baseSlug)||RESERVED.has(baseSlug))return res.status(400).json({error:"Nombre y subdominio válido requeridos"});
