@@ -1,9 +1,26 @@
 const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");
-async function get(path){const r=await fetch(API+path,{headers:{accept:"application/json"}});const body=await r.json().catch(()=>({}));if(!r.ok)throw new Error(path+" "+r.status+": "+JSON.stringify(body));return body}
+async function request(path,options={}){
+ const r=await fetch(API+path,{...options,headers:{accept:"application/json",...(options.headers||{})}});
+ const body=await r.json().catch(()=>({}));
+ return{status:r.status,ok:r.ok,body};
+}
+async function get(path){const r=await request(path);if(!r.ok)throw new Error(path+" "+r.status+": "+JSON.stringify(r.body));return r.body}
+async function expectStatus(path,status,options={}){const r=await request(path,options);if(r.status!==status)throw new Error(path+" expected "+status+" got "+r.status+": "+JSON.stringify(r.body));return r.body}
+
 const health=await get("/api/health");
 if(health.ok!==true)throw new Error("Health check failed");
 const ready=await get("/api/ready");
 if(ready.ok!==true||ready.database!=="ready"||ready.schema!=="ready")throw new Error("Readiness check failed: "+JSON.stringify(ready));
 const expected=process.env.EXPECTED_COMMIT_SHA||"";
 if(expected&&ready.commit!==expected)throw new Error("Production commit mismatch: expected "+expected+" got "+(ready.commit||"none"));
-console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,commit:ready.commit||null}));
+
+// Non-destructive tenant-routing guards: reserved platform labels never resolve as stores,
+// and a browser origin cannot select a different tenant through ?host=.
+await expectStatus("/api/public/store?host="+encodeURIComponent("ftp.bravoshop.online"),404);
+await expectStatus(
+ "/api/public/store?host="+encodeURIComponent("tenant-b.bravoshop.online"),
+ 400,
+ {headers:{Origin:"https://tenant-a.bravoshop.online"}}
+);
+
+console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,commit:ready.commit||null,tenant_routing_guards:true}));
