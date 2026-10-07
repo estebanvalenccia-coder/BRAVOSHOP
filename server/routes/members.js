@@ -21,14 +21,23 @@ export function canManageMember(actorRole, memberRole) {
 const USER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 teamMembersRouter.get("/members", requirePermission("members.read"), async (req, res) => {
-	const rows = await sql`
-		select u.id,u.email,u.name,sm.role,sm.created_at
-		from store_members sm
-		join app_users u on u.id=sm.user_id
-		where sm.store_id=${req.storeId}::uuid and sm.status='active' and u.status='active'
-		order by case sm.role when 'owner' then 0 when 'admin' then 1 else 2 end,lower(u.email)
-	`;
-	res.json({ members: rows });
+	await sql`update store_member_invitations set status='expired',updated_at=now() where store_id=${req.storeId}::uuid and status='pending' and expires_at<=now()`;
+	const [members,invitations] = await Promise.all([
+		sql`
+			select u.id,u.email,u.name,sm.role,sm.created_at
+			from store_members sm
+			join app_users u on u.id=sm.user_id
+			where sm.store_id=${req.storeId}::uuid and sm.status='active' and u.status='active'
+			order by case sm.role when 'owner' then 0 when 'admin' then 1 else 2 end,lower(u.email)
+		`,
+		sql`
+			select id,email,role,status,expires_at,created_at
+			from store_member_invitations
+			where store_id=${req.storeId}::uuid and status='pending' and expires_at>now()
+			order by created_at desc
+		`
+	]);
+	res.json({ members, invitations });
 });
 
 teamMembersRouter.post("/members", requirePermission("members.invite"), async (req, res) => {
@@ -47,7 +56,14 @@ teamMembersRouter.post("/members", requirePermission("members.invite"), async (r
 		limit 1
 	`;
 	if (!users.length) {
-		return res.status(404).json({ error: "La persona debe crear una cuenta BravoShop antes de añadirla" });
+		const rows = await sql`
+			insert into store_member_invitations(store_id,email,role,status,invited_by,expires_at)
+			values(${req.storeId}::uuid,${email},${role},'pending',${req.user.id}::uuid,now()+interval '30 days')
+			on conflict(store_id,lower(email)) where status='pending'
+			do update set role=excluded.role,invited_by=excluded.invited_by,expires_at=excluded.expires_at,updated_at=now()
+			returning id,email,role,status,expires_at,created_at
+		`;
+		return res.status(202).json({ invitation: rows[0], pending: true });
 	}
 
 	const rows = await sql`
@@ -60,7 +76,8 @@ teamMembersRouter.post("/members", requirePermission("members.invite"), async (r
 		returning store_id
 	`;
 	if (!rows.length) return res.status(409).json({ error: "No se puede cambiar el rol de este miembro" });
-	res.status(201).json({ member: { ...users[0], role } });
+	await sql`update store_member_invitations set status='accepted',accepted_at=now(),updated_at=now() where store_id=${req.storeId}::uuid and lower(email)=${email} and status='pending'`;
+	res.status(201).json({ member: { ...users[0], role }, pending: false });
 });
 
 teamMembersRouter.patch("/members/:userId", requirePermission("members.update"), async (req, res) => {
@@ -96,5 +113,30 @@ teamMembersRouter.delete("/members/:userId", requirePermission("members.remove")
 		returning user_id
 	`;
 	if (!rows.length) return res.status(404).json({ error: "Miembro no encontrado o sin permiso para eliminarlo" });
+	res.status(204).end();
+});
+
+teamMembersRouter.patch("/members/invitations/:invitationId", requirePermission("members.update"), async (req, res) => {
+	const role=req.body?.role;
+	if (!USER_ID_PATTERN.test(req.params.invitationId)) return res.status(400).json({ error: "Invitación no válida" });
+	if (!canAssignMemberRole(req.membership.role, role)) return res.status(400).json({ error: "Rol no válido para este usuario" });
+	const rows=await sql`
+		update store_member_invitations
+		set role=${role},expires_at=case when expires_at<=now() then now()+interval '30 days' else expires_at end,updated_at=now()
+		where id=${req.params.invitationId}::uuid and store_id=${req.storeId}::uuid and status='pending'
+		returning id,email,role,status,expires_at,created_at
+	`;
+	if(!rows.length)return res.status(404).json({error:"Invitación no encontrada"});
+	res.json({invitation:rows[0]});
+});
+
+teamMembersRouter.delete("/members/invitations/:invitationId", requirePermission("members.remove"), async (req, res) => {
+	if (!USER_ID_PATTERN.test(req.params.invitationId)) return res.status(400).json({ error: "Invitación no válida" });
+	const rows=await sql`
+		update store_member_invitations set status='revoked',updated_at=now()
+		where id=${req.params.invitationId}::uuid and store_id=${req.storeId}::uuid and status='pending'
+		returning id
+	`;
+	if(!rows.length)return res.status(404).json({error:"Invitación no encontrada"});
 	res.status(204).end();
 });
