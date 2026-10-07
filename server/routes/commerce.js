@@ -158,7 +158,7 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 		:providerRefund.status==="failed"||providerRefund.status==="canceled"
 			?"failed"
 			:"pending";
-	await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${req.storeId}::uuid,${providerRefund.id},${status})`;
+	await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${req.storeId}::uuid,${providerRefund.id},${status})`;if(status==="succeeded")await sql`select bravoshop_restock_refunded_order(${refundId}::uuid,${req.storeId}::uuid)`;
 	const refund=await sql`select r.* from order_refunds r join orders o on o.id=r.order_id and o.store_id=${req.storeId}::uuid where r.id=${refundId}::uuid and r.order_id=${order.id}::uuid`;
 	res.status(201).json({refund:refund[0]});
 });
