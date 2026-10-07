@@ -130,23 +130,16 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 	if(!Number.isSafeInteger(amountCents)||amountCents<=0||amountCents>remainingCents)return res.status(400).json({error:"Importe de reembolso inválido o ya reservado"});
 	const amount=amountCents/100;
 	const reason=String(req.body?.reason||"").trim().slice(0,500)||null;
-	const reserved=await sql`
-		select bravoshop_create_refund(
-			${order.id}::uuid,${req.storeId}::uuid,${amount},${reason},${req.user.id}::uuid
-		) as refund_id
-	`;
-	const refundId=reserved[0]?.refund_id;
-	if(!refundId)return res.status(409).json({error:"El importe disponible cambió; vuelve a consultar el pedido"});
+	let refundId;
 	if(requestedItems.length){
-		for(const requested of requestedItems){
-			const added=await sql`select bravoshop_add_refund_item(${refundId}::uuid,${req.storeId}::uuid,${requested.order_item_id}::uuid,${Number(requested.quantity)}) as added`;
-			if(!added[0]?.added){
-				await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${req.storeId}::uuid,null,'failed')`;
-				return res.status(409).json({error:"Las cantidades reembolsables cambiaron; vuelve a consultar el pedido"});
-			}
-		}
+		const createdRefund=await sql`select * from bravoshop_create_item_refund(${order.id}::uuid,${req.storeId}::uuid,${JSON.stringify(requestedItems)}::jsonb,${reason},${req.user.id}::uuid)`;
+		refundId=createdRefund[0]?.refund_id;
+		if(!refundId)return res.status(409).json({error:"Las cantidades o el importe reembolsable cambiaron; vuelve a consultar el pedido"});
+	}else{
+		const reserved=await sql`select bravoshop_create_refund(${order.id}::uuid,${req.storeId}::uuid,${amount},${reason},${req.user.id}::uuid) as refund_id`;
+		refundId=reserved[0]?.refund_id;
+		if(!refundId)return res.status(409).json({error:"El importe disponible cambió; vuelve a consultar el pedido"});
 	}
-
 	const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
 	let providerRefund;
 	try{
