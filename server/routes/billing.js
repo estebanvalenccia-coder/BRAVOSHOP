@@ -11,12 +11,46 @@ billingRouter.use(requireAuth,requireStore);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const appUrl=()=>String(process.env.BRAVOSHOP_APP_URL||"https://app.bravoshop.online").replace(/\/$/,"");
 
+async function ensurePlanPrice(stripe,plan,interval){
+ const amount=Number(interval==="year"?plan.annual_price:plan.monthly_price);
+ if(!Number.isFinite(amount)||amount<=0)throw Object.assign(new Error("Este plan todavía no tiene precio de cobro configurado"),{statusCode:409});
+ const amountCents=Math.round(amount*100);
+ const currency=String(plan.currency||"EUR").toLowerCase();
+ const key=interval==="year"?"provider_annual_price_id":"provider_monthly_price_id";
+ let priceId=plan[key]||null;
+ if(priceId){
+  try{
+   const price=await stripe.prices.retrieve(priceId);
+   if(price.active&&price.unit_amount===amountCents&&price.currency===currency&&price.recurring?.interval===interval)return priceId;
+  }catch{}
+  priceId=null;
+ }
+ let productId=plan.provider_product_id||null;
+ if(productId){
+  try{const product=await stripe.products.retrieve(productId);if(product.deleted)productId=null}catch{productId=null}
+ }
+ if(!productId){
+  const product=await stripe.products.create(
+   {name:"BravoShop "+plan.name,metadata:{bravoshop_plan_id:String(plan.id),bravoshop_plan_slug:String(plan.slug)}},
+   {idempotencyKey:"bravoshop-plan-product-"+plan.id}
+  );
+  productId=product.id;
+ }
+ const price=await stripe.prices.create(
+  {currency,unit_amount:amountCents,recurring:{interval},product:productId,nickname:`BravoShop ${plan.name} ${interval==="year"?"anual":"mensual"}`,metadata:{bravoshop_plan_id:String(plan.id)}},
+  {idempotencyKey:`bravoshop-plan-price-${plan.id}-${interval}-${currency}-${amountCents}`}
+ );
+ if(interval==="year")await sql`update plans set provider_product_id=${productId},provider_annual_price_id=${price.id} where id=${plan.id}::uuid`;
+ else await sql`update plans set provider_product_id=${productId},provider_monthly_price_id=${price.id} where id=${plan.id}::uuid`;
+ return price.id;
+}
+
 billingRouter.get("/billing",requirePermission("billing.read"),async(req,res)=>{
  const [plans,current]=await Promise.all([
-  sql`select id,name,slug,monthly_price,annual_price,trial_days,metadata
+  sql`select id,name,slug,monthly_price,annual_price,currency,trial_days,metadata
       from plans where status='active' and is_public=true order by coalesce((metadata->>'tier')::int,999),name`,
   sql`select ss.status,ss.trial_ends_at,ss.complimentary_until,ss.complimentary_reason,
-      ss.billing_interval,ss.current_period_end,ss.cancel_at_period_end,
+      ss.billing_interval,ss.current_period_end,ss.cancel_at_period_end,ss.last_invoice_status,
       ss.provider_customer_id is not null as has_customer,
       ss.provider_subscription_id is not null as has_subscription,
       p.id as plan_id,p.name as plan_name,p.slug as plan_slug
@@ -31,16 +65,16 @@ billingRouter.post("/billing/checkout",requirePermission("billing.manage"),async
  const planId=String(req.body?.plan_id||"");
  const interval=req.body?.interval==="year"?"year":"month";
  if(!UUID.test(planId))return res.status(400).json({error:"Plan no válido"});
- const plans=await sql`select id,name,slug,monthly_price,annual_price from plans where id=${planId}::uuid and status='active' and is_public=true limit 1`;
+ const plans=await sql`select id,name,slug,monthly_price,annual_price,currency,provider_product_id,provider_monthly_price_id,provider_annual_price_id from plans where id=${planId}::uuid and status='active' and is_public=true limit 1`;
  if(!plans.length)return res.status(404).json({error:"Plan no disponible"});
  const plan=plans[0];
- const amount=Number(interval==="year"?plan.annual_price:plan.monthly_price);
- if(!Number.isFinite(amount)||amount<=0)return res.status(409).json({error:"Este plan todavía no tiene precio de cobro configurado"});
  const current=(await sql`select * from store_subscriptions where store_id=${req.storeId}::uuid limit 1`)[0]||null;
  if(current?.provider_subscription_id&&["active","trialing","past_due","unpaid","paused"].includes(String(current.status))){
   return res.status(409).json({error:"Esta tienda ya tiene una suscripción de Stripe. Usa Gestionar facturación para cambiarla o actualizar el pago.",code:"SUBSCRIPTION_EXISTS"});
  }
  const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+ let priceId;
+ try{priceId=await ensurePlanPrice(stripe,plan,interval)}catch(error){if(error.statusCode)return res.status(error.statusCode).json({error:error.message});throw error}
  let customerId=current?.provider_customer_id||null;
  if(!customerId){
   const users=await sql`select email,name from app_users where id=${req.user.id}::uuid limit 1`;
@@ -51,17 +85,17 @@ billingRouter.post("/billing/checkout",requirePermission("billing.manage"),async
   },{idempotencyKey:"bravoshop-billing-customer-"+req.storeId});
   customerId=customer.id;
  }
- const metadata={bravoshop_billing:"1",bravoshop_store_id:String(req.storeId),bravoshop_plan_id:String(plan.id)};
+ const metadata={
+  bravoshop_billing:"1",
+  bravoshop_billing_store_id:String(req.storeId),
+  bravoshop_store_id:String(req.storeId),
+  bravoshop_plan_id:String(plan.id)
+ };
  const session=await stripe.checkout.sessions.create({
   mode:"subscription",
   customer:customerId,
   client_reference_id:String(req.storeId),
-  line_items:[{quantity:1,price_data:{
-   currency:"eur",
-   unit_amount:Math.round(amount*100),
-   recurring:{interval},
-   product_data:{name:"BravoShop "+plan.name,metadata:{bravoshop_plan_id:String(plan.id)}}
-  }}],
+  line_items:[{quantity:1,price:priceId}],
   metadata,
   subscription_data:{metadata},
   success_url:appUrl()+"/?billing=success&store="+encodeURIComponent(req.storeId)+"&session_id={CHECKOUT_SESSION_ID}",
@@ -79,10 +113,18 @@ billingRouter.post("/billing/checkout",requirePermission("billing.manage"),async
 
 billingRouter.post("/billing/sync",requirePermission("billing.read"),async(req,res)=>{
  if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Stripe Billing no está configurado"});
- const rows=await sql`select provider_subscription_id,plan_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;
- if(!rows[0]?.provider_subscription_id)return res.json({synced:false});
+ const rows=await sql`select provider_subscription_id,provider_checkout_session_id,plan_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;
+ if(!rows.length)return res.json({synced:false});
  const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
- const subscription=await stripe.subscriptions.retrieve(rows[0].provider_subscription_id);
+ let subscriptionId=rows[0].provider_subscription_id||null;
+ if(!subscriptionId&&rows[0].provider_checkout_session_id){
+  try{
+   const session=await stripe.checkout.sessions.retrieve(rows[0].provider_checkout_session_id);
+   subscriptionId=typeof session.subscription==="string"?session.subscription:session.subscription?.id||null;
+  }catch{}
+ }
+ if(!subscriptionId)return res.json({synced:false});
+ const subscription=await stripe.subscriptions.retrieve(subscriptionId);
  await persistPlatformSubscription(subscription,{storeId:req.storeId,planId:rows[0].plan_id});
  res.json({synced:true,status:subscription.status});
 });
