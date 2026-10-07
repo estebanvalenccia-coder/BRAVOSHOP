@@ -68,7 +68,7 @@ async function requirePublicStore(req,res,next){
 	const billingState=await sql`select bravoshop_refresh_store_billing(${store.id}::uuid) as status`;
 	store.status=billingState[0]?.status||store.status;
 	if(!["active","trial"].includes(store.status))return res.status(423).json({error:"Tienda no disponible"});
-	const published=store.settings?.published!==false;
+	const published=store.settings?.published===true;
 	const previewToken=String(req.query.preview_token||req.body?.preview_token||"");
 	const previewAllowed=!published&&req.method==="GET"&&previewToken&&previewToken===String(store.settings?.preview_token||"");
 	if(!published&&!previewAllowed)return res.status(423).json({error:"Esta tienda todavía no está publicada"});
