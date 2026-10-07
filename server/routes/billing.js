@@ -51,30 +51,41 @@ billingRouter.get("/billing",requirePermission("billing.read"),async(req,res)=>{
       from plans where status='active' and is_public=true order by coalesce((metadata->>'tier')::int,999),name`,
   sql`select ss.status,ss.trial_ends_at,ss.complimentary_until,ss.complimentary_reason,
       ss.billing_interval,ss.current_period_end,ss.cancel_at_period_end,ss.last_invoice_status,
-      ss.provider_customer_id is not null as has_customer,
-      ss.provider_subscription_id is not null as has_subscription,
+      ss.provider_customer_id,ss.provider_subscription_id,
       p.id as plan_id,p.name as plan_name,p.slug as plan_slug
       from store_subscriptions ss left join plans p on p.id=ss.plan_id
       where ss.store_id=${req.storeId}::uuid limit 1`
  ]);
- res.json({billing:{subscription:current[0]||null,plans}});
+ res.json({provider_configured:Boolean(process.env.STRIPE_SECRET_KEY),current:current[0]||null,plans});
 });
 
 billingRouter.post("/billing/checkout",requirePermission("billing.manage"),async(req,res)=>{
  if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Stripe Billing no está configurado"});
- const planId=String(req.body?.plan_id||"");
+ const planRef=String(req.body?.plan_id||req.body?.plan||"").trim();
  const interval=req.body?.interval==="year"?"year":"month";
- if(!UUID.test(planId))return res.status(400).json({error:"Plan no válido"});
- const plans=await sql`select id,name,slug,monthly_price,annual_price,currency,provider_product_id,provider_monthly_price_id,provider_annual_price_id from plans where id=${planId}::uuid and status='active' and is_public=true limit 1`;
+ if(!planRef)return res.status(400).json({error:"Plan no válido"});
+ const plans=UUID.test(planRef)?await sql`select id,name,slug,monthly_price,annual_price,currency,provider_product_id,provider_monthly_price_id,provider_annual_price_id from plans where id=${planRef}::uuid and status='active' and is_public=true limit 1`:await sql`select id,name,slug,monthly_price,annual_price,currency,provider_product_id,provider_monthly_price_id,provider_annual_price_id from plans where slug=${planRef.toLowerCase()} and status='active' and is_public=true limit 1`;
  if(!plans.length)return res.status(404).json({error:"Plan no disponible"});
  const plan=plans[0];
  const current=(await sql`select * from store_subscriptions where store_id=${req.storeId}::uuid limit 1`)[0]||null;
- if(current?.provider_subscription_id&&["active","trialing","past_due","unpaid","paused"].includes(String(current.status))){
-  return res.status(409).json({error:"Esta tienda ya tiene una suscripción de Stripe. Usa Gestionar facturación para cambiarla o actualizar el pago.",code:"SUBSCRIPTION_EXISTS"});
- }
  const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
  let priceId;
  try{priceId=await ensurePlanPrice(stripe,plan,interval)}catch(error){if(error.statusCode)return res.status(error.statusCode).json({error:error.message});throw error}
+ if(current?.provider_subscription_id&&["active","trialing"].includes(String(current.status))){
+  const subscription=await stripe.subscriptions.retrieve(current.provider_subscription_id);
+  const item=subscription.items?.data?.[0];
+  if(!item)return res.status(409).json({error:"La suscripción actual no tiene una línea de plan válida"});
+  const updated=await stripe.subscriptions.update(current.provider_subscription_id,{
+   items:[{id:item.id,price:priceId}],
+   proration_behavior:"create_prorations",
+   metadata:{...(subscription.metadata||{}),bravoshop_billing:"1",bravoshop_billing_store_id:String(req.storeId),bravoshop_store_id:String(req.storeId),bravoshop_plan_id:String(plan.id)}
+  });
+  await persistPlatformSubscription(updated,{storeId:req.storeId,planId:plan.id});
+  return res.json({updated:true,status:updated.status});
+ }
+ if(current?.provider_subscription_id&&["past_due","unpaid","paused"].includes(String(current.status))){
+  return res.status(409).json({error:"Actualiza primero el método de pago desde Gestionar facturación.",code:"PAYMENT_ACTION_REQUIRED"});
+ }
  let customerId=current?.provider_customer_id||null;
  if(!customerId){
   const users=await sql`select email,name from app_users where id=${req.user.id}::uuid limit 1`;
@@ -127,6 +138,26 @@ billingRouter.post("/billing/sync",requirePermission("billing.read"),async(req,r
  const subscription=await stripe.subscriptions.retrieve(subscriptionId);
  await persistPlatformSubscription(subscription,{storeId:req.storeId,planId:rows[0].plan_id});
  res.json({synced:true,status:subscription.status});
+});
+
+billingRouter.post("/billing/cancel",requirePermission("billing.manage"),async(req,res)=>{
+ if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Stripe Billing no está configurado"});
+ const rows=await sql`select provider_subscription_id,plan_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;
+ if(!rows[0]?.provider_subscription_id)return res.status(409).json({error:"No hay una suscripción recurrente que cancelar"});
+ const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+ const subscription=await stripe.subscriptions.update(rows[0].provider_subscription_id,{cancel_at_period_end:true});
+ await persistPlatformSubscription(subscription,{storeId:req.storeId,planId:rows[0].plan_id});
+ res.json({status:subscription.status,cancel_at_period_end:true});
+});
+
+billingRouter.post("/billing/resume",requirePermission("billing.manage"),async(req,res)=>{
+ if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Stripe Billing no está configurado"});
+ const rows=await sql`select provider_subscription_id,plan_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;
+ if(!rows[0]?.provider_subscription_id)return res.status(409).json({error:"No hay una suscripción recurrente que reactivar"});
+ const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+ const subscription=await stripe.subscriptions.update(rows[0].provider_subscription_id,{cancel_at_period_end:false});
+ await persistPlatformSubscription(subscription,{storeId:req.storeId,planId:rows[0].plan_id});
+ res.json({status:subscription.status,cancel_at_period_end:false});
 });
 
 billingRouter.post("/billing/portal",requirePermission("billing.manage"),async(req,res)=>{
