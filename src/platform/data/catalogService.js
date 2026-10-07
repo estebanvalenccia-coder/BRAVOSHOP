@@ -11,3 +11,6 @@ export async function setProductMedia(storeId,productId,mediaIds){const data=awa
 export async function updateCategory(storeId,id,input){const data=await api(`/api/stores/${storeId}/categories/${id}`,{method:"PATCH",body:input});return data.category}
 export async function deleteCategory(storeId,id){return api(`/api/stores/${storeId}/categories/${id}`,{method:"DELETE"})}
 export async function setProductCategories(storeId,productId,categoryIds){const data=await api(`/api/stores/${storeId}/products/${productId}/categories`,{method:"PUT",body:{category_ids:categoryIds}});return data.categories??[]}
+
+export async function deleteProduct(storeId,productId){return api(`/api/stores/${storeId}/products/${productId}`,{method:"DELETE"})}
+export async function deleteVariant(storeId,productId,variantId){return api(`/api/stores/${storeId}/products/${productId}/variants/${variantId}`,{method:"DELETE"})}
