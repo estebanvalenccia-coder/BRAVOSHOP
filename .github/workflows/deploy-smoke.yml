@@ -59,7 +59,7 @@ jobs:
             if [ "$FRONTEND_CHANGED" = "true" ]; then
               check_commit "https://bravoshop.online/__version" || ok=false
               check_commit "https://admin.bravoshop.online/__version" || ok=false
-              check_commit "https://internal.bravoshop.online/__version" || ok=false
+              check_commit "https://app.bravoshop.online/__version" || ok=false
             fi
             if [ "$ok" = "true" ]; then exit 0; fi
             sleep 10
