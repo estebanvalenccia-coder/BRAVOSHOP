@@ -150,9 +150,18 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const requestedCode=String(req.body.discount_code||"").trim().toUpperCase();
 	if(requestedCode){
 		if(!await publicFeatureEnabled(req.publicStore.id,"coupons"))return res.status(422).json({error:"Los códigos de descuento no están activados en esta tienda"});
-		const claimed=await sql`select * from bravoshop_claim_discount(${req.publicStore.id}::uuid,${requestedCode},${subtotalCents/100})`;
-		if(!claimed.length)return res.status(422).json({error:"Código de descuento no válido, caducado o no aplicable"});
-		discountCode=claimed[0].code;discountCents=Math.round(Number(claimed[0].discount_amount)*100);
+		const quoted=await sql`
+			select code,greatest(0,least(${subtotalCents/100}::numeric,
+				case when kind='percent' then round(${subtotalCents/100}::numeric*(value/100),2) else value end
+			)) as discount_amount
+			from discount_codes
+			where store_id=${req.publicStore.id}::uuid and upper(code)=upper(${requestedCode})
+				and active=true and (starts_at is null or starts_at<=now()) and (ends_at is null or ends_at>now())
+				and (usage_limit is null or usage_count<usage_limit)
+				and ${subtotalCents/100}::numeric>=minimum_amount
+			limit 1`;
+		if(!quoted.length||Number(quoted[0].discount_amount)<=0)return res.status(422).json({error:"Código de descuento no válido, caducado o no aplicable"});
+		discountCode=quoted[0].code;discountCents=Math.round(Number(quoted[0].discount_amount)*100);
 	}
 	const taxableSubtotalCents=Math.max(0,subtotalCents-discountCents);
 	const taxRows=await sql`select enabled,prices_include_tax,default_rate from store_tax_settings where store_id=${req.publicStore.id}::uuid limit 1`;
@@ -171,6 +180,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const token=randomUUID();
 	const addressJson=JSON.stringify(address);
 	const queries=[
+		...(discountCode?[sql`select bravoshop_claim_discount_exact(${req.publicStore.id}::uuid,${discountCode},${subtotal},${discount})`]:[]),
 		sql`
 			insert into checkout_sessions(
 				id,store_id,token,status,currency,subtotal,discount_total,discount_code,shipping_total,shipping_rate_id,shipping_rate_name,tax_total,total,customer_email,shipping_address
