@@ -14,3 +14,5 @@ export async function getPublicCheckout(token){const data=await api("/api/public
 export async function listPublicCategories(host){const data=await api("/api/public/categories?host="+h(host));return data.categories??[]}
 
 export async function subscribePublicNewsletter(host,email){return api("/api/public/newsletter/subscribe",{method:"POST",body:{host,email,consent:true}})}
+
+export async function recoverPublicCart(host,token){return api("/api/public/recovery/"+encodeURIComponent(token)+"?host="+h(host))}
