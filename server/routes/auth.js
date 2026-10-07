@@ -88,11 +88,19 @@ authRouter.post("/register", authLimiter, async (req, res) => {
 	const normalized = email.trim().toLowerCase();
 	if (superAdmins().has(normalized)) return res.status(403).json({ error: "Usa el flujo de activación del propietario" });
 	try {
-		const rows = await sql`
-			insert into app_users(id,email,password_hash,name,role)
-			values(${randomUUID()}::uuid,${normalized},${hashPassword(password)},${name || null},'merchant')
-			returning id,email,name,role
-		`;
+		const userId=randomUUID();
+		await sql.transaction([
+			sql`insert into app_users(id,email,password_hash,name,role) values(${userId}::uuid,${normalized},${hashPassword(password)},${name || null},'merchant')`,
+			sql`insert into store_members(store_id,user_id,role,status)
+				select i.store_id,${userId}::uuid,i.role,'active'
+				from store_member_invitations i
+				where lower(i.email)=${normalized} and i.status='pending' and i.expires_at>now()
+				on conflict(store_id,user_id) do update set role=excluded.role,status='active',updated_at=now()
+				where store_members.role<>'owner'`,
+			sql`update store_member_invitations set status='accepted',accepted_at=now(),updated_at=now()
+				where lower(email)=${normalized} and status='pending' and expires_at>now()`
+		]);
+		const rows=await sql`select id,email,name,role from app_users where id=${userId}::uuid`;
 		const token = await createSessionToken(rows[0]);
 		res.setHeader("Set-Cookie", sessionCookie(token));
 		res.status(201).json({ user: rows[0] });
