@@ -1,4 +1,4 @@
-const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");
+const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");\nconst MEDIA=(process.env.MEDIA_HEALTH_URL||"https://bravoshop-media-production.up.railway.app").replace(/\/$/,"");
 async function request(path,options={}){
  const r=await fetch(API+path,{...options,headers:{accept:"application/json",...(options.headers||{})}});
  const body=await r.json().catch(()=>({}));
@@ -6,6 +6,10 @@ async function request(path,options={}){
 }
 async function get(path){const r=await request(path);if(!r.ok)throw new Error(path+" "+r.status+": "+JSON.stringify(r.body));return r.body}
 async function expectStatus(path,status,options={}){const r=await request(path,options);if(r.status!==status)throw new Error(path+" expected "+status+" got "+r.status+": "+JSON.stringify(r.body));return r.body}
+
+const mediaResponse=await fetch(MEDIA+"/health",{headers:{accept:"application/json"}});
+const mediaHealth=await mediaResponse.json().catch(()=>({}));
+if(!mediaResponse.ok||mediaHealth.ok!==true||mediaHealth.storage!=="ready")throw new Error("Media health check failed: "+JSON.stringify(mediaHealth));
 
 const health=await get("/api/health");
 if(health.ok!==true)throw new Error("Health check failed");
@@ -23,4 +27,4 @@ await expectStatus(
  {headers:{Origin:"https://tenant-a.bravoshop.online"}}
 );
 
-console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,commit:ready.commit||null,tenant_routing_guards:true}));
+console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,media:mediaHealth.storage,commit:ready.commit||null,tenant_routing_guards:true}));

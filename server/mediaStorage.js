@@ -29,7 +29,16 @@ function parseObject(objectPath){const m=objectRe.exec(String(objectPath||""));r
 function filePaths(storeId,fileId){const dir=path.join(ROOT,storeId);return{dir,file:path.join(dir,fileId),meta:path.join(dir,fileId+".json")}}
 function publicUrl(storeId,fileId){return `${PUBLIC_BASE}/media/${storeId}/${fileId}`}
 
-app.get("/health",(_req,res)=>res.json({ok:true}));
+app.get("/health",async(_req,res)=>{
+ try{
+  await mkdir(ROOT,{recursive:true});
+  const info=await stat(ROOT);
+  if(!info.isDirectory())throw new Error("Media root is not a directory");
+  res.json({ok:true,service:"bravoshop-media",storage:"ready"});
+ }catch(error){
+  res.status(503).json({ok:false,service:"bravoshop-media",storage:"unavailable"});
+ }
+});
 
 app.post("/upload-intent",express.json({limit:"64kb"}),(req,res)=>{
  if(!authorized(req))return res.status(401).json({error:"Unauthorized"});
