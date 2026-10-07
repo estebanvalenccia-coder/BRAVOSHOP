@@ -13,12 +13,12 @@ export async function requireAuth(req, res, next) {
 	if (!tokenUser) return res.status(401).json({ error: "Sesión requerida" });
 
 	const rows = await sql`
-		select id,email,role,status
+		select id,email,role,status,session_version
 		from app_users
 		where id=${tokenUser.id}::uuid
 		limit 1
 	`;
-	if (!rows.length || rows[0].status !== "active") {
+	if (!rows.length || rows[0].status !== "active" || Number(rows[0].session_version||0)!==Number(tokenUser.sessionVersion||0)) {
 		return res.status(401).json({ error: "Sesión no válida" });
 	}
 
