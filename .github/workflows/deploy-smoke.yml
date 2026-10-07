@@ -18,7 +18,8 @@ jobs:
         run: |
           for i in {1..60}; do
             code=$(curl -sS -o /tmp/ready.json -w "%{http_code}" https://api.bravoshop.online/api/ready || true)
-            if [ "$code" = "200" ]; then cat /tmp/ready.json; exit 0; fi
+            commit=$(node -e 'const fs=require("fs");try{process.stdout.write(JSON.parse(fs.readFileSync("/tmp/ready.json","utf8")).commit||"")}catch{}' )
+            if [ "$code" = "200" ] && [ "$commit" = "$GITHUB_SHA" ]; then cat /tmp/ready.json; exit 0; fi
             sleep 10
           done
           cat /tmp/ready.json || true
@@ -26,4 +27,5 @@ jobs:
       - name: Run non-destructive production checks
         env:
           SMOKE_API_URL: https://api.bravoshop.online
+          EXPECTED_COMMIT_SHA: ${{ github.sha }}
         run: node scripts/postdeploy-check.js

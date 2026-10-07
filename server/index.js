@@ -23,13 +23,13 @@ app.get("/api/health",(_req,res)=>res.json({ok:true,service:"bravoshop-api"}));
 app.get("/api/ready",async(_req,res)=>{
  if(!databaseConfigured)return res.status(503).json({ok:false,database:"unconfigured"});
  try{
-  const required=["app_users","organizations","stores","store_members","products","product_variants","inventory_levels","inventory_movements","orders","plans","platform_controls","media_assets","media_upload_intents","checkout_sessions","checkout_items","store_payment_accounts","store_feature_entitlements","access_codes","access_code_redemptions","plan_features","store_subscriptions","shipping_zones","shipping_rates","store_tax_settings","order_events","order_refunds","stripe_webhook_events","domains","audit_log","platform_bootstrap_state","notification_outbox","password_reset_tokens"];
+  const required=["app_users","organizations","stores","store_members","products","product_variants","inventory_levels","inventory_movements","orders","plans","platform_controls","media_assets","media_upload_intents","checkout_sessions","checkout_items","store_payment_accounts","store_feature_entitlements","access_codes","access_code_redemptions","plan_features","store_subscriptions","shipping_zones","shipping_rates","store_tax_settings","order_events","order_refunds","stripe_webhook_events","domains","audit_log","platform_bootstrap_state","notification_outbox","password_reset_tokens","newsletter_subscribers"];
   const rows=await sql`select table_name from information_schema.tables where table_schema='public' and table_name = any(${required})`;
   const found=new Set(rows.map(r=>r.table_name));const missing=required.filter(t=>!found.has(t));
   if(missing.length)return res.status(503).json({ok:false,database:"schema_incomplete",missing_count:missing.length});
   const migration=await sql`select 1 from _bravoshop_migrations where name='0054_abandoned_checkout_recovery.sql' limit 1`;
   if(!migration.length)return res.status(503).json({ok:false,database:"migration_incomplete"});
-  res.json({ok:true,database:"ready",schema:"ready"});
+  res.json({ok:true,database:"ready",schema:"ready",commit:process.env.RAILWAY_GIT_COMMIT_SHA||null});
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
 });
 app.use("/api/public",publicRouter);app.use("/api/auth",authRouter);app.use("/api/admin",adminRouter);app.use("/api/stores",storesRouter);app.use("/api/stores/:storeId",teamMembersRouter);app.use("/api/stores/:storeId",domainsRouter);app.use("/api/stores/:storeId",commerceRouter);app.use("/api/stores/:storeId",mediaRouter);app.use("/api/stores/:storeId",insightsRouter);

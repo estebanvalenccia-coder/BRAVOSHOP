@@ -4,4 +4,6 @@ const health=await get("/api/health");
 if(health.ok!==true)throw new Error("Health check failed");
 const ready=await get("/api/ready");
 if(ready.ok!==true||ready.database!=="ready"||ready.schema!=="ready")throw new Error("Readiness check failed: "+JSON.stringify(ready));
-console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,migration:ready.migration||null}));
+const expected=process.env.EXPECTED_COMMIT_SHA||"";
+if(expected&&ready.commit!==expected)throw new Error("Production commit mismatch: expected "+expected+" got "+(ready.commit||"none"));
+console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,commit:ready.commit||null}));
