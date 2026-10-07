@@ -17,6 +17,8 @@ export function TeamManager({ store }) {
 	const [role, setRole] = useState("staff");
 	const [message, setMessage] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [manualInvite, setManualInvite] = useState(null);
+	const [copiedInvite, setCopiedInvite] = useState(false);
 	const isOwner = store.role === "owner";
 	const availableRoles = isOwner ? MEMBER_ROLES : MEMBER_ROLES.filter(([value]) => value !== "admin");
 	const refresh = useCallback(async () => {
@@ -36,8 +38,10 @@ export function TeamManager({ store }) {
 		try {
 			const result=await addStoreMember(store.id, { email, role });
 			setEmail("");
+			setManualInvite(result?.delivery==="manual"&&result?.invite_url?{url:result.invite_url,email:result.invitation?.email||email,expiresAt:result.invitation?.expires_at}:null);
+			setCopiedInvite(false);
 			await refresh();
-			setMessage(result?.pending?"Invitación segura enviada por correo. La persona deberá iniciar sesión con ese mismo email y aceptar el enlace.":"Miembro añadido a la tienda");
+			setMessage(result?.pending?(result.delivery==="manual"?"Invitación creada. Copia el enlace seguro y envíalo a la persona.":"Invitación segura enviada por correo. La persona deberá iniciar sesión con ese mismo email y aceptar el enlace."):"Miembro añadido a la tienda");
 		} catch (error) {
 			setMessage(error.message);
 		} finally {
@@ -93,6 +97,11 @@ export function TeamManager({ store }) {
 					<button type="submit" disabled={busy}>{busy ? "Guardando…" : "Añadir miembro"}</button>
 				</form>
 			</article>
+			{manualInvite&&<article className="panel manualInviteBox">
+				<div><small>ENLACE SEGURO · UN SOLO USO</small><h3>Invitación lista para compartir</h3><p>El correo automático todavía no está conectado. Envía este enlace únicamente a <b>{manualInvite.email}</b>. La cuenta que lo acepte deberá usar ese mismo correo.</p></div>
+				<div className="manualInviteLink"><input readOnly value={manualInvite.url}/><button type="button" onClick={async()=>{await navigator.clipboard.writeText(manualInvite.url);setCopiedInvite(true);setTimeout(()=>setCopiedInvite(false),1500)}}>{copiedInvite?"Copiado ✓":"Copiar enlace"}</button></div>
+				<small>{manualInvite.expiresAt?"Caduca "+new Date(manualInvite.expiresAt).toLocaleString():"Caduca en 30 días"} · si vuelves a invitar a este correo, este enlace quedará sustituido.</small>
+			</article>}
 			{invitations.length>0&&<article className="panel teamPanel">
 				<h3>Invitaciones pendientes</h3>
 				<div className="teamMemberList">{invitations.map(inv=><div className="teamMember" key={inv.id}>
