@@ -24,6 +24,11 @@ stripeWebhookRouter.post("/", async (req, res) => {
 		return res.status(400).send("Webhook signature invalid");
 	}
 
+	const claimed = await sql`select bravoshop_claim_stripe_webhook(${event.id},${event.type},${event.account||null}) as state`;
+	const claimState = claimed[0]?.state;
+	if (claimState === "processed") return res.json({ received: true, duplicate: true });
+	if (claimState !== "claimed") return res.status(409).json({ error: "Webhook event already processing", retry: true });
+
 	try {
 		let storeId = null;
 		if (!event.account && event.type === "checkout.session.completed") {
@@ -47,8 +52,14 @@ stripeWebhookRouter.post("/", async (req, res) => {
 		}
 
 		await markWebhookProcessed(event, storeId);
+		await sql`select bravoshop_finish_stripe_webhook_claim(${event.id},true,null)`;
 		res.json({ received: true });
 	} catch (error) {
+		try{
+			await sql`select bravoshop_finish_stripe_webhook_claim(${event.id},false,${String(error.message||error).slice(0,1000)})`;
+		}catch(claimError){
+			console.error(JSON.stringify({level:"error",request_id:req.requestId,event_id:event.id,error_code:"STRIPE_WEBHOOK_CLAIM_FINISH_FAILED",message:claimError.message}));
+		}
 		console.error(JSON.stringify({
 			level: "error",
 			request_id: req.requestId,
