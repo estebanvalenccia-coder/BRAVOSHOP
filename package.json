@@ -17,7 +17,8 @@
     "server": "node server/index.js",
     "db:migrate": "node scripts/migrate.js",
     "test:smoke": "node scripts/smoke.js",
-    "check:server": "node scripts/check-server-syntax.js"
+    "check:server": "node scripts/check-server-syntax.js",
+    "test:postdeploy": "node scripts/postdeploy-check.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",

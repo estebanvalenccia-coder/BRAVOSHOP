@@ -53,8 +53,9 @@ No copiar tokens específicos de Herencia.
 5. Ejecutar una compra real de importe mínimo y comprobar pedido, inventario, cliente y webhook.
 6. Añadir Resend y comprobar `integrations.notifications=true`.
 7. Probar confirmación de pedido y una campaña a un correo controlado.
-8. Añadir token Railway para dominios personalizados y probar un dominio de prueba.
-9. Ejecutar el smoke multitienda destructivo únicamente contra una base de datos aislada, nunca contra producción.
+8. Ejecutar `REQUIRE_LIVE_INTEGRATIONS=1 npm run test:postdeploy` (o el equivalente del workflow) para exigir pagos y notificaciones reales antes del lanzamiento comercial.
+9. Añadir token Railway para dominios personalizados y probar un dominio de prueba.
+10. Ejecutar el smoke multitienda destructivo únicamente contra una base de datos aislada, nunca contra producción.
 
 ## Estado esperado antes del lanzamiento comercial
 
