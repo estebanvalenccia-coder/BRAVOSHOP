@@ -4,6 +4,7 @@ export async function createStore(input){const slug=(input.slug||input.name||"ti
 export async function loadStore(storeId){const data=await api(`/api/stores/${storeId}`);return data.store}
 export async function updateStore(storeId,input){return api(`/api/stores/${storeId}`,{method:"PATCH",body:input})}
 export async function updateStoreFeatures(storeId,features){return api(`/api/stores/${storeId}/features`,{method:"PUT",body:{features}})}
+export async function setStorePublication(storeId,published){return api(`/api/stores/${storeId}/publication`,{method:"POST",body:{published}})}
 
 export async function getPaymentAccount(storeId){const data=await api(`/api/stores/${storeId}/payments`);return data.payment_account}
 export async function updatePaymentPreferences(storeId,input){return api(`/api/stores/${storeId}/payments/preferences`,{method:"PUT",body:input})}
