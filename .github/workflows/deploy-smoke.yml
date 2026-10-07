@@ -11,21 +11,63 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Wait for production readiness
+      - name: Detect affected production services
+        id: scope
+        shell: bash
         run: |
-          for i in {1..60}; do
-            code=$(curl -sS -o /tmp/ready.json -w "%{http_code}" https://api.bravoshop.online/api/ready || true)
-            commit=$(node -e 'const fs=require("fs");try{process.stdout.write(JSON.parse(fs.readFileSync("/tmp/ready.json","utf8")).commit||"")}catch{}' )
-            if [ "$code" = "200" ] && [ "$commit" = "$GITHUB_SHA" ]; then cat /tmp/ready.json; exit 0; fi
+          before="${{ github.event.before }}"
+          if [ -z "$before" ] || [[ "$before" =~ ^0+$ ]] || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+            before="$(git rev-parse HEAD^)"
+          fi
+          changed="$(git diff --name-only "$before" "$GITHUB_SHA")"
+          backend=false
+          frontend=false
+          while IFS= read -r file; do
+            case "$file" in
+              server/*|database/*|package.json|package-lock.json) backend=true ;;
+            esac
+            case "$file" in
+              src/*|index.html|server/static.js|package.json|package-lock.json) frontend=true ;;
+            esac
+          done <<< "$changed"
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$changed"
+      - name: Wait for exact production revision
+        env:
+          BACKEND_CHANGED: ${{ steps.scope.outputs.backend }}
+          FRONTEND_CHANGED: ${{ steps.scope.outputs.frontend }}
+        shell: bash
+        run: |
+          check_commit() {
+            url="$1"
+            code=$(curl -sS --max-time 10 -o /tmp/version.json -w "%{http_code}" "$url" || true)
+            [ "$code" = "200" ] || return 1
+            commit=$(node -e 'const fs=require("fs");try{process.stdout.write(JSON.parse(fs.readFileSync("/tmp/version.json","utf8")).commit||"")}catch{}')
+            [ "$commit" = "$GITHUB_SHA" ]
+          }
+          for i in {1..75}; do
+            ok=true
+            if [ "$BACKEND_CHANGED" = "true" ]; then
+              check_commit "https://api.bravoshop.online/api/ready" || ok=false
+            fi
+            if [ "$FRONTEND_CHANGED" = "true" ]; then
+              check_commit "https://bravoshop.online/__version" || ok=false
+              check_commit "https://admin.bravoshop.online/__version" || ok=false
+              check_commit "https://internal.bravoshop.online/__version" || ok=false
+            fi
+            if [ "$ok" = "true" ]; then exit 0; fi
             sleep 10
           done
-          cat /tmp/ready.json || true
+          echo "Production did not reach commit $GITHUB_SHA in time"
           exit 1
       - name: Run non-destructive production checks
         env:
           SMOKE_API_URL: https://api.bravoshop.online
-          EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          EXPECTED_COMMIT_SHA: ${{ steps.scope.outputs.backend == 'true' && github.sha || '' }}
         run: node scripts/postdeploy-check.js

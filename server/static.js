@@ -10,7 +10,9 @@ app.set("trust proxy",1);
 
 const escXml=v=>String(v??"").replace(/[<>&'"]/g,ch=>({"<":"&lt;",">":"&gt;","&":"&amp;","'":"&apos;",'"':"&quot;"}[ch]));
 const publicHost=req=>String(req.get("x-forwarded-host")||req.get("host")||"").split(",")[0].trim().split(":")[0].toLowerCase();
-const reserved=new Set(["bravoshop.online","www.bravoshop.online","app.bravoshop.online","admin.bravoshop.online","api.bravoshop.online"]);
+const reserved=new Set(["bravoshop.online","www.bravoshop.online","app.bravoshop.online","admin.bravoshop.online","api.bravoshop.online","internal.bravoshop.online"]);
+
+app.get("/__version",(_req,res)=>res.set("Cache-Control","no-store").json({ok:true,commit:process.env.RAILWAY_GIT_COMMIT_SHA||null}));
 
 app.get("/robots.txt",(req,res)=>{
  const host=publicHost(req);
