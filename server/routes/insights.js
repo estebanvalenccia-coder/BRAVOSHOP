@@ -55,7 +55,7 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
 insightsRouter.get("/inventory", requirePermission("analytics.read"), async (req, res) => {
 	const rows = await sql`
 		select p.id as product_id,p.name as product_name,v.id as variant_id,v.title as variant_title,
-			v.sku,coalesce(i.quantity,0)::int as quantity,coalesce(i.reserved,0)::int as reserved,
+			v.sku,coalesce(v.price,p.price,0)::numeric as unit_price,coalesce(i.quantity,0)::int as quantity,coalesce(i.reserved,0)::int as reserved,
 			coalesce(i.track_inventory,true) as track_inventory,
 			coalesce(i.allow_backorder,false) as allow_backorder
 		from products p
