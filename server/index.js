@@ -27,7 +27,7 @@ app.get("/api/ready",async(_req,res)=>{
   const rows=await sql`select table_name from information_schema.tables where table_schema='public' and table_name = any(${required})`;
   const found=new Set(rows.map(r=>r.table_name));const missing=required.filter(t=>!found.has(t));
   if(missing.length)return res.status(503).json({ok:false,database:"schema_incomplete",missing_count:missing.length});
-  const migration=await sql`select 1 from _bravoshop_migrations where name='0050_billing_contract.sql' limit 1`;
+  const migration=await sql`select 1 from _bravoshop_migrations where name='0051_store_member_invitations.sql' limit 1`;
   if(!migration.length)return res.status(503).json({ok:false,database:"migration_incomplete"});
   res.json({ok:true,database:"ready",schema:"ready"});
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
