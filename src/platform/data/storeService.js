@@ -15,6 +15,10 @@ export async function getEffectiveFeatures(storeId){return api(`/api/stores/${st
 export async function getShipping(storeId){const data=await api(`/api/stores/${storeId}/shipping`);return data.zones||[]}
 export async function createShippingZone(storeId,input){return api(`/api/stores/${storeId}/shipping/zones`,{method:"POST",body:input})}
 export async function createShippingRate(storeId,zoneId,input){return api(`/api/stores/${storeId}/shipping/zones/${zoneId}/rates`,{method:"POST",body:input})}
+export async function updateShippingZone(storeId,zoneId,input){return api(`/api/stores/${storeId}/shipping/zones/${zoneId}`,{method:"PATCH",body:input})}
+export async function deleteShippingZone(storeId,zoneId){return api(`/api/stores/${storeId}/shipping/zones/${zoneId}`,{method:"DELETE"})}
+export async function updateShippingRate(storeId,rateId,input){return api(`/api/stores/${storeId}/shipping/rates/${rateId}`,{method:"PATCH",body:input})}
+export async function deleteShippingRate(storeId,rateId){return api(`/api/stores/${storeId}/shipping/rates/${rateId}`,{method:"DELETE"})}
 export async function getTaxSettings(storeId){const data=await api(`/api/stores/${storeId}/taxes`);return data.tax}
 export async function updateTaxSettings(storeId,input){const data=await api(`/api/stores/${storeId}/taxes`,{method:"PUT",body:input});return data.tax}
 
