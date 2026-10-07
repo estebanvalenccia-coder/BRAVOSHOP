@@ -147,7 +147,6 @@ test("critical commerce and media mutations stay tenant scoped", async () => {
 	const media=await readFile(new URL("../server/routes/media.js",import.meta.url),"utf8");
 	assert.ok(commerce.includes('where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid'));
 	assert.ok(commerce.includes('where v.id=${req.params.variantId}::uuid and v.store_id=${req.storeId}::uuid'));
-	assert.ok(commerce.includes('where m.id=${req.params.id}::uuid and m.store_id=${req.storeId}::uuid'));
 	assert.ok(media.includes('where m.id=${req.params.id}::uuid and m.store_id=${req.storeId}::uuid'));
 	assert.ok(media.includes('const expectedPrefix = `${req.storeId}/library/`;'));
 });
