@@ -12,11 +12,12 @@
     "build": "vite build",
     "start:api": "node server/index.js",
     "preview": "vite preview",
-    "check": "npm run build",
+    "check": "npm run check:server && npm run test:unit && npm run build",
     "test:unit": "node --test scripts/*.test.js",
     "server": "node server/index.js",
     "db:migrate": "node scripts/migrate.js",
-    "test:smoke": "node scripts/smoke.js"
+    "test:smoke": "node scripts/smoke.js",
+    "check:server": "node scripts/check-server-syntax.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",
