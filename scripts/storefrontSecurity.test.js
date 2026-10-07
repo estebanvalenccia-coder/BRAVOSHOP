@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import{readFile}from"node:fs/promises";
 import{safeStorefrontUrl,safeStorefrontImage,previewParentOrigin,isAllowedPreviewMessage}from"../src/platform/storefront/security.js";
 
 test("storefront links reject executable and insecure schemes",()=>{
@@ -28,4 +29,14 @@ test("theme preview messages require the trusted parent origin",()=>{
  const parent={};
  assert.equal(isAllowedPreviewMessage({source:parent,origin:"https://app.bravoshop.online"},parent,"https://app.bravoshop.online"),true);
  assert.equal(isAllowedPreviewMessage({source:parent,origin:"https://evil.example"},parent,"https://app.bravoshop.online"),false);
+});
+
+
+test("public storefront API calls never include merchant session cookies", async () => {
+	const apiSource=await readFile(new URL("../src/lib/api.js",import.meta.url),"utf8");
+	const storefrontSource=await readFile(new URL("../src/platform/data/storefrontService.js",import.meta.url),"utf8");
+	assert.ok(apiSource.includes('export async function publicApi'));
+	assert.ok(apiSource.includes('credentials:"omit"'));
+	assert.ok(storefrontSource.includes('import{publicApi}from"../../lib/api.js";'));
+	assert.ok(!storefrontSource.includes('import{api}from"../../lib/api.js";'));
 });
