@@ -16,3 +16,5 @@ export async function listPublicCategories(host){const data=await publicApi("/ap
 export async function subscribePublicNewsletter(host,email){return publicApi("/api/public/newsletter/subscribe",{method:"POST",body:{host,email,consent:true}})}
 
 export async function recoverPublicCart(host,token){return publicApi("/api/public/recovery/"+encodeURIComponent(token)+"?host="+h(host))}
+
+export async function listPublicPlans(){const data=await publicApi("/api/public/plans");return data.plans??[]}
