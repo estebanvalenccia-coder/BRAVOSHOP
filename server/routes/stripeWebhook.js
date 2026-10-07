@@ -2,6 +2,7 @@ import { Router } from "express";
 import Stripe from "stripe";
 import { sql } from "../db/neon.js";
 import { recordAudit } from "../services/auditLog.js";
+import { enqueueOrderNotification } from "../services/notifications.js";
 
 export const stripeWebhookRouter = Router();
 
@@ -118,6 +119,7 @@ async function completePaidCheckout(event, req) {
 		) as order_id
 	`;
 	if (!rows[0]?.order_id) throw new Error("No se pudo completar el pedido del pago confirmado");
+	await enqueueOrderNotification({storeId,orderId:rows[0].order_id,type:"order.confirmed"});
 	return storeId;
 }
 
@@ -146,7 +148,7 @@ async function updateRefundFromStripe(event, refund, req) {
 	if (!refundId) return null;
 
 	const owners = await sql`
-		select r.store_id
+		select r.store_id,r.order_id,r.amount
 		from order_refunds r
 		where r.id=${refundId}::uuid
 		limit 1
@@ -158,7 +160,11 @@ async function updateRefundFromStripe(event, refund, req) {
 		: refund.status === "failed" || refund.status === "canceled"
 			? "failed"
 			: "pending";
-	await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${storeId}::uuid,${refund.id},${status})`;if(status==="succeeded")await sql`select bravoshop_restock_refunded_order(${refundId}::uuid,${storeId}::uuid)`;
+	await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${storeId}::uuid,${refund.id},${status})`;
+	if(status==="succeeded"){
+		await sql`select bravoshop_restock_refunded_order(${refundId}::uuid,${storeId}::uuid)`;
+		await enqueueOrderNotification({storeId,orderId:owners[0].order_id,type:"refund.succeeded",refundId,refundAmount:owners[0].amount});
+	}
 	return storeId;
 }
 
