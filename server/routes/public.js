@@ -65,6 +65,11 @@ async function requirePublicStore(req,res,next){
 	for(const candidate of candidates){store=await resolveStore(candidate);if(store)break}
 	if(!store)return res.status(404).json({error:"Tienda no encontrada"});
 	if(!["active","trial"].includes(store.status))return res.status(423).json({error:"Tienda no disponible"});
+	const published=store.settings?.published!==false;
+	const previewToken=String(req.query.preview_token||req.body?.preview_token||"");
+	const previewAllowed=!published&&req.method==="GET"&&previewToken&&previewToken===String(store.settings?.preview_token||"");
+	if(!published&&!previewAllowed)return res.status(423).json({error:"Esta tienda todavía no está publicada"});
+	req.previewStore=Boolean(previewAllowed);
 	req.publicStore=store;
 	next();
 }
