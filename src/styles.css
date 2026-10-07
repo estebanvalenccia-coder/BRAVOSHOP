@@ -198,3 +198,6 @@ body{background:#f7f4ed;color:#17221c}
 
 /* Legal storefront verification */
 .legalPreviewLinks{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0 18px}.legalPreviewLinks>span{font-size:12px;font-weight:750;color:#777;text-transform:uppercase;letter-spacing:.06em}.legalPreviewLinks a{display:inline-flex;padding:7px 10px;border:1px solid #deded8;border-radius:999px;background:#fff;font-size:12px;text-decoration:none;color:inherit}.legalPreviewLinks a:hover{background:#f3f3ef}
+
+/* Shareable product navigation */
+.productModalInfo .productShare{width:max-content;background:transparent!important;color:inherit!important;border:1px solid #d9d9d3!important;padding:7px 10px!important;border-radius:999px!important;font-size:12px!important;margin:-2px 0 8px}.productModalInfo .productShare:hover{background:#f3f3ef!important}
