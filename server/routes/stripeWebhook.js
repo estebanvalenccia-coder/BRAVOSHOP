@@ -197,10 +197,13 @@ async function releaseFailedCheckout(event, req) {
 }
 
 async function updateRefundFromStripe(event, refund, req) {
+	const storeId = await connectedStoreId(event, null, req);
 	let refundId = refund.metadata?.bravoshop_refund_id;
 	if (typeof refundId !== "string" || !/^[0-9a-f-]{36}$/i.test(refundId)) {
 		const rows = await sql`
-			select id from order_refunds where provider_refund_id=${refund.id} limit 1
+			select id from order_refunds
+			where provider_refund_id=${refund.id} and store_id=${storeId}::uuid
+			limit 1
 		`;
 		refundId = rows[0]?.id;
 	}
@@ -209,11 +212,13 @@ async function updateRefundFromStripe(event, refund, req) {
 	const owners = await sql`
 		select r.store_id,r.order_id,r.amount
 		from order_refunds r
-		where r.id=${refundId}::uuid
+		where r.id=${refundId}::uuid and r.store_id=${storeId}::uuid
 		limit 1
 	`;
-	if (!owners.length) return null;
-	const storeId = await connectedStoreId(event, owners[0].store_id, req);
+	if (!owners.length) {
+		await recordWebhookIncident(req, event, storeId, "refund_store_mismatch");
+		throw new Error("Stripe refund does not belong to the connected account store");
+	}
 	const status = refund.status === "succeeded"
 		? "succeeded"
 		: refund.status === "failed" || refund.status === "canceled"

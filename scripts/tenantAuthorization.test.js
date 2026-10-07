@@ -128,3 +128,15 @@ test("registration cannot accept a store invitation by email alone", async () =>
 	assert.ok(source.includes('authRouter.post("/invitations/accept"'));
 	assert.ok(source.includes("bravoshop_accept_store_invitation"));
 });
+
+
+test("refund webhook fallback remains scoped to the connected store", async () => {
+	const source=await readFile(new URL("../server/routes/stripeWebhook.js",import.meta.url),"utf8");
+	const start=source.indexOf("async function updateRefundFromStripe");
+	const end=source.indexOf("async function updateConnectedAccount",start);
+	assert.ok(start>=0&&end>start);
+	const block=source.slice(start,end);
+	assert.ok(block.includes("const storeId = await connectedStoreId(event, null, req)"));
+	assert.ok(block.includes("provider_refund_id=${refund.id} and store_id=${storeId}::uuid"));
+	assert.ok(block.includes("r.id=${refundId}::uuid and r.store_id=${storeId}::uuid"));
+});
