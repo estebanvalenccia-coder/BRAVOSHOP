@@ -19,7 +19,7 @@ begin
    select store_id into v_store from product_variants where id=item.variant_id;
    update inventory_levels set reserved=greatest(0,reserved-item.quantity),updated_at=now()
     where variant_id=item.variant_id;
-   if found and v_store=c.store_id then
+   if found and v_store=c.store_id and item.quantity<>0 then
     insert into inventory_movements(store_id,variant_id,type,quantity_delta,reference_type,reference_id)
     values(c.store_id,item.variant_id,'release',item.quantity,'checkout',c.id::text);
    end if;
