@@ -46,7 +46,7 @@ mediaRouter.post("/media/upload-intent", requirePermission("products.update"), a
 	if (!Number.isSafeInteger(size) || size <= 0 || size > maxBytes) {
 		return res.status(400).json({ error: "La imagen debe pesar entre 1 byte y 15 MB" });
 	}
-	if (!mediaReady()) return res.status(503).json({ error: "Cloudflare R2 aún no está conectado" });
+	if (!mediaReady()) return res.status(503).json({ error: "El almacenamiento multimedia de BravoShop aún no está disponible" });
 
 	const objectPath = `${req.storeId}/library/${randomUUID()}`;
 	const intent = await createUploadIntent({

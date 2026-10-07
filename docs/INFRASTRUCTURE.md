@@ -8,7 +8,7 @@ Neon PostgreSQL is the source of truth for users, organizations, stores, catalog
 The browser never receives DATABASE_URL. All data access goes through the BravoShop API and every merchant request is checked against store_members before tenant data is read or changed.
 
 ## Media
-Cloudflare R2 stores binary media. Neon stores media metadata. Upload credentials never reach the browser permanently. BravoShop requests short-lived upload intents from a dedicated media signer after validating the authenticated user and store.
+Binary media is currently stored by the dedicated `bravoshop-media` Railway service on its persistent volume. Neon stores media metadata. Upload credentials never reach the browser permanently: BravoShop requests short-lived, store-scoped upload intents from the media service after validating the authenticated user and store. The storage interface remains provider-neutral so an object-storage provider such as Cloudflare R2 can replace the current backing store later without changing catalog code.
 
 ## Application surfaces
 - bravoshop.online: public marketing and storefront routing.
