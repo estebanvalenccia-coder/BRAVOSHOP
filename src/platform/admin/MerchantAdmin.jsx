@@ -14,6 +14,7 @@ const menu=[[Home,"Inicio","home"],[Package,"Productos","products"],[Package,"Ca
 export function MerchantAdmin({store,onExit}){
 	const[section,setSection]=useState("home");
 	const[current,setCurrent]=useState(store);
+	useEffect(()=>{let alive=true;if(store?.id)loadStore(store.id).then(fresh=>{if(alive)setCurrent(prev=>({...prev,...fresh,role:fresh?.role||prev?.role||store?.role}))}).catch(()=>{});return()=>{alive=false}},[store?.id]);
 	const visibleMenu=menu.filter(([, ,key])=>key!=="team"||current.role==="owner"||current.role==="admin");
 	let content;
 	if(section==="home")content=<HomeView store={current} navigate={setSection}/>;
