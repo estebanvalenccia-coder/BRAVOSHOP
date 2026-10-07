@@ -218,20 +218,21 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{co
 publicRouter.get("/checkout/:token",checkoutLimiter,async(req,res)=>{
 	const rows=await sql`
 		select c.status,c.currency,c.subtotal,c.shipping_total,c.shipping_rate_id,c.shipping_rate_name,c.tax_total,c.discount_total,c.total,c.expires_at,
-			s.name as store_name,s.slug as store_slug
+			s.name as store_name,s.slug as store_slug,o.order_number,o.fulfillment_status,o.payment_status,
+			o.shipping_method,o.tracking_number,o.tracking_url,o.carrier,o.shipped_at,o.delivered_at
 		from checkout_sessions c
 		join stores s on s.id=c.store_id
-		where c.token=${req.params.token}::uuid and c.expires_at>now()
+		left join orders o on o.id=c.completed_order_id and o.store_id=c.store_id
+		where c.token=${req.params.token}::uuid and (c.expires_at>now() or c.status='completed')
 		limit 1
 	`;
 	if(!rows.length)return res.status(404).json({error:"Checkout no encontrado o caducado"});
 	const items=await sql`
-		select title,quantity,unit_price,total
-		from checkout_items
-		where checkout_id=(
-			select id from checkout_sessions where token=${req.params.token}::uuid and expires_at>now()
-		)
-		order by id
+		select ci.title,ci.quantity,ci.unit_price,ci.total
+		from checkout_items ci
+		join checkout_sessions c on c.id=ci.checkout_id
+		where c.token=${req.params.token}::uuid and (c.expires_at>now() or c.status='completed')
+		order by ci.id
 	`;
 	res.json({checkout:{...rows[0],items}});
 });
