@@ -14,7 +14,7 @@ function validateCheckoutBody(req,res,next){
 	const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	if(items.some(item=>!item||typeof item!=="object"||!uuid.test(item.variant_id)||!Number.isSafeInteger(item.quantity)||item.quantity<1||item.quantity>99))return res.status(400).json({error:"Cantidad o variante no válida"});
 	if(req.body.email!==undefined&&(typeof req.body.email!=="string"||req.body.email.length>254||! /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(req.body.email)))return res.status(400).json({error:"Email no válido"});
-	if(req.body.currency!==undefined&&(typeof req.body.currency!=="string"||! /^[A-Za-z]{3}$/.test(req.body.currency)))return res.status(400).json({error:"Moneda no válida"});
+	if(req.body.currency!==undefined&&(typeof req.body.currency!=="string"||! /^[A-Za-z]{3}$/.test(req.body.currency)))return res.status(400).json({error:"Moneda no válida"});\n\tif(req.body.discount_code!==undefined&&(typeof req.body.discount_code!=="string"||req.body.discount_code.length>80))return res.status(400).json({error:"Código de descuento no válido"});\n\tif(req.body.shipping_rate_id!==undefined&&(typeof req.body.shipping_rate_id!=="string"||!uuid.test(req.body.shipping_rate_id)))return res.status(400).json({error:"Tarifa de envío no válida"});
 	const address=req.body.shipping_address??{};
 	if(!address||typeof address!=="object"||Array.isArray(address))return res.status(400).json({error:"Dirección no válida"});
 	const fields=["name","phone","line1","line2","city","region","postal_code","country"];
@@ -70,6 +70,19 @@ publicRouter.get("/payment-config",requirePublicStore,async(req,res)=>{const row
 publicRouter.get("/products",requirePublicStore,async(req,res)=>{const rows=await sql`select p.id,p.name,p.slug,p.description,p.price,p.product_type,p.vendor,p.created_at,p.published_at,(select m.public_url from product_media pm join media_assets m on m.id=pm.media_id where pm.product_id=p.id and pm.store_id=p.store_id and m.store_id=p.store_id and m.visibility='public' order by pm.is_primary desc,pm.position limit 1) as image_url,coalesce((select jsonb_agg(jsonb_build_object('id',c.id,'name',c.name,'slug',c.slug) order by c.position,c.name) from product_categories pc join categories c on c.id=pc.category_id and c.store_id=p.store_id where pc.product_id=p.id and pc.store_id=p.store_id and c.active=true),'[]'::jsonb) as categories from products p where p.store_id=${req.publicStore.id}::uuid and p.status='active' order by p.published_at desc nulls last,p.created_at desc limit 200`;res.json({products:rows})});
 publicRouter.get("/categories",requirePublicStore,async(req,res)=>{const rows=await sql`select c.id,c.name,c.slug,c.description,c.position,count(pc.product_id) filter(where p.status='active')::int as product_count from categories c left join product_categories pc on pc.category_id=c.id and pc.store_id=c.store_id left join products p on p.id=pc.product_id and p.store_id=c.store_id where c.store_id=${req.publicStore.id}::uuid and c.active=true group by c.id order by c.position,c.name`;res.json({categories:rows})});
 publicRouter.get("/products/:slug",requirePublicStore,async(req,res)=>{const rows=await sql`select id,name,slug,description,price,product_type,vendor,metadata,seo from products where store_id=${req.publicStore.id}::uuid and slug=${req.params.slug} and status='active' limit 1`;if(!rows.length)return res.status(404).json({error:"Producto no encontrado"});const variants=await sql`select v.id,v.title,coalesce(v.price,p.price) as price,v.compare_at_price,v.options,v.sku,case when coalesce(i.track_inventory,true)=false or coalesce(i.allow_backorder,false) then true else coalesce(i.quantity,0)-coalesce(i.reserved,0)>0 end as in_stock from product_variants v join products p on p.id=v.product_id left join inventory_levels i on i.variant_id=v.id where v.product_id=${rows[0].id}::uuid and v.store_id=${req.publicStore.id}::uuid and p.store_id=${req.publicStore.id}::uuid and v.active=true order by v.created_at`;const media=await sql`select m.public_url,m.alt_text,pm.position,pm.is_primary from product_media pm join media_assets m on m.id=pm.media_id where pm.product_id=${rows[0].id}::uuid and pm.store_id=${req.publicStore.id}::uuid and m.store_id=${req.publicStore.id}::uuid and m.visibility='public' order by pm.is_primary desc,pm.position`;const categories=await sql`select c.id,c.name,c.slug from categories c join product_categories pc on pc.category_id=c.id and pc.store_id=c.store_id where pc.product_id=${rows[0].id}::uuid and pc.store_id=${req.publicStore.id}::uuid and c.store_id=${req.publicStore.id}::uuid and c.active=true order by c.position,c.name`;const related=await sql`select p.id,p.name,p.slug,p.price,p.product_type,p.vendor,(select m.public_url from product_media pm2 join media_assets m on m.id=pm2.media_id where pm2.product_id=p.id and pm2.store_id=p.store_id and m.store_id=p.store_id and m.visibility='public' order by pm2.is_primary desc,pm2.position limit 1) as image_url from products p where p.store_id=${req.publicStore.id}::uuid and p.status='active' and p.id<>${rows[0].id}::uuid and (exists(select 1 from product_categories candidate_pc join product_categories current_pc on current_pc.category_id=candidate_pc.category_id and current_pc.store_id=candidate_pc.store_id where candidate_pc.product_id=p.id and candidate_pc.store_id=${req.publicStore.id}::uuid and current_pc.product_id=${rows[0].id}::uuid and current_pc.store_id=${req.publicStore.id}::uuid) or (${rows[0].product_type||null} is not null and p.product_type=${rows[0].product_type||null})) order by p.created_at desc limit 4`;res.json({product:{...rows[0],variants,media,categories,related}})});
+publicRouter.get("/shipping-rates",requirePublicStore,async(req,res)=>{
+ const country=String(req.query.country||"").trim().toUpperCase();
+ const subtotal=Number(req.query.subtotal||0);
+ if(!/^[A-Z]{2}$/.test(country)||!Number.isFinite(subtotal)||subtotal<0)return res.status(400).json({error:"País o subtotal no válido"});
+ const zones=await sql`select count(*)::int as n from shipping_zones where store_id=${req.publicStore.id}::uuid and active=true`;
+ const rows=await sql`
+  select r.id,r.name,r.price,r.free_over,r.min_days,r.max_days,z.name as zone_name
+  from shipping_rates r join shipping_zones z on z.id=r.zone_id and z.store_id=r.store_id
+  where r.store_id=${req.publicStore.id}::uuid and z.active=true and r.active=true and ${country}=any(z.countries)
+  order by r.price asc,r.name asc`;
+ if(!rows.length&&zones[0].n>0)return res.status(422).json({error:"Esta tienda no realiza envíos al país indicado"});
+ res.json({rates:rows.map(r=>({...r,effective_price:r.free_over!==null&&subtotal>=Number(r.free_over)?0:Number(r.price)}))});
+});
 publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
 	if(controls.length&&!controls[0].enabled)return res.status(503).json({error:"Checkout temporalmente desactivado"});
@@ -108,12 +121,14 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	if(zones[0].n>0&&!/^[A-Z]{2}$/.test(country))return res.status(400).json({error:"Indica un país de entrega válido"});
 	let shippingCents=0;
 	if(country){
+		const requestedRate=req.body.shipping_rate_id||null;
 		const rates=await sql`
-			select r.price,r.free_over
+			select r.id,r.price,r.free_over
 			from shipping_rates r
-			join shipping_zones z on z.id=r.zone_id
-			where z.store_id=${req.publicStore.id}::uuid and z.active=true and r.active=true
+			join shipping_zones z on z.id=r.zone_id and z.store_id=r.store_id
+			where r.store_id=${req.publicStore.id}::uuid and z.active=true and r.active=true
 				and ${country}=any(z.countries)
+				and (${requestedRate}::uuid is null or r.id=${requestedRate}::uuid)
 			order by r.price asc
 			limit 1
 		`;
