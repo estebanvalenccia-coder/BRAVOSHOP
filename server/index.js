@@ -16,7 +16,7 @@ import{publicRouter}from"./routes/public.js";
 import{stripeWebhookRouter}from"./routes/stripeWebhook.js";
 import{requestId}from"./middleware/requestId.js";
 import{sql,databaseConfigured}from"./db/neon.js";
-const app=express();app.disable("x-powered-by");
+const app=express();app.disable("x-powered-by");app.set("trust proxy",1);
 const allowedOrigin=origin=>{if(!origin)return true;try{const u=new URL(origin);const h=u.hostname.toLowerCase();return h==="bravoshop.online"||h==="www.bravoshop.online"||h==="app.bravoshop.online"||h==="admin.bravoshop.online"||h.endsWith(".bravoshop.online")||h==="localhost"||h==="127.0.0.1"}catch{return false}};
 app.use(requestId);app.use(helmet());app.use(cors({origin(origin,cb){if(allowedOrigin(origin))return cb(null,true);try{const u=new URL(origin);const hostname=domainToASCII(u.hostname.toLowerCase());if(u.protocol!=="https:"||u.origin!==origin||!hostname||isIP(hostname))return cb(null,false);sql`select 1 from domains where lower(hostname)=${hostname} and kind='custom' and status='verified' limit 1`.then(rows=>cb(null,rows.length>0)).catch(cb)}catch{return cb(null,false)}},credentials:true}));app.use("/api/webhooks/stripe",express.raw({type:"application/json"}),stripeWebhookRouter);app.use(express.json({limit:"2mb"}));
 app.get("/api/health",(_req,res)=>res.json({ok:true,service:"bravoshop-api"}));
