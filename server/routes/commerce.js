@@ -237,6 +237,25 @@ commerceRouter.get("/customers",requirePermission("customers.read"),async(req,re
 commerceRouter.get("/customers/:id",requirePermission("customers.read"),async(req,res)=>{const rows=await sql`select * from customers where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;if(!rows.length)return res.status(404).json({error:"Cliente no encontrado"});const orders=await sql`select id,total,currency,payment_status,fulfillment_status,created_at from orders where store_id=${req.storeId}::uuid and lower(customer_email)=lower(${rows[0].email||""}) order by created_at desc limit 100`;res.json({customer:{...rows[0],orders}})});
 commerceRouter.patch("/customers/:id",requirePermission("customers.update"),async(req,res)=>{const p=req.body||{};const rows=await sql`update customers set name=coalesce(${p.name??null},name),phone=coalesce(${p.phone??null},phone),notes=coalesce(${p.notes??null},notes),updated_at=now() where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid returning *`;if(!rows.length)return res.status(404).json({error:"Cliente no encontrado"});res.json({customer:rows[0]})});
 
+commerceRouter.get("/newsletter",requirePermission("marketing.read"),async(req,res)=>{
+ const limit=Math.min(250,Math.max(1,Number.parseInt(String(req.query.limit||"100"),10)||100));
+ const status=String(req.query.status||"").trim();
+ const rows=status&&["active","unsubscribed"].includes(status)
+  ?await sql`select id,email,status,consent_at,unsubscribed_at,source,created_at,updated_at from newsletter_subscribers where store_id=${req.storeId}::uuid and status=${status} order by created_at desc limit ${limit}`
+  :await sql`select id,email,status,consent_at,unsubscribed_at,source,created_at,updated_at from newsletter_subscribers where store_id=${req.storeId}::uuid order by created_at desc limit ${limit}`;
+ res.json({subscribers:rows});
+});
+commerceRouter.post("/newsletter/:id/unsubscribe",requirePermission("marketing.manage"),async(req,res)=>{
+ const id=String(req.params.id||"");
+ if(!/^[0-9a-f-]{36}$/i.test(id))return res.status(404).json({error:"Suscriptor no encontrado"});
+ const rows=await sql`
+  update newsletter_subscribers
+  set status='unsubscribed',unsubscribed_at=coalesce(unsubscribed_at,now()),updated_at=now()
+  where id=${id}::uuid and store_id=${req.storeId}::uuid
+  returning id,email,status,unsubscribed_at`;
+ if(!rows.length)return res.status(404).json({error:"Suscriptor no encontrado"});
+ res.json({subscriber:rows[0]});
+});
 commerceRouter.get("/discounts",requirePermission("products.read"),async(req,res)=>{
  const rows=await sql`select * from discount_codes where store_id=${req.storeId}::uuid order by created_at desc`;
  res.json({discounts:rows});
