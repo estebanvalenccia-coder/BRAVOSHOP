@@ -15,7 +15,7 @@ if(!mediaResponse.ok||mediaHealth.ok!==true||mediaHealth.storage!=="ready")throw
 const health=await get("/api/health");
 if(health.ok!==true)throw new Error("Health check failed");
 const ready=await get("/api/ready");
-if(ready.ok!==true||ready.database!=="ready"||ready.schema!=="ready")throw new Error("Readiness check failed: "+JSON.stringify(ready));
+if(ready.ok!==true||ready.database!=="ready"||ready.schema!=="ready")throw new Error("Readiness check failed: "+JSON.stringify(ready));\nif(!ready.integrations||ready.integrations.media!==true||typeof ready.integrations.payments!=="boolean"||typeof ready.integrations.custom_domains!=="boolean")throw new Error("Integration readiness missing or invalid: "+JSON.stringify(ready.integrations));
 const expected=process.env.EXPECTED_COMMIT_SHA||"";
 if(expected&&ready.commit!==expected)throw new Error("Production commit mismatch: expected "+expected+" got "+(ready.commit||"none"));
 
@@ -28,4 +28,4 @@ await expectStatus(
  {headers:{Origin:"https://tenant-a.bravoshop.online"}}
 );
 
-console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,media:mediaHealth.storage,commit:ready.commit||null,tenant_routing_guards:true}));
+console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,media:mediaHealth.storage,integrations:ready.integrations,commit:ready.commit||null,tenant_routing_guards:true}));
