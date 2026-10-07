@@ -43,6 +43,7 @@ export async function listDomains(storeId){const data=await api(`/api/stores/${s
 export async function addDomain(storeId,hostname){return api(`/api/stores/${storeId}/domains`,{method:"POST",body:{hostname}})}
 export async function verifyDomain(storeId,domainId){return api(`/api/stores/${storeId}/domains/${domainId}/verify`,{method:"POST",body:{}})}
 export async function syncDomain(storeId,domainId){return api(`/api/stores/${storeId}/domains/${domainId}/sync`,{method:"POST",body:{}})}
+export async function setPrimaryDomain(storeId,domainId){const data=await api(`/api/stores/${storeId}/domains/${domainId}/primary`,{method:"POST",body:{}});return data.domain}
 export async function removeDomain(storeId,domainId){return api(`/api/stores/${storeId}/domains/${domainId}`,{method:"DELETE"})}
 
 export async function listDiscounts(storeId){const data=await api(`/api/stores/${storeId}/discounts`);return data.discounts??[]}
