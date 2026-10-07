@@ -1,0 +1,20 @@
+name: BravoShop commercial readiness
+
+on:
+  workflow_dispatch:
+
+jobs:
+  commercial-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify live commercial integrations
+        env:
+          REQUIRE_LIVE_INTEGRATIONS: "1"
+          SMOKE_API_URL: https://api.bravoshop.online
+          MEDIA_HEALTH_URL: https://bravoshop-media-production.up.railway.app
+        run: node scripts/postdeploy-check.js
