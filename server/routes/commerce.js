@@ -8,7 +8,7 @@ commerceRouter.post("/products",requirePermission("products.create"),async(req,r
 	const p=req.body||{};
 	const name=typeof p.name==="string"?p.name.trim():"";
 	const slug=typeof p.slug==="string"?p.slug.trim().toLowerCase():"";
-	const price=Number(p.price??0);
+	const price=Number(p.price??0);const status=["draft","active","archived"].includes(p.status)?p.status:"draft";
 	if(!name||name.length>180||!SLUG_PATTERN.test(slug))return res.status(400).json({error:"Nombre o slug no válido"});
 	if(!Number.isFinite(price)||price<0)return res.status(400).json({error:"Precio no válido"});
 	const id=randomUUID();
@@ -33,7 +33,7 @@ commerceRouter.put("/products/:id",requirePermission("products.update"),async(re
 	const rows=await sql`
 		update products
 		set name=${name},slug=${slug},description=${String(p.description||"").slice(0,10000)},
-			price=${price},status=${p.status||"draft"},product_type=${p.product_type||null},vendor=${p.vendor||null},
+			price=${price},status=${status},published_at=case when ${status}='active' then coalesce(published_at,now()) else published_at end,product_type=${p.product_type||null},vendor=${p.vendor||null},
 			metadata=${JSON.stringify(p.metadata||{})}::jsonb,seo=${JSON.stringify(p.seo||{})}::jsonb,updated_at=now()
 		where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid
 		returning *
