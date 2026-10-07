@@ -66,15 +66,20 @@ async function requirePublicStore(req,res,next){
 	next();
 }
 publicRouter.get("/store",requirePublicStore,async(req,res)=>{
- const[features,payments,controls]=await Promise.all([
+ const[features,payments,controls,shipping]=await Promise.all([
   sql`select feature_key,enabled from store_features where store_id=${req.publicStore.id}::uuid and enabled=true`,
   sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`,
-  sql`select enabled from platform_controls where key='checkout' limit 1`
+  sql`select enabled from platform_controls where key='checkout' limit 1`,
+  sql`select count(distinct z.id)::int as value from shipping_zones z join shipping_rates r on r.zone_id=z.id and r.store_id=z.store_id and r.active=true where z.store_id=${req.publicStore.id}::uuid and z.active=true`
  ]);
- const payment=payments[0];
+ const payment=payments[0],settings=req.publicStore.settings||{};
  const checkoutEnabled=!controls.length||controls[0].enabled===true;
- const checkoutReady=Boolean(checkoutEnabled&&process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
- res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,theme:req.publicStore.theme||{},settings:publicSettings(req.publicStore.settings||{}),features,commerce:{checkout_ready:checkoutReady}}});
+ const legalReady=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
+ const notificationsReady=Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM);
+ const shippingReady=req.publicStore.sector==="services"||Number(shipping[0]?.value||0)>0;
+ const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
+ const checkoutReady=Boolean(checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady);
+ res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,theme:req.publicStore.theme||{},settings:publicSettings(settings),features,commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady}}});
 });
 publicRouter.post("/newsletter/subscribe",newsletterLimiter,requirePublicStore,async(req,res)=>{
  const email=String(req.body?.email||"").trim().toLowerCase();
@@ -127,7 +132,15 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	if(!await publicFeatureEnabled(req.publicStore.id,"checkout"))return res.status(503).json({error:"La tienda no tiene el checkout activado"});
 	const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
 	if(controls.length&&!controls[0].enabled)return res.status(503).json({error:"Checkout temporalmente desactivado"});
-	const paymentRows=await sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled,default_currency from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;
+	const settings=req.publicStore.settings||{};
+ const legalReady=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
+ if(!legalReady)return res.status(503).json({error:"Completa la información legal antes de aceptar pedidos"});
+ if(!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return res.status(503).json({error:"El servicio de confirmaciones por email todavía no está configurado"});
+ if(req.publicStore.sector!=="services"){
+  const shippingReady=await sql`select count(distinct z.id)::int as value from shipping_zones z join shipping_rates r on r.zone_id=z.id and r.store_id=z.store_id and r.active=true where z.store_id=${req.publicStore.id}::uuid and z.active=true`;
+  if(Number(shippingReady[0]?.value||0)<1)return res.status(503).json({error:"Configura al menos una zona y tarifa de envío antes de aceptar pedidos"});
+ }
+ const paymentRows=await sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled,default_currency from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;
 	const paymentAccount=paymentRows[0];
 	const platformPaymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET);
 	if(!platformPaymentsReady||paymentAccount?.provider!=="stripe"||paymentAccount?.status!=="active"||!paymentAccount?.provider_account_id||!paymentAccount?.charges_enabled||!paymentAccount?.payouts_enabled)return res.status(503).json({error:"La tienda todavía no está lista para aceptar pagos"});

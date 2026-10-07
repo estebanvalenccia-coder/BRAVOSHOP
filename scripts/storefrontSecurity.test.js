@@ -131,3 +131,15 @@ test("unsafe custom navigation falls back to the catalog instead of a dead hash"
  const storefront=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
  assert.ok(storefront.includes('safeStorefrontUrl(m.url,"#catalog")'));
 });
+
+test("public checkout enforces the same commercial readiness shown by merchant admin",async()=>{
+ const source=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const start=source.indexOf('publicRouter.post("/checkout"');
+ const end=source.indexOf('publicRouter.get("/recovery/:token"',start);
+ const block=source.slice(start,end);
+ assert.ok(block.includes('["legal_name","tax_id","legal_address","legal_email"]'));
+ assert.ok(block.includes("RESEND_API_KEY"));
+ assert.ok(block.includes("BRAVOSHOP_EMAIL_FROM"));
+ assert.ok(block.includes('req.publicStore.sector!=="services"'));
+ assert.ok(block.includes("shipping_zones"));
+});
