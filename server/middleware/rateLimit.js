@@ -26,3 +26,13 @@ export const codeRedemptionLimiter = rateLimit({
 	legacyHeaders: false,
 	message: { error: "Demasiados intentos de canje. Inténtalo de nuevo más tarde." },
 });
+
+
+// Public newsletter forms: enough headroom for shared networks, strict enough to deter spam.
+export const newsletterLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000,
+	limit: 20,
+	standardHeaders: "draft-7",
+	legacyHeaders: false,
+	message: { error: "Demasiados intentos de suscripción. Inténtalo de nuevo más tarde." },
+});
