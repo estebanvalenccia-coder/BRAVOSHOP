@@ -355,4 +355,21 @@ commerceRouter.get("/categories",requirePermission("products.read"),async(req,re
 commerceRouter.post("/categories",requirePermission("products.update"),async(req,res)=>{const p=req.body||{},name=String(p.name||"").trim(),slug=String(p.slug||name).trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");if(!name||!slug)return res.status(400).json({error:"Nombre requerido"});try{const rows=await sql`insert into categories(store_id,name,slug,description,parent_id,position,active) values(${req.storeId}::uuid,${name},${slug},${p.description||null},${p.parent_id||null},${Number(p.position||0)},${p.active!==false}) returning *`;res.status(201).json({category:rows[0]})}catch(e){if(e.code==="23505")return res.status(409).json({error:"Ese slug ya existe"});throw e}});
 commerceRouter.patch("/categories/:id",requirePermission("products.update"),async(req,res)=>{const p=req.body||{};const rows=await sql`update categories set name=coalesce(${p.name??null},name),description=coalesce(${p.description??null},description),position=coalesce(${p.position??null},position),active=coalesce(${typeof p.active==="boolean"?p.active:null},active) where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid returning *`;if(!rows.length)return res.status(404).json({error:"Categoría no encontrada"});res.json({category:rows[0]})});
 commerceRouter.delete("/categories/:id",requirePermission("products.update"),async(req,res)=>{const rows=await sql`select bravoshop_delete_category(${req.params.id}::uuid,${req.storeId}::uuid) as deleted`;if(!rows[0]?.deleted)return res.status(404).json({error:"Categoría no encontrada"});res.status(204).end()});
-commerceRouter.put("/products/:id/categories",requirePermission("products.update"),async(req,res)=>{const ids=Array.isArray(req.body?.category_ids)?req.body.category_ids:[];await sql`delete from product_categories where product_id=${req.params.id}::uuid and store_id=${req.storeId}::uuid`;for(const id of ids)await sql`insert into product_categories(product_id,category_id,store_id) select ${req.params.id}::uuid,${id}::uuid,${req.storeId}::uuid where exists(select 1 from products p where p.id=${req.params.id}::uuid and p.store_id=${req.storeId}::uuid) and exists(select 1 from categories c where c.id=${id}::uuid and c.store_id=${req.storeId}::uuid) on conflict do nothing`;const rows=await sql`select c.* from categories c join product_categories pc on pc.category_id=c.id and pc.store_id=c.store_id where pc.product_id=${req.params.id}::uuid and pc.store_id=${req.storeId}::uuid order by c.position,c.name`;res.json({categories:rows})});
+commerceRouter.put("/products/:id/categories",requirePermission("products.update"),async(req,res)=>{
+ const raw=Array.isArray(req.body?.category_ids)?req.body.category_ids:[];
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ const ids=[...new Set(raw.map(x=>String(x||"").trim()))];
+ if(ids.length>100||ids.some(id=>!uuid.test(id)))return res.status(400).json({error:"Categorías no válidas"});
+ const product=await sql`select id from products where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;
+ if(!product.length)return res.status(404).json({error:"Producto no encontrado"});
+ if(ids.length){
+  const valid=await sql`select id from categories where store_id=${req.storeId}::uuid and id=any(${ids}::uuid[])`;
+  if(valid.length!==ids.length)return res.status(400).json({error:"Una o más categorías no pertenecen a esta tienda"});
+ }
+ await sql.transaction([
+  sql`delete from product_categories where product_id=${req.params.id}::uuid and store_id=${req.storeId}::uuid`,
+  ...ids.map(id=>sql`insert into product_categories(product_id,category_id,store_id) values(${req.params.id}::uuid,${id}::uuid,${req.storeId}::uuid) on conflict do nothing`)
+ ]);
+ const rows=await sql`select c.* from categories c join product_categories pc on pc.category_id=c.id and pc.store_id=c.store_id where pc.product_id=${req.params.id}::uuid and pc.store_id=${req.storeId}::uuid order by c.position,c.name`;
+ res.json({categories:rows});
+});

@@ -150,3 +150,14 @@ test("critical commerce and media mutations stay tenant scoped", async () => {
 	assert.ok(media.includes('where m.id=${req.params.id}::uuid and m.store_id=${req.storeId}::uuid'));
 	assert.ok(media.includes('const expectedPrefix = `${req.storeId}/library/`;'));
 });
+
+
+test("product category replacement validates tenant ownership before atomic mutation",async()=>{
+ const source=await readFile(new URL("../server/routes/commerce.js",import.meta.url),"utf8");
+ const start=source.indexOf('commerceRouter.put("/products/:id/categories"');
+ assert.ok(start>=0);
+ const block=source.slice(start,source.indexOf("\n});",start)+4);
+ assert.ok(block.includes("valid.length!==ids.length"));
+ assert.ok(block.includes("sql.transaction(["));
+ assert.ok(block.indexOf("select id from categories")<block.indexOf("delete from product_categories"));
+});
