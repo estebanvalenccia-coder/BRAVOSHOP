@@ -48,7 +48,7 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
 			low_stock: lowStock[0].value,
 		},
 		recent_orders: recent,
-		operations:{store_status:legal[0]?.status||"draft",slug:legal[0]?.slug||null,active_products:activeProducts[0].value,pending_orders:pendingOrders[0].value,payments_ready:Boolean(payment[0]?.charges_enabled&&payment[0]?.payouts_enabled&&payment[0]?.status==="active"),payouts_ready:Boolean(payment[0]?.payouts_enabled),shipping_ready:shipping[0].value>0,custom_domain_ready:domain[0].value>0,legal_ready:legalComplete,notifications_ready:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),published:settings.published===undefined?true:Boolean(settings.published)},
+		operations:{store_status:legal[0]?.status||"draft",slug:legal[0]?.slug||null,active_products:activeProducts[0].value,pending_orders:pendingOrders[0].value,payments_ready:Boolean(payment[0]?.charges_enabled&&payment[0]?.payouts_enabled&&payment[0]?.status==="active"),payouts_ready:Boolean(payment[0]?.payouts_enabled),shipping_ready:shipping[0].value>0,custom_domain_ready:domain[0].value>0,legal_ready:legalComplete,notifications_ready:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),published:settings.published===true},
 	});
 });
 
