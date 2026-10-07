@@ -56,3 +56,5 @@ export async function listNewsletterSubscribers(storeId,status=""){const q=statu
 export async function unsubscribeNewsletterSubscriber(storeId,id){const data=await api(`/api/stores/${storeId}/newsletter/${id}/unsubscribe`,{method:"POST",body:{}});return data.subscriber}
 
 export async function listAbandonedCheckouts(storeId){const data=await api(`/api/stores/${storeId}/abandoned-checkouts`);return data.checkouts??[]}
+
+export async function acceptStoreInvitation(token){return api("/api/auth/invitations/accept",{method:"POST",body:{token}})}
