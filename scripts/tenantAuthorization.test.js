@@ -5,7 +5,7 @@ import { tenantIdFromRequest } from "../server/middleware/auth.js";
 import { hasPermission, permissionsForRole, requirePermission } from "../server/middleware/permissions.js";
 import { canAssignMemberRole, canManageMember } from "../server/routes/members.js";
 import { normalizeCustomDomain } from "../server/routes/domains.js";
-import { normalizePublicHost } from "../server/routes/public.js";
+import { normalizePublicHost } from "../server/security/publicHost.js";
 
 test("tenant context takes store identity only from the route parameter", () => {
 	const requestedStore = "11111111-1111-4111-8111-111111111111";
