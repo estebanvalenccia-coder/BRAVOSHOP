@@ -3,7 +3,7 @@ const API=(process.env.SMOKE_API_URL||"http://localhost:3001").replace(/\/$/,"")
 const stamp=Date.now();const password="BravoShop-Smoke-123!";
 function client(){let cookie="";return async function req(path,{method="GET",body,expect}={}){const r=await fetch(API+path,{method,headers:{"Content-Type":"application/json",...(cookie?{Cookie:cookie}:{})},body:body===undefined?undefined:JSON.stringify(body),redirect:"manual"});const set=r.headers.get("set-cookie");if(set)cookie=set.split(";")[0];const data=await r.json().catch(()=>({}));if(expect!==undefined){assert.equal(r.status,expect,`${method} ${path} expected ${expect}, got ${r.status}`);return data}if(!r.ok)throw new Error(`${method} ${path} -> ${r.status} ${JSON.stringify(data)}`);return data}}
 const owner=client(),intruder=client();
-const health=await owner("/api/health");assert.equal(health.ok,true);
+const health=await owner("/api/health");assert.equal(health.ok,true);const ready=await owner("/api/ready");assert.equal(ready.ok,true);assert.equal(ready.database,"ready");
 const ownerEmail=`owner+${stamp}@example.com`;const intruderEmail=`intruder+${stamp}@example.com`;
 await owner("/api/auth/register",{method:"POST",body:{email:ownerEmail,password,name:"Smoke Owner"}});
 const slug=`smoke-${stamp}`;const created=await owner("/api/stores",{method:"POST",body:{name:"Smoke Store",slug,sector:"fashion",features:["catalog","checkout","orders","inventory"]}});assert.ok(created.store.id);
