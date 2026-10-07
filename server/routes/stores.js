@@ -12,6 +12,10 @@ storesRouter.post("/",async(req,res)=>{
  const country=/^[A-Z]{2}$/.test(String(settings?.country||"").toUpperCase())?String(settings.country).toUpperCase():null;
  const currency=/^[A-Z]{3}$/.test(String(settings?.currency||"").toUpperCase())?String(settings.currency).toUpperCase():"EUR";
  const initialSettings={...(settings||{}),published:false,preview_token:randomUUID()};
+ const basePlans=await sql`select id,trial_days from plans where slug='basic' and status='active' limit 1`;
+ if(!basePlans.length)return res.status(503).json({error:"El plan Basic de BravoShop no está configurado"});
+ const basePlan=basePlans[0],trialDays=Math.max(0,Number(basePlan.trial_days||0));
+ const startsTrial=trialDays>0,initialStoreStatus=startsTrial?"trial":"unpaid",initialSubscriptionStatus=startsTrial?"trialing":"incomplete";
  for(let attempt=0;attempt<25;attempt++){
   const suffix=attempt===0?"":"-"+(attempt+1);
   const maxBase=63-suffix.length;
@@ -20,19 +24,18 @@ storesRouter.post("/",async(req,res)=>{
   const orgId=randomUUID(),storeId=randomUUID();
   const queries=[
    sql`insert into organizations(id,name) values(${orgId}::uuid,${String(name).trim()})`,
-   sql`insert into stores(id,organization_id,name,slug,sector,status) values(${storeId}::uuid,${orgId}::uuid,${String(name).trim()},${candidate},${sector||null},'trial')`,
+   sql`insert into stores(id,organization_id,name,slug,sector,status) values(${storeId}::uuid,${orgId}::uuid,${String(name).trim()},${candidate},${sector||null},${initialStoreStatus})`,
    sql`insert into store_members(store_id,user_id,role) values(${storeId}::uuid,${req.user.id}::uuid,'owner')`,
    sql`insert into store_settings(store_id,settings) values(${storeId}::uuid,${JSON.stringify(initialSettings)}::jsonb)`,
    sql`insert into store_theme(store_id,theme) values(${storeId}::uuid,${JSON.stringify(theme)}::jsonb)`,
    sql`insert into store_payment_accounts(store_id,provider,status,country,default_currency) values(${storeId}::uuid,'stripe','not_connected',${country},${currency})`,
    sql`insert into store_subscriptions(store_id,plan_id,status,trial_ends_at,updated_at)
-       select ${storeId}::uuid,p.id,'trialing',case when p.trial_days>0 then now()+make_interval(days=>p.trial_days) else null end,now()
-       from plans p where p.slug='basic' and p.status='active' limit 1`,
+       values(${storeId}::uuid,${basePlan.id}::uuid,${initialSubscriptionStatus},case when ${startsTrial} then now()+make_interval(days=>${trialDays}) else null end,now())`,
    ...cleanFeatures.map(feature=>sql`insert into store_features(store_id,feature_key,enabled) values(${storeId}::uuid,${feature},true)`)
   ];
   try{
    await sql.transaction(queries);
-   return res.status(201).json({store:{id:storeId,name:String(name).trim(),slug:candidate,sector:sector||null,status:"trial",role:"owner",settings:initialSettings,theme:theme||{},features:cleanFeatures.map(feature=>({feature_key:feature,enabled:true}))}});
+   return res.status(201).json({store:{id:storeId,name:String(name).trim(),slug:candidate,sector:sector||null,status:initialStoreStatus,role:"owner",settings:initialSettings,theme:theme||{},features:cleanFeatures.map(feature=>({feature_key:feature,enabled:true}))}});
   }catch(e){
    if(String(e).toLowerCase().includes("unique")&&attempt<24)continue;
    throw e;
