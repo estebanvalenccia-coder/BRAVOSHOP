@@ -1,0 +1,30 @@
+name: BravoShop production smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [develop]
+concurrency:
+  group: bravoshop-production-smoke
+  cancel-in-progress: true
+jobs:
+  wait-and-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Wait for production readiness
+        run: |
+          for i in {1..60}; do
+            code=$(curl -sS -o /tmp/ready.json -w "%{http_code}" https://api.bravoshop.online/api/ready || true)
+            if [ "$code" = "200" ]; then cat /tmp/ready.json; exit 0; fi
+            sleep 10
+          done
+          cat /tmp/ready.json || true
+          exit 1
+      - name: Run tenant isolation smoke suite
+        env:
+          SMOKE_API_URL: https://api.bravoshop.online
+        run: node scripts/smoke.js
