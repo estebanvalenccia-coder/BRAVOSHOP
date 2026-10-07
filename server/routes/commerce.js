@@ -16,7 +16,7 @@ commerceRouter.post("/products",requirePermission("products.create"),async(req,r
 		insert into products(id,store_id,name,slug,description,price,status,product_type,vendor,metadata,seo)
 		values(
 			${id}::uuid,${req.storeId}::uuid,${name},${slug},${String(p.description||"").slice(0,10000)},
-			${price},${p.status||"draft"},${p.product_type||null},${p.vendor||null},
+			${price},${status},${p.product_type||null},${p.vendor||null},
 			${JSON.stringify(p.metadata||{})}::jsonb,${JSON.stringify(p.seo||{})}::jsonb
 		)
 		returning *
@@ -27,7 +27,7 @@ commerceRouter.put("/products/:id",requirePermission("products.update"),async(re
 	const p=req.body||{};
 	const name=typeof p.name==="string"?p.name.trim():"";
 	const slug=typeof p.slug==="string"?p.slug.trim().toLowerCase():"";
-	const price=Number(p.price??0);
+	const price=Number(p.price??0);const status=["draft","active","archived"].includes(p.status)?p.status:"draft";
 	if(!name||name.length>180||!SLUG_PATTERN.test(slug))return res.status(400).json({error:"Nombre o slug no válido"});
 	if(!Number.isFinite(price)||price<0)return res.status(400).json({error:"Precio no válido"});
 	const rows=await sql`
