@@ -50,7 +50,7 @@ app.put("/upload",express.raw({type:"*/*",limit:"16mb"}),async(req,res,next)=>{
   const expected=sign(`${storeId}|${fileId}|${type}|${size}|${expires}`);
   if(!safeEq(sig,expected))return res.status(403).json({error:"Invalid signature"});
   if(!Buffer.isBuffer(req.body)||req.body.length!==size)return res.status(400).json({error:"Upload size mismatch"});
-  const fp=filePaths(storeId,fileId);await mkdir(fp.dir,{recursive:true});try{await writeFile(fp.file,req.body,{flag:"wx"})}catch(e){if(e.code==="EEXIST")return res.status(409).json({error:"Upload already completed"});throw e}await writeFile(fp.meta,JSON.stringify({content_type:type,size_bytes:size,updated_at:new Date().toISOString()}),{flag:"wx"});
+  const fp=filePaths(storeId,fileId);await mkdir(fp.dir,{recursive:true});try{await writeFile(fp.file,req.body,{flag:"wx"})}catch(e){if(e.code==="EEXIST")return res.status(409).json({error:"Upload already completed"});throw e}try{await writeFile(fp.meta,JSON.stringify({content_type:type,size_bytes:size,updated_at:new Date().toISOString()}),{flag:"wx"})}catch(e){await rm(fp.file,{force:true});throw e}
   res.status(201).json({ok:true});
  }catch(e){next(e)}
 });
