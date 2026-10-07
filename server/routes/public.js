@@ -1,4 +1,4 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{domainToASCII}from"node:url";import{isIP}from"node:net";import{sql}from"../db/neon.js";import Stripe from"stripe";import{checkoutLimiter}from"../middleware/rateLimit.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{domainToASCII}from"node:url";import{isIP}from"node:net";import{sql}from"../db/neon.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
 export const publicRouter=Router();
 publicRouter.param("token",(req,res,next,token)=>{
 	if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(token))return res.status(404).json({error:"Checkout no encontrado o caducado"});
@@ -74,6 +74,29 @@ async function requirePublicStore(req,res,next){
 	next();
 }
 publicRouter.get("/store",requirePublicStore,async(req,res)=>{const features=await sql`select feature_key,enabled from store_features where store_id=${req.publicStore.id}::uuid and enabled=true`;res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,theme:req.publicStore.theme||{},settings:publicSettings(req.publicStore.settings||{}),features}})});
+publicRouter.post("/newsletter/subscribe",newsletterLimiter,requirePublicStore,async(req,res)=>{
+ const email=String(req.body?.email||"").trim().toLowerCase();
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254)return res.status(400).json({error:"Email no válido"});
+ if(req.body?.consent!==true)return res.status(400).json({error:"Debes aceptar recibir comunicaciones comerciales"});
+ const rows=await sql`
+  insert into newsletter_subscribers(store_id,email,status,consent_at,unsubscribed_at,source,updated_at)
+  values(${req.publicStore.id}::uuid,${email},'active',now(),null,'storefront',now())
+  on conflict(store_id,lower(email)) do update
+   set status='active',consent_at=now(),unsubscribed_at=null,source='storefront',unsubscribe_token=gen_random_uuid(),updated_at=now()
+  returning id,email,status,consent_at`;
+ res.status(201).json({subscription:{email:rows[0].email,status:rows[0].status,consent_at:rows[0].consent_at}});
+});
+publicRouter.post("/newsletter/unsubscribe/:token",newsletterLimiter,async(req,res)=>{
+ const token=String(req.params.token||"");
+ if(!/^[0-9a-f-]{36}$/i.test(token))return res.status(404).json({error:"Enlace de baja no válido"});
+ const rows=await sql`
+  update newsletter_subscribers
+  set status='unsubscribed',unsubscribed_at=now(),updated_at=now()
+  where unsubscribe_token=${token}::uuid
+  returning id`;
+ if(!rows.length)return res.status(404).json({error:"Suscripción no encontrada"});
+ res.json({ok:true});
+});
 publicRouter.get("/payment-config",requirePublicStore,async(req,res)=>{const rows=await sql`select provider,provider_account_id,charges_enabled from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;const p=rows[0];if(!p||p.provider!=="stripe"||!p.provider_account_id||!p.charges_enabled)return res.status(503).json({error:"La tienda todavía no tiene pagos habilitados"});const publishableKey=process.env.STRIPE_PUBLISHABLE_KEY;if(!publishableKey||!publishableKey.startsWith("pk_"))return res.status(503).json({error:"Stripe público pendiente de configuración"});res.json({provider:"stripe",publishable_key:publishableKey,account_id:p.provider_account_id})});
 publicRouter.get("/products",requirePublicStore,async(req,res)=>{const limit=Math.min(100,Math.max(1,Number.parseInt(String(req.query.limit||"48"),10)||48)),offset=Math.max(0,Number.parseInt(String(req.query.offset||"0"),10)||0);const rows=await sql`select p.id,p.name,p.slug,p.description,p.price,p.product_type,p.vendor,p.created_at,p.published_at,(select m.public_url from product_media pm join media_assets m on m.id=pm.media_id where pm.product_id=p.id and pm.store_id=p.store_id and m.store_id=p.store_id and m.visibility='public' order by pm.is_primary desc,pm.position limit 1) as image_url,coalesce((select jsonb_agg(jsonb_build_object('id',c.id,'name',c.name,'slug',c.slug) order by c.position,c.name) from product_categories pc join categories c on c.id=pc.category_id and c.store_id=p.store_id where pc.product_id=p.id and pc.store_id=p.store_id and c.active=true),'[]'::jsonb) as categories from products p where p.store_id=${req.publicStore.id}::uuid and p.status='active' order by p.published_at desc nulls last,p.created_at desc limit ${limit+1} offset ${offset}`;const hasMore=rows.length>limit;res.json({products:rows.slice(0,limit),page:{limit,offset,has_more:hasMore,next_offset:hasMore?offset+limit:null}})});
 publicRouter.get("/categories",requirePublicStore,async(req,res)=>{const rows=await sql`select c.id,c.name,c.slug,c.description,c.position,count(pc.product_id) filter(where p.status='active')::int as product_count from categories c left join product_categories pc on pc.category_id=c.id and pc.store_id=c.store_id left join products p on p.id=pc.product_id and p.store_id=c.store_id where c.store_id=${req.publicStore.id}::uuid and c.active=true group by c.id order by c.position,c.name`;res.json({categories:rows})});
