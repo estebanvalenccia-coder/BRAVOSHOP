@@ -159,7 +159,7 @@ async function updateRefundFromStripe(event, refund, req) {
 		: refund.status === "failed" || refund.status === "canceled"
 			? "failed"
 			: "pending";
-	await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${storeId}::uuid,${refund.id},${status})`;
+	await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${storeId}::uuid,${refund.id},${status})`;if(status==="succeeded")await sql`select bravoshop_restock_refunded_order(${refundId}::uuid,${storeId}::uuid)`;
 	return storeId;
 }
 
