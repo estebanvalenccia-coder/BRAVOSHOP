@@ -1,13 +1,12 @@
-name: BravoShop production smoke
+name: BravoShop production readiness
 on:
-  workflow_dispatch:
   push:
     branches: [develop]
 concurrency:
-  group: bravoshop-production-smoke
+  group: bravoshop-production-readiness
   cancel-in-progress: true
 jobs:
-  wait-and-smoke:
+  wait-and-check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -24,7 +23,7 @@ jobs:
           done
           cat /tmp/ready.json || true
           exit 1
-      - name: Run tenant isolation smoke suite
+      - name: Run non-destructive production checks
         env:
           SMOKE_API_URL: https://api.bravoshop.online
-        run: node scripts/smoke.js
+        run: node scripts/postdeploy-check.js
