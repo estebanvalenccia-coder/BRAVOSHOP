@@ -49,6 +49,8 @@ export async function resolveTenant(req, res, next) {
 	if (rows[0].status === "scheduled_for_deletion") {
 		return res.status(423).json({ error: "Tienda no disponible" });
 	}
+	const billing = await sql`select bravoshop_refresh_store_billing(${rows[0].id}::uuid) as status`;
+	rows[0].status = billing[0]?.status || rows[0].status;
 
 	const { member_role: role, ...store } = rows[0];
 	req.store = store;
