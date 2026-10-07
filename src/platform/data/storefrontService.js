@@ -12,3 +12,5 @@ export async function getPublicPaymentConfig(host){return api("/api/public/payme
 export async function getPublicCheckout(token){const data=await api("/api/public/checkout/"+encodeURIComponent(token));return data.checkout}
 
 export async function listPublicCategories(host){const data=await api("/api/public/categories?host="+h(host));return data.categories??[]}
+
+export async function subscribePublicNewsletter(host,email){return api("/api/public/newsletter/subscribe",{method:"POST",body:{host,email,consent:true}})}
