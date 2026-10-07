@@ -1,7 +1,9 @@
 import { Router } from "express";
+import { createHash, randomBytes } from "node:crypto";
 import { sql } from "../db/neon.js";
 import { requireAuth, requireStore } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/permissions.js";
+import { sendTransactionalEmail } from "../services/notifications.js";
 
 export const teamMembersRouter = Router({ mergeParams: true });
 teamMembersRouter.use(requireAuth, requireStore);
@@ -56,14 +58,29 @@ teamMembersRouter.post("/members", requirePermission("members.invite"), async (r
 		limit 1
 	`;
 	if (!users.length) {
+		if(!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return res.status(503).json({error:"El envío seguro de invitaciones todavía no está configurado"});
+		const rawToken=randomBytes(32).toString("base64url");
+		const tokenHash=createHash("sha256").update(rawToken).digest("hex");
 		const rows = await sql`
-			insert into store_member_invitations(store_id,email,role,status,invited_by,expires_at)
-			values(${req.storeId}::uuid,${email},${role},'pending',${req.user.id}::uuid,now()+interval '30 days')
+			insert into store_member_invitations(store_id,email,role,status,invited_by,expires_at,token_hash)
+			values(${req.storeId}::uuid,${email},${role},'pending',${req.user.id}::uuid,now()+interval '30 days',${tokenHash})
 			on conflict(store_id,lower(email)) where status='pending'
-			do update set role=excluded.role,invited_by=excluded.invited_by,expires_at=excluded.expires_at,updated_at=now()
+			do update set role=excluded.role,invited_by=excluded.invited_by,expires_at=excluded.expires_at,token_hash=excluded.token_hash,updated_at=now()
 			returning id,email,role,status,expires_at,created_at
 		`;
-		return res.status(202).json({ invitation: rows[0], pending: true });
+		const invitation=rows[0];
+		const base=String(process.env.BRAVOSHOP_APP_URL||"https://app.bravoshop.online").replace(/\/$/,"");
+		const url=base+"/?invite_token="+encodeURIComponent(rawToken);
+		const html=`<!doctype html><html><body style="font-family:Arial,sans-serif;background:#f5f5f3;margin:0"><div style="max-width:600px;margin:auto;padding:36px 20px"><div style="background:#fff;padding:32px;border-radius:18px"><small>BRAVOSHOP</small><h1>Te han invitado a una tienda</h1><p>Se te ha concedido el rol <strong>${role}</strong>. Inicia sesión o crea una cuenta con este mismo correo para aceptar.</p><p><a href="${url}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:10px">Aceptar invitación</a></p><p>Este enlace caduca en 30 días y solo puede utilizarse una vez.</p></div></div></body></html>`;
+		try{
+			const sent=await sendTransactionalEmail({to:email,subject:"Invitación a una tienda BravoShop",html,idempotencyKey:"store-invite/"+invitation.id+"/"+tokenHash.slice(0,12)});
+			if(!sent.configured)throw new Error("Proveedor de email no configurado");
+		}catch(error){
+			await sql`update store_member_invitations set status='revoked',token_hash=null,updated_at=now() where id=${invitation.id}::uuid and status='pending'`;
+			console.error(JSON.stringify({level:"error",error_code:"STORE_INVITATION_EMAIL_FAILED",invitation_id:invitation.id,message:error.message}));
+			return res.status(503).json({error:"No se pudo enviar la invitación. Inténtalo de nuevo más tarde"});
+		}
+		return res.status(202).json({ invitation, pending: true });
 	}
 
 	const rows = await sql`
