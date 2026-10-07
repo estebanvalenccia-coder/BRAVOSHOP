@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { sql } from "../db/neon.js";
 import { recordAudit } from "../services/auditLog.js";
 import { enqueueOrderNotification } from "../services/notifications.js";
+import { persistPlatformSubscription } from "../services/platformBilling.js";
 
 export const stripeWebhookRouter = Router();
 
@@ -27,7 +28,7 @@ stripeWebhookRouter.post("/", async (req, res) => {
 		let storeId = null;
 		if (!event.account && event.type === "checkout.session.completed") {
 			storeId = await completeBillingCheckout(event);
-		} else if (!event.account && ["customer.subscription.created","customer.subscription.updated","customer.subscription.deleted"].includes(event.type)) {
+		} else if (!event.account && ["customer.subscription.created","customer.subscription.updated","customer.subscription.deleted","customer.subscription.paused","customer.subscription.resumed"].includes(event.type)) {
 			storeId = await syncBillingSubscription(event.data.object);
 		} else if (!event.account && ["invoice.paid","invoice.payment_failed"].includes(event.type)) {
 			storeId = await syncBillingInvoice(event.data.object,event.type);
@@ -60,51 +61,43 @@ stripeWebhookRouter.post("/", async (req, res) => {
 
 async function billingOwnerBySubscription(subscriptionId,customerId){
  const rows=subscriptionId
-  ?await sql`select store_id from store_subscriptions where provider_subscription_id=${subscriptionId} limit 1`
-  :await sql`select store_id from store_subscriptions where provider_customer_id=${customerId} limit 1`;
- return rows[0]?.store_id||null;
+  ?await sql`select store_id,plan_id from store_subscriptions where provider_subscription_id=${subscriptionId} limit 1`
+  :await sql`select store_id,plan_id from store_subscriptions where provider_customer_id=${customerId} limit 1`;
+ return rows[0]||null;
 }
 async function syncBillingSubscription(sub){
- let storeId=String(sub.metadata?.bravoshop_billing_store_id||"");
- if(!/^[0-9a-f-]{36}$/i.test(storeId))storeId=await billingOwnerBySubscription(sub.id,typeof sub.customer==="string"?sub.customer:sub.customer?.id);
- if(!storeId)return null;
- let planId=String(sub.metadata?.bravoshop_plan_id||"");
- const priceId=sub.items?.data?.[0]?.price?.id||null;
- if(!/^[0-9a-f-]{36}$/i.test(planId)){
-  const plans=await sql`select id from plans where provider_monthly_price_id=${priceId} or provider_annual_price_id=${priceId} limit 1`;
-  planId=plans[0]?.id||null;
- }
- const interval=sub.items?.data?.[0]?.price?.recurring?.interval==="year"?"year":"month";
- const periodEnd=Number(sub.current_period_end||0);
- await sql`
-  insert into store_subscriptions(store_id,plan_id,status,provider_customer_id,provider_subscription_id,provider_price_id,billing_interval,current_period_end,cancel_at_period_end,updated_at)
-  values(${storeId}::uuid,${planId}::uuid,${sub.status},${typeof sub.customer==="string"?sub.customer:sub.customer?.id||null},${sub.id},${priceId},${interval},case when ${periodEnd}>0 then to_timestamp(${periodEnd}) else null end,${Boolean(sub.cancel_at_period_end)},now())
-  on conflict(store_id) do update set plan_id=coalesce(excluded.plan_id,store_subscriptions.plan_id),status=excluded.status,provider_customer_id=excluded.provider_customer_id,provider_subscription_id=excluded.provider_subscription_id,provider_price_id=excluded.provider_price_id,billing_interval=excluded.billing_interval,current_period_end=excluded.current_period_end,cancel_at_period_end=excluded.cancel_at_period_end,updated_at=now()`;
- if(["active","trialing"].includes(sub.status))await sql`update stores set status='active',updated_at=now() where id=${storeId}::uuid and status in ('trial','unpaid')`;
- else if(["past_due","unpaid","canceled","incomplete_expired"].includes(sub.status))await sql`update stores set status='unpaid',updated_at=now() where id=${storeId}::uuid and status in ('active','trial','unpaid')`;
- return storeId;
+ return persistPlatformSubscription(sub);
 }
 async function completeBillingCheckout(event){
  const session=event.data.object;if(session.mode!=="subscription")return null;
- let storeId=String(session.metadata?.bravoshop_billing_store_id||session.client_reference_id||"");
+ let storeId=String(session.metadata?.bravoshop_billing_store_id||session.metadata?.bravoshop_store_id||session.client_reference_id||"");
  if(!/^[0-9a-f-]{36}$/i.test(storeId))return null;
+ const planId=/^[0-9a-f-]{36}$/i.test(String(session.metadata?.bravoshop_plan_id||""))?session.metadata.bravoshop_plan_id:null;
+ await sql`update store_subscriptions set provider_checkout_session_id=${session.id},provider_customer_id=coalesce(${typeof session.customer==="string"?session.customer:session.customer?.id||null},provider_customer_id),updated_at=now() where store_id=${storeId}::uuid`;
  if(!session.subscription)return storeId;
  const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
  const sub=await stripe.subscriptions.retrieve(typeof session.subscription==="string"?session.subscription:session.subscription.id);
- await sql`update store_subscriptions set provider_checkout_session_id=${session.id},provider_customer_id=${typeof session.customer==="string"?session.customer:session.customer?.id||null},updated_at=now() where store_id=${storeId}::uuid`;
- return await syncBillingSubscription(sub);
+ return persistPlatformSubscription(sub,{storeId,planId});
 }
 async function syncBillingInvoice(invoice,eventType){
- const subscriptionId=typeof invoice.subscription==="string"?invoice.subscription:invoice.parent?.subscription_details?.subscription||null;
+ const subscriptionId=typeof invoice.parent?.subscription_details?.subscription==="string"
+  ?invoice.parent.subscription_details.subscription
+  :typeof invoice.subscription==="string"?invoice.subscription:null;
  const customerId=typeof invoice.customer==="string"?invoice.customer:invoice.customer?.id||null;
- const storeId=await billingOwnerBySubscription(subscriptionId,customerId);if(!storeId)return null;
- if(eventType==="invoice.payment_failed"){
-  await sql`update store_subscriptions set status='past_due',last_invoice_status='failed',updated_at=now() where store_id=${storeId}::uuid`;
-  await sql`update stores set status='unpaid',updated_at=now() where id=${storeId}::uuid and status in ('active','trial','unpaid')`;
- }else{
-  await sql`update store_subscriptions set last_invoice_status='paid',updated_at=now() where store_id=${storeId}::uuid`;
+ const owner=await billingOwnerBySubscription(subscriptionId,customerId);if(!owner)return null;
+ const invoiceStatus=eventType==="invoice.payment_failed"?"failed":"paid";
+ if(subscriptionId){
+  try{
+   const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+   const sub=await stripe.subscriptions.retrieve(subscriptionId);
+   return await persistPlatformSubscription(sub,{storeId:owner.store_id,planId:owner.plan_id,lastInvoiceStatus:invoiceStatus});
+  }catch(error){
+   console.error(JSON.stringify({level:"error",error_code:"BILLING_SUBSCRIPTION_SYNC_FAILED",store_id:owner.store_id,message:error.message}));
+  }
  }
- return storeId;
+ await sql`update store_subscriptions set last_invoice_status=${invoiceStatus},status=case when ${eventType}='invoice.payment_failed' then 'past_due' else status end,updated_at=now() where store_id=${owner.store_id}::uuid`;
+ if(eventType==="invoice.payment_failed")await sql`update stores set status='unpaid',updated_at=now() where id=${owner.store_id}::uuid and status in ('active','trial','unpaid')`;
+ return owner.store_id;
 }
 
 async function connectedStoreId(event, expectedStoreId, req) {
