@@ -2,7 +2,8 @@ import React,{useEffect,useMemo,useState}from"react";
 import{AlertTriangle,Boxes,CheckCircle2,Save,Search}from"lucide-react";
 import{listInventory,listInventoryMovements}from"../data/adminService.js";import{setInventory}from"../data/catalogService.js";
 
-const rawAvailable=i=>Number(i.quantity||0)-Number(i.reserved||0);\nconst available=i=>Math.max(0,rawAvailable(i));
+const rawAvailable=i=>Number(i.quantity||0)-Number(i.reserved||0);
+const available=i=>Math.max(0,rawAvailable(i));
 export function InventoryManager({storeId,currency="EUR"}){
  const[items,setItems]=useState([]),[movements,setMovements]=useState([]),[drafts,setDrafts]=useState({}),[query,setQuery]=useState(""),[filter,setFilter]=useState("all"),[sort,setSort]=useState("risk"),[threshold,setThreshold]=useState(3),[error,setError]=useState(""),[notice,setNotice]=useState(""),[saving,setSaving]=useState(null);
  const load=()=>storeId&&Promise.all([listInventory(storeId),listInventoryMovements(storeId)]).then(([rows,moves])=>{setItems(rows);setMovements(moves);setDrafts(Object.fromEntries(rows.map(i=>[i.variant_id,String(i.quantity??0)])))}).catch(e=>setError(e.message));useEffect(()=>{load()},[storeId]);
