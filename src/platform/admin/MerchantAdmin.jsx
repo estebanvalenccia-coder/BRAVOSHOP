@@ -21,7 +21,7 @@ export function MerchantAdmin({store,onExit}){
 	else if(section==="orders")content=<OrdersManager storeId={current?.id}/>;
 	else if(section==="customers")content=<CustomersManager storeId={current?.id}/>;
 	else if(section==="team")content=<TeamManager store={current}/>;
-	else if(section==="inventory")content=<InventoryManager storeId={current?.id}/>;
+	else if(section==="inventory")content=<InventoryManager storeId={current?.id} currency={current?.settings?.currency||"EUR"}/>;
 	else if(section==="media")content=<MediaLibrary storeId={current?.id}/>;
 	else if(section==="design")content=<StoreSettings store={current} mode="design" onSaved={setCurrent}/>;
 	else if(section==="payments")content=<Payments store={current}/>;
