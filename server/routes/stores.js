@@ -16,7 +16,7 @@ async function canUsePremiumTemplate(storeId){
   limit 1`;
  return rows.length>0;
 }
-storesRouter.get("/",async(req,res)=>{const rows=await sql`select s.*,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme from stores s join store_members sm on sm.store_id=s.id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where sm.user_id=${req.user.id}::uuid and sm.status='active' order by s.created_at desc`;res.json({stores:rows})});
+storesRouter.get("/",async(req,res)=>{await sql`select bravoshop_expire_billing_access(200)`;const rows=await sql`select s.*,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme from stores s join store_members sm on sm.store_id=s.id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where sm.user_id=${req.user.id}::uuid and sm.status='active' order by s.created_at desc`;res.json({stores:rows})});
 storesRouter.post("/",async(req,res)=>{
  const{name,slug,sector,theme={},settings={},features=[]}=req.body||{};
  const baseSlug=String(slug||"").trim().toLowerCase();
