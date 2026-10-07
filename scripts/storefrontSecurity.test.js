@@ -60,3 +60,10 @@ test("public checkout refuses to create sessions until payments are fully ready"
  assert.ok(source.slice(start,normalized).includes("payouts_enabled"));
  assert.ok(source.slice(start,normalized).includes("STRIPE_WEBHOOK_SECRET"));
 });
+
+test("storefront payment flow reports async preparation and confirmation failures", async () => {
+  const source=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+  assert.ok(source.includes('setPaymentStatus({error:e?.message||"No se pudo preparar el pago seguro"})'));
+  assert.ok(source.includes('setPaymentStatus({error:e?.message||"No se pudo confirmar el pago"})'));
+  assert.ok(source.includes("finally{setBusy(false)}"));
+});
