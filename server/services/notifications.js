@@ -49,6 +49,16 @@ async function sendRow(row){
  return{configured:true,id:body.id||null};
 }
 
+export async function sendTransactionalEmail({to,subject,html,idempotencyKey}){
+ const apiKey=process.env.RESEND_API_KEY;const from=process.env.BRAVOSHOP_EMAIL_FROM;
+ if(!apiKey||!from)return{configured:false};
+ if(!emailPattern.test(String(to||"")))throw new Error("Invalid email recipient");
+ const response=await fetch("https://api.resend.com/emails",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${apiKey}`,"Idempotency-Key":String(idempotencyKey).slice(0,256)},body:JSON.stringify({from,to:[to],subject,html})});
+ const body=await response.json().catch(()=>({}));
+ if(!response.ok)throw new Error(body?.message||`Email provider ${response.status}`);
+ return{configured:true,id:body.id||null};
+}
+
 export async function processNotificationOutbox(limit=10){
  if(!databaseConfigured||!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return{configured:false,processed:0};
  const rows=await sql`select * from bravoshop_claim_notification_batch(${limit})`;let processed=0;
