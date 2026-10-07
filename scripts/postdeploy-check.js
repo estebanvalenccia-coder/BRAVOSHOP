@@ -1,4 +1,5 @@
-const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");\nconst MEDIA=(process.env.MEDIA_HEALTH_URL||"https://bravoshop-media-production.up.railway.app").replace(/\/$/,"");
+const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");
+const MEDIA=(process.env.MEDIA_HEALTH_URL||"https://bravoshop-media-production.up.railway.app").replace(/\/$/,"");
 async function request(path,options={}){
  const r=await fetch(API+path,{...options,headers:{accept:"application/json",...(options.headers||{})}});
  const body=await r.json().catch(()=>({}));
