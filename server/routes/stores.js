@@ -99,6 +99,84 @@ storesRouter.patch("/:storeId/shipping/rates/:rateId",requireStore,requirePermis
 storesRouter.delete("/:storeId/shipping/rates/:rateId",requireStore,requirePermission("shipping.manage"),async(req,res)=>{const rows=await sql`delete from shipping_rates where id=${req.params.rateId}::uuid and store_id=${req.storeId}::uuid returning id`;if(!rows.length)return res.status(404).json({error:"Tarifa no encontrada"});res.status(204).end()});
 storesRouter.get("/:storeId/taxes",requireStore,requirePermission("tax.read"),async(req,res)=>{const rows=await sql`select * from store_tax_settings where store_id=${req.storeId}::uuid`;res.json({tax:rows[0]||{enabled:false,prices_include_tax:true,default_rate:0}})});
 storesRouter.put("/:storeId/taxes",requireStore,requirePermission("tax.manage"),async(req,res)=>{const rate=Number(req.body?.default_rate||0);if(!Number.isFinite(rate)||rate<0||rate>100)return res.status(400).json({error:"Impuesto inválido"});const rows=await sql`insert into store_tax_settings(store_id,enabled,prices_include_tax,default_rate) values(${req.storeId}::uuid,${Boolean(req.body?.enabled)},${req.body?.prices_include_tax!==false},${rate}) on conflict(store_id) do update set enabled=excluded.enabled,prices_include_tax=excluded.prices_include_tax,default_rate=excluded.default_rate,updated_at=now() returning *`;res.json({tax:rows[0]})});
+
+async function ensurePlanStripePrice(stripe,plan,interval){
+ const amount=Math.round(Number(interval==="year"?plan.annual_price:plan.monthly_price)*100);
+ if(!Number.isSafeInteger(amount)||amount<=0)throw Object.assign(new Error("Plan without price"),{statusCode:409});
+ const currency=String(plan.currency||"EUR").toLowerCase();
+ let productId=plan.provider_product_id||null;
+ if(productId){try{const p=await stripe.products.retrieve(productId);if(p.deleted)productId=null}catch{productId=null}}
+ if(!productId){
+  const p=await stripe.products.create({name:`BravoShop ${plan.name}`,metadata:{bravoshop_plan_id:String(plan.id),bravoshop_plan_slug:String(plan.slug)}},{idempotencyKey:`bravoshop-plan-product-${plan.id}`});
+  productId=p.id;await sql`update plans set provider_product_id=${productId} where id=${plan.id}::uuid`;
+ }
+ const column=interval==="year"?"provider_annual_price_id":"provider_monthly_price_id";
+ let priceId=plan[column]||null,valid=false;
+ if(priceId){try{const price=await stripe.prices.retrieve(priceId);valid=price.active&&price.unit_amount===amount&&price.currency===currency&&price.recurring?.interval===interval}catch{}}
+ if(!valid){
+  const price=await stripe.prices.create({product:productId,unit_amount:amount,currency,recurring:{interval},metadata:{bravoshop_plan_id:String(plan.id),bravoshop_plan_slug:String(plan.slug),bravoshop_interval:interval}},{idempotencyKey:`bravoshop-plan-price-${plan.id}-${interval}-${currency}-${amount}`});
+  priceId=price.id;
+  if(interval==="year")await sql`update plans set provider_annual_price_id=${priceId} where id=${plan.id}::uuid`;
+  else await sql`update plans set provider_monthly_price_id=${priceId} where id=${plan.id}::uuid`;
+ }
+ return priceId;
+}
+async function ensureBillingCustomer(stripe,storeId,currentCustomerId){
+ if(currentCustomerId){try{const customer=await stripe.customers.retrieve(currentCustomerId);if(!customer.deleted)return currentCustomerId}catch{}}
+ const rows=await sql`select s.name,u.email from stores s join store_members sm on sm.store_id=s.id and sm.role='owner' and sm.status='active' join app_users u on u.id=sm.user_id and u.status='active' where s.id=${storeId}::uuid order by sm.created_at limit 1`;
+ if(!rows.length)throw Object.assign(new Error("Store owner missing"),{statusCode:409});
+ const customer=await stripe.customers.create({email:rows[0].email,name:rows[0].name,metadata:{bravoshop_billing_store_id:String(storeId)}},{idempotencyKey:`bravoshop-billing-customer-${storeId}`});
+ return customer.id;
+}
+storesRouter.get("/:storeId/billing",requireStore,requirePermission("billing.read"),async(req,res)=>{
+ const plans=await sql`select id,name,slug,monthly_price,annual_price,currency,trial_days,metadata from plans where status='active' and is_public=true order by coalesce(monthly_price,999999),name`;
+ const current=await sql`select ss.*,p.name as plan_name,p.slug as plan_slug,p.monthly_price,p.annual_price,p.currency from store_subscriptions ss left join plans p on p.id=ss.plan_id where ss.store_id=${req.storeId}::uuid limit 1`;
+ res.json({plans,current:current[0]||null,provider_configured:Boolean(process.env.STRIPE_SECRET_KEY)});
+});
+storesRouter.post("/:storeId/billing/checkout",requireStore,requirePermission("billing.manage"),async(req,res)=>{
+ if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"La facturación de BravoShop todavía no está configurada"});
+ const slug=String(req.body?.plan||"").trim().toLowerCase(),interval=req.body?.interval==="year"?"year":"month";
+ const plans=await sql`select * from plans where slug=${slug} and status='active' and is_public=true limit 1`;if(!plans.length)return res.status(404).json({error:"Plan no disponible"});
+ const plan=plans[0],listed=interval==="year"?plan.annual_price:plan.monthly_price;if(listed==null||Number(listed)<=0)return res.status(409).json({error:"Este plan todavía no tiene precio para esa modalidad"});
+ const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+ const existingRows=await sql`select * from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;const existing=existingRows[0]||null;
+ const customerId=await ensureBillingCustomer(stripe,req.storeId,existing?.provider_customer_id);
+ const priceId=await ensurePlanStripePrice(stripe,plan,interval);
+ if(existing?.provider_subscription_id&&!["canceled","incomplete_expired"].includes(existing.status)){
+  const sub=await stripe.subscriptions.retrieve(existing.provider_subscription_id);
+  const item=sub.items?.data?.[0];if(!item)return res.status(409).json({error:"La suscripción actual no tiene una línea modificable"});
+  const updated=await stripe.subscriptions.update(sub.id,{items:[{id:item.id,price:priceId}],proration_behavior:"create_prorations",cancel_at_period_end:false,metadata:{...sub.metadata,bravoshop_billing_store_id:String(req.storeId),bravoshop_plan_id:String(plan.id),bravoshop_plan_slug:plan.slug,bravoshop_interval:interval}});
+  await sql`update store_subscriptions set plan_id=${plan.id}::uuid,status=${updated.status},billing_interval=${interval},provider_customer_id=${customerId},provider_price_id=${priceId},current_period_end=to_timestamp(${updated.current_period_end||0}),cancel_at_period_end=${Boolean(updated.cancel_at_period_end)},updated_at=now() where store_id=${req.storeId}::uuid`;
+  if(["active","trialing"].includes(updated.status))await sql`update stores set status='active',updated_at=now() where id=${req.storeId}::uuid`;
+  return res.json({updated:true,status:updated.status});
+ }
+ const appUrl=String(process.env.BRAVOSHOP_APP_URL||"https://app.bravoshop.online").replace(/\/$/,"");
+ const session=await stripe.checkout.sessions.create({mode:"subscription",customer:customerId,line_items:[{price:priceId,quantity:1}],success_url:appUrl+"/?billing=success",cancel_url:appUrl+"/?billing=cancelled",client_reference_id:String(req.storeId),metadata:{bravoshop_billing_store_id:String(req.storeId),bravoshop_plan_id:String(plan.id),bravoshop_plan_slug:plan.slug,bravoshop_interval:interval},subscription_data:{metadata:{bravoshop_billing_store_id:String(req.storeId),bravoshop_plan_id:String(plan.id),bravoshop_plan_slug:plan.slug,bravoshop_interval:interval}}},{idempotencyKey:`bravoshop-billing-checkout-${req.storeId}-${plan.id}-${interval}-${Date.now().toString().slice(0,-4)}`});
+ await sql`insert into store_subscriptions(store_id,plan_id,status,provider_customer_id,provider_price_id,provider_checkout_session_id,billing_interval,updated_at) values(${req.storeId}::uuid,${plan.id}::uuid,'checkout_pending',${customerId},${priceId},${session.id},${interval},now()) on conflict(store_id) do update set plan_id=excluded.plan_id,status='checkout_pending',provider_customer_id=excluded.provider_customer_id,provider_price_id=excluded.provider_price_id,provider_checkout_session_id=excluded.provider_checkout_session_id,billing_interval=excluded.billing_interval,updated_at=now()`;
+ res.json({url:session.url});
+});
+storesRouter.post("/:storeId/billing/cancel",requireStore,requirePermission("billing.manage"),async(req,res)=>{
+ if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"La facturación de BravoShop todavía no está configurada"});
+ const rows=await sql`select provider_subscription_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;if(!rows[0]?.provider_subscription_id)return res.status(409).json({error:"No hay una suscripción Stripe activa"});
+ const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);const sub=await stripe.subscriptions.update(rows[0].provider_subscription_id,{cancel_at_period_end:true});
+ await sql`update store_subscriptions set cancel_at_period_end=true,current_period_end=to_timestamp(${sub.current_period_end||0}),updated_at=now() where store_id=${req.storeId}::uuid`;
+ res.json({ok:true,cancel_at_period_end:true,current_period_end:sub.current_period_end||null});
+});
+storesRouter.post("/:storeId/billing/resume",requireStore,requirePermission("billing.manage"),async(req,res)=>{
+ if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"La facturación de BravoShop todavía no está configurada"});
+ const rows=await sql`select provider_subscription_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;if(!rows[0]?.provider_subscription_id)return res.status(409).json({error:"No hay una suscripción Stripe activa"});
+ const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);const sub=await stripe.subscriptions.update(rows[0].provider_subscription_id,{cancel_at_period_end:false});
+ await sql`update store_subscriptions set cancel_at_period_end=false,current_period_end=to_timestamp(${sub.current_period_end||0}),updated_at=now() where store_id=${req.storeId}::uuid`;
+ res.json({ok:true,cancel_at_period_end:false,current_period_end:sub.current_period_end||null});
+});
+storesRouter.post("/:storeId/billing/portal",requireStore,requirePermission("billing.manage"),async(req,res)=>{
+ if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"La facturación de BravoShop todavía no está configurada"});
+ const rows=await sql`select provider_customer_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;if(!rows[0]?.provider_customer_id)return res.status(409).json({error:"No existe un cliente de facturación"});
+ const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);const appUrl=String(process.env.BRAVOSHOP_APP_URL||"https://app.bravoshop.online").replace(/\/$/,"");
+ const portal=await stripe.billingPortal.sessions.create({customer:rows[0].provider_customer_id,return_url:appUrl});
+ res.json({url:portal.url});
+});
+
 storesRouter.post("/:storeId/access-codes/redeem",codeRedemptionLimiter,requireStore,requirePermission("billing.manage"),async(req,res)=>{const code=String(req.body?.code||"").trim().toUpperCase();if(!code)return res.status(400).json({error:"Escribe un código"});const rows=await sql`select bravoshop_redeem_access_code(${code},${req.storeId}::uuid,${req.user.id}::uuid) as result`;const result=rows[0]?.result;if(!result?.ok){const reason=result?.error;const map={invalid:[404,"Código no válido, caducado o sin usos disponibles"],already_redeemed:[409,"Esta tienda ya utilizó este código"],unsupported:[400,"Tipo de código no compatible"]};const[status,message]=map[reason]||[400,"No se pudo canjear el código"];return res.status(status).json({error:message})}res.json({ok:true,grant_type:result.grant_type,feature_key:result.feature_key,permanent:result.permanent})});
 storesRouter.get("/:storeId/entitlements",requireStore,requirePermission("billing.read"),async(req,res)=>{const rows=await sql`select feature_key,permanent,ends_at,limits,source from store_feature_entitlements where store_id=${req.storeId}::uuid and (permanent=true or ends_at is null or ends_at>now())`;res.json({entitlements:rows})});
 
