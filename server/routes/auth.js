@@ -125,6 +125,7 @@ authRouter.post("/login", authLimiter, async (req, res) => {
 
 authRouter.post("/password/forgot", authLimiter, async (req, res) => {
  const normalized=String(req.body?.email||"").trim().toLowerCase();
+ if(!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return res.status(503).json({error:"La recuperación por correo está temporalmente no disponible"});
  const done=()=>res.status(202).json({ok:true,message:"Si existe una cuenta activa, recibirás instrucciones para restablecer la contraseña."});
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)||normalized.length>254)return done();
  const rows=await sql`select id,email from app_users where lower(email)=${normalized} and status='active' limit 1`;
