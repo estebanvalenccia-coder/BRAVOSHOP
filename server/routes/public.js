@@ -15,8 +15,8 @@ function validateCheckoutBody(req,res,next){
 	if(items.some(item=>!item||typeof item!=="object"||!uuid.test(item.variant_id)||!Number.isSafeInteger(item.quantity)||item.quantity<1||item.quantity>99))return res.status(400).json({error:"Cantidad o variante no válida"});
 	if(req.body.email!==undefined&&(typeof req.body.email!=="string"||req.body.email.length>254||! /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(req.body.email)))return res.status(400).json({error:"Email no válido"});
 	if(req.body.currency!==undefined&&(typeof req.body.currency!=="string"||! /^[A-Za-z]{3}$/.test(req.body.currency)))return res.status(400).json({error:"Moneda no válida"});
-\tif(req.body.discount_code!==undefined&&(typeof req.body.discount_code!=="string"||req.body.discount_code.length>80))return res.status(400).json({error:"Código de descuento no válido"});
-\tif(req.body.shipping_rate_id!==undefined&&(typeof req.body.shipping_rate_id!=="string"||!uuid.test(req.body.shipping_rate_id)))return res.status(400).json({error:"Tarifa de envío no válida"});
+	if(req.body.discount_code!==undefined&&(typeof req.body.discount_code!=="string"||req.body.discount_code.length>80))return res.status(400).json({error:"Código de descuento no válido"});
+	if(req.body.shipping_rate_id!==undefined&&(typeof req.body.shipping_rate_id!=="string"||!uuid.test(req.body.shipping_rate_id)))return res.status(400).json({error:"Tarifa de envío no válida"});
 	const address=req.body.shipping_address??{};
 	if(!address||typeof address!=="object"||Array.isArray(address))return res.status(400).json({error:"Dirección no válida"});
 	const fields=["name","phone","line1","line2","city","region","postal_code","country"];
