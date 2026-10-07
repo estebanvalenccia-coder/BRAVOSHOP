@@ -108,3 +108,10 @@ test("default storefront navigation targets resolve to rendered template section
   }
  }
 });
+
+test("onboarding keeps core commerce modules enabled by default",async()=>{
+ const source=await readFile(new URL("../src/platform/onboarding/Onboarding.jsx",import.meta.url),"utf8");
+ assert.ok(source.includes("if(CORE_FEATURES.includes(f))return"));
+ assert.ok(source.includes('disabled={core}'));
+ assert.ok(source.includes("Incluido en todas las tiendas"));
+});
