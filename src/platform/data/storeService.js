@@ -8,6 +8,12 @@ export async function updateStoreFeatures(storeId,features){return api(`/api/sto
 export async function getPaymentAccount(storeId){const data=await api(`/api/stores/${storeId}/payments`);return data.payment_account}
 export async function updatePaymentPreferences(storeId,input){return api(`/api/stores/${storeId}/payments/preferences`,{method:"PUT",body:input})}
 
+export async function getBilling(storeId){return api(`/api/stores/${storeId}/billing`)}
+export async function startBillingCheckout(storeId,plan,interval){return api(`/api/stores/${storeId}/billing/checkout`,{method:"POST",body:{plan,interval}})}
+export async function cancelBilling(storeId){return api(`/api/stores/${storeId}/billing/cancel`,{method:"POST",body:{}})}
+export async function resumeBilling(storeId){return api(`/api/stores/${storeId}/billing/resume`,{method:"POST",body:{}})}
+export async function openBillingPortal(storeId){return api(`/api/stores/${storeId}/billing/portal`,{method:"POST",body:{}})}
+
 export async function redeemAccessCode(storeId,code){return api(`/api/stores/${storeId}/access-codes/redeem`,{method:"POST",body:{code}})}
 export async function getEntitlements(storeId){const data=await api(`/api/stores/${storeId}/entitlements`);return data.entitlements||[]}
 export async function getEffectiveFeatures(storeId){return api(`/api/stores/${storeId}/features/effective`)}
