@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { tenantIdFromRequest } from "../server/middleware/auth.js";
 import { hasPermission, permissionsForRole, requirePermission } from "../server/middleware/permissions.js";
 import { canAssignMemberRole, canManageMember } from "../server/routes/members.js";
@@ -114,4 +115,16 @@ test("custom domains are normalized and platform domains cannot be claimed", () 
 	assert.equal(normalizeCustomDomain("bravoshop.online"), null);
 	assert.equal(normalizeCustomDomain("tenant.bravoshop.online"), null);
 	assert.equal(normalizeCustomDomain("127.0.0.1"), null);
+});
+
+
+test("registration cannot accept a store invitation by email alone", async () => {
+	const source=await readFile(new URL("../server/routes/auth.js",import.meta.url),"utf8");
+	const start=source.indexOf('authRouter.post("/register"');
+	const end=source.indexOf('authRouter.post("/login"',start);
+	assert.ok(start>=0&&end>start);
+	const register=source.slice(start,end);
+	assert.equal(register.includes("store_member_invitations"),false);
+	assert.ok(source.includes('authRouter.post("/invitations/accept"'));
+	assert.ok(source.includes("bravoshop_accept_store_invitation"));
 });
