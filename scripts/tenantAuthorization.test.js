@@ -30,6 +30,8 @@ test("tenant roles grant only explicitly assigned permissions", () => {
 	assert.equal(hasPermission("owner", "orders.refund"), true);
 	assert.equal(hasPermission("admin", "payments.manage"), true);
 	assert.equal(hasPermission("manager", "orders.refund"), false);
+	assert.equal(hasPermission("manager", "marketing.manage"), true);
+	assert.equal(hasPermission("staff", "marketing.read"), false);
 	assert.equal(hasPermission("staff", "products.delete"), false);
 	assert.equal(hasPermission("viewer", "orders.read"), true);
 	assert.equal(hasPermission("super_admin", "store.update"), false);
