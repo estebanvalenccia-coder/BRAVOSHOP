@@ -23,6 +23,7 @@ if(expected&&ready.commit!==expected)throw new Error("Production commit mismatch
 // Non-destructive tenant-routing guards: reserved platform labels never resolve as stores,
 // and a browser origin cannot select a different tenant through ?host=.
 await expectStatus("/api/public/store?host="+encodeURIComponent("ftp.bravoshop.online"),404);
+await expectStatus("/api/public/checkout/not-a-uuid",400);
 await expectStatus(
  "/api/public/store?host="+encodeURIComponent("tenant-b.bravoshop.online"),
  400,
