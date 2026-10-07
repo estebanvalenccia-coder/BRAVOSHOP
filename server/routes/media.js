@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "../db/neon.js";
 import { requireAuth, requireStore } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/permissions.js";
-import { createUploadIntent, mediaReady, removeObject } from "../services/mediaSigner.js";
+import { createUploadIntent, mediaReady, removeObject, verifyObject } from "../services/mediaSigner.js";
 
 export const mediaRouter = Router({ mergeParams: true });
 mediaRouter.use(requireAuth, requireStore);
@@ -105,6 +105,11 @@ mediaRouter.post("/media/complete", requirePermission("products.update"), async 
 	const originalName = String(req.body?.original_name || "image")
 		.replace(/[\u0000-\u001f\u007f]/g, "")
 		.slice(0, 255);
+	try{
+		await verifyObject({object_path:objectPath,content_type:mimeType,size_bytes:size});
+	}catch(error){
+		return res.status(409).json({error:"La subida no existe, está incompleta o no coincide con la intención"});
+	}
 	const rows = await sql`
 		with claimed as (
 			update media_upload_intents
