@@ -10,6 +10,7 @@ test("storefront links reject executable and insecure schemes",()=>{
  assert.equal(safeStorefrontUrl("//evil.example","#catalog"),"#catalog");
  assert.equal(safeStorefrontUrl("/products/test"),"/products/test");
  assert.equal(safeStorefrontUrl("#catalog"),"#catalog");
+ assert.equal(safeStorefrontUrl("#","#catalog"),"#catalog");
  assert.equal(safeStorefrontUrl("mailto:shop@example.com"),"mailto:shop@example.com");
  assert.equal(safeStorefrontUrl("https://example.com/path"),"https://example.com/path");
 });
@@ -124,4 +125,9 @@ test("premium category gallery uses tenant catalog imagery",async()=>{
  assert.ok(publicSource.includes("m.store_id=c.store_id"));
  assert.ok(storefront.includes("premiumCategoryGrid"));
  assert.ok(storefront.includes('theme?.template==="premium-organic"'));
+});
+
+test("unsafe custom navigation falls back to the catalog instead of a dead hash",async()=>{
+ const storefront=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ assert.ok(storefront.includes('safeStorefrontUrl(m.url,"#catalog")'));
 });

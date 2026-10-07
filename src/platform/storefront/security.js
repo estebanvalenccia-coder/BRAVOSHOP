@@ -8,6 +8,7 @@ const PREVIEW_ORIGINS=new Set([
 export function safeStorefrontUrl(value,fallback="#"){
  const raw=typeof value==="string"?value.trim():"";
  if(!raw)return fallback;
+ if(raw==="#")return fallback;
  if(raw.startsWith("#"))return raw;
  if(raw.startsWith("/")&&!raw.startsWith("//"))return raw;
  if(/^(mailto:|tel:)/i.test(raw))return raw;
