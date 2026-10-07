@@ -256,6 +256,43 @@ commerceRouter.get("/abandoned-checkouts",requirePermission("marketing.read"),as
   limit ${limit}`;
  res.json({checkouts:rows});
 });
+const normalizeCampaignUrl=value=>{
+ const raw=String(value||"").trim();
+ if(!raw)return null;
+ if(raw.startsWith("/")&&!raw.startsWith("//"))return raw.slice(0,1000);
+ try{const u=new URL(raw);return u.protocol==="https:"?u.href.slice(0,1000):null}catch{return null}
+};
+commerceRouter.get("/campaigns",requirePermission("marketing.read"),async(req,res)=>{
+ const rows=await sql`
+  select id,name,subject,heading,body_text,button_label,button_url,status,recipient_count,sent_count,failed_count,queued_at,completed_at,created_at,updated_at
+  from marketing_campaigns
+  where store_id=${req.storeId}::uuid
+  order by created_at desc limit 100`;
+ res.json({campaigns:rows});
+});
+commerceRouter.post("/campaigns",requirePermission("marketing.manage"),async(req,res)=>{
+ const p=req.body||{},name=String(p.name||"").trim().slice(0,120),subject=String(p.subject||"").trim().slice(0,160),heading=String(p.heading||"").trim().slice(0,160),body=String(p.body_text||"").trim().slice(0,5000),buttonLabel=String(p.button_label||"").trim().slice(0,80),buttonUrl=normalizeCampaignUrl(p.button_url);
+ if(!name||!subject||!heading||!body||p.button_url&&!buttonUrl)return res.status(400).json({error:"Completa una campaña válida; los enlaces deben ser HTTPS o relativos"});
+ const rows=await sql`
+  insert into marketing_campaigns(store_id,name,subject,heading,body_text,button_label,button_url,created_by)
+  values(${req.storeId}::uuid,${name},${subject},${heading},${body},${buttonLabel||null},${buttonUrl},${req.user.id}::uuid)
+  returning *`;
+ res.status(201).json({campaign:rows[0]});
+});
+commerceRouter.delete("/campaigns/:id",requirePermission("marketing.manage"),async(req,res)=>{
+ const rows=await sql`delete from marketing_campaigns where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid and status='draft' returning id`;
+ if(!rows.length)return res.status(409).json({error:"Solo se pueden eliminar campañas en borrador"});
+ res.status(204).end();
+});
+commerceRouter.post("/campaigns/:id/send",requirePermission("marketing.manage"),async(req,res)=>{
+ if(!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return res.status(503).json({error:"El proveedor de email todavía no está configurado"});
+ const exists=await sql`select id from marketing_campaigns where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid and status='draft' limit 1`;
+ if(!exists.length)return res.status(409).json({error:"La campaña ya fue enviada o no está disponible"});
+ const queued=await sql`select bravoshop_queue_marketing_campaign(${req.params.id}::uuid,${req.storeId}::uuid) as n`;
+ if(!queued[0]?.n)return res.status(409).json({error:"No hay suscriptores activos para esta campaña"});
+ res.json({ok:true,queued:Number(queued[0].n)});
+});
+
 commerceRouter.get("/newsletter",requirePermission("marketing.read"),async(req,res)=>{
  const limit=Math.min(250,Math.max(1,Number.parseInt(String(req.query.limit||"100"),10)||100));
  const status=String(req.query.status||"").trim();

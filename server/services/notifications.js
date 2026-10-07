@@ -71,6 +71,56 @@ export async function sendTransactionalEmail({to,subject,html,idempotencyKey}){
  return{configured:true,id:body.id||null};
 }
 
+function campaignLink(raw,publicHost){
+ if(!raw)return null;
+ if(raw.startsWith("/")&&!raw.startsWith("//"))return "https://"+publicHost+raw;
+ try{const u=new URL(raw);return u.protocol==="https:"?u.href:null}catch{return null}
+}
+
+async function processMarketingCampaigns(limit=10){
+ const deliveries=await sql`select * from bravoshop_claim_marketing_delivery_batch(${limit})`;let processed=0;
+ for(const delivery of deliveries){
+  try{
+   const rows=await sql`
+    select d.id,d.campaign_id,d.recipient,d.attempts,
+      c.subject,c.heading,c.body_text,c.button_label,c.button_url,
+      s.name as store_name,coalesce(dom.hostname,s.slug||'.bravoshop.online') as public_host,
+      n.status as subscriber_status,n.unsubscribe_token
+    from marketing_campaign_deliveries d
+    join marketing_campaigns c on c.id=d.campaign_id and c.store_id=d.store_id
+    join stores s on s.id=d.store_id
+    left join newsletter_subscribers n on n.id=d.subscriber_id and n.store_id=d.store_id
+    left join lateral (
+      select hostname from domains
+      where store_id=s.id and kind='custom' and status='verified' and infrastructure_status='active'
+      order by is_primary desc,created_at limit 1
+    ) dom on true
+    where d.id=${delivery.id}::uuid limit 1`;
+   const row=rows[0];
+   if(!row||row.subscriber_status!=="active"||!row.unsubscribe_token){
+    await sql`update marketing_campaign_deliveries set status='skipped',locked_at=null,last_error=null,updated_at=now() where id=${delivery.id}::uuid`;
+    await sql`select bravoshop_refresh_marketing_campaign(${delivery.campaign_id}::uuid)`;
+    continue;
+   }
+   const apiKey=process.env.RESEND_API_KEY,from=process.env.BRAVOSHOP_EMAIL_FROM;
+   if(!apiKey||!from)throw new Error("Email provider not configured");
+   const buttonUrl=campaignLink(row.button_url,row.public_host);
+   const unsubscribeUrl="https://api.bravoshop.online/api/public/newsletter/unsubscribe/"+encodeURIComponent(String(row.unsubscribe_token));
+   const html=`<!doctype html><html><body style="margin:0;background:#f5f5f3;font-family:Arial,sans-serif;color:#171717"><div style="max-width:620px;margin:0 auto;padding:36px 20px"><div style="background:#fff;border-radius:18px;padding:32px"><p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#666">${esc(row.store_name)}</p><h1 style="font-size:28px;margin:8px 0 12px">${esc(row.heading)}</h1><p style="white-space:pre-line;line-height:1.6">${esc(row.body_text)}</p>${buttonUrl&&row.button_label?`<p style="margin:24px 0"><a href="${esc(buttonUrl)}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:10px">${esc(row.button_label)}</a></p>`:""}<hr style="border:0;border-top:1px solid #eee;margin:28px 0"><p style="font-size:12px;color:#777">Recibes este mensaje porque aceptaste comunicaciones comerciales de esta tienda. <a href="${esc(unsubscribeUrl)}">Darte de baja</a>.</p></div></div></body></html>`;
+   const response=await fetch("https://api.resend.com/emails",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${apiKey}`,"Idempotency-Key":"campaign/"+delivery.id},body:JSON.stringify({from,to:[row.recipient],subject:row.subject,html,headers:{"List-Unsubscribe":`<${unsubscribeUrl}>`,"List-Unsubscribe-Post":"List-Unsubscribe=One-Click"}})});
+   const body=await response.json().catch(()=>({}));
+   if(!response.ok)throw new Error(body?.message||`Email provider ${response.status}`);
+   await sql`update marketing_campaign_deliveries set status='sent',provider_message_id=${body.id||null},sent_at=now(),locked_at=null,last_error=null,updated_at=now() where id=${delivery.id}::uuid`;
+   processed++;
+  }catch(error){
+   const fatal=delivery.attempts>=5;
+   await sql`update marketing_campaign_deliveries set status=${fatal?"failed":"pending"},locked_at=null,last_error=${String(error.message||error).slice(0,1000)},next_attempt_at=case when ${fatal} then next_attempt_at else now()+(least(attempts*5,60)||' minutes')::interval end,updated_at=now() where id=${delivery.id}::uuid`;
+  }
+  await sql`select bravoshop_refresh_marketing_campaign(${delivery.campaign_id}::uuid)`;
+ }
+ return processed;
+}
+
 export async function processNotificationOutbox(limit=10){
  if(!databaseConfigured)return{configured:false,processed:0};
  await sql`select bravoshop_release_expired_inventory_reservations()`;
@@ -88,7 +138,8 @@ export async function processNotificationOutbox(limit=10){
    await sql`update notification_outbox set status=${fatal?"failed":"pending"},locked_at=null,last_error=${String(error.message||error).slice(0,1000)},next_attempt_at=case when ${fatal} then next_attempt_at else now()+(least(attempts*5,60)||' minutes')::interval end,updated_at=now() where id=${row.id}::uuid`;
   }
  }
- return{configured:true,processed};
+ const marketingProcessed=await processMarketingCampaigns(10);
+ return{configured:true,processed:processed+marketingProcessed};
 }
 
 let timer=null;

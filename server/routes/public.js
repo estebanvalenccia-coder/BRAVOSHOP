@@ -89,6 +89,13 @@ publicRouter.post("/newsletter/subscribe",newsletterLimiter,requirePublicStore,a
   returning id,email,status,consent_at`;
  res.status(201).json({subscription:{email:rows[0].email,status:rows[0].status,consent_at:rows[0].consent_at}});
 });
+publicRouter.get("/newsletter/unsubscribe/:token",newsletterLimiter,async(req,res)=>{
+ const token=String(req.params.token||"");
+ if(/^[0-9a-f-]{36}$/i.test(token)){
+  await sql`update newsletter_subscribers set status='unsubscribed',unsubscribed_at=coalesce(unsubscribed_at,now()),updated_at=now() where unsubscribe_token=${token}::uuid`;
+ }
+ res.status(200).type("html").send('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Baja confirmada</title><body style="margin:0;background:#f5f5f3;font-family:Arial,sans-serif;color:#171717"><main style="max-width:620px;margin:80px auto;padding:20px"><div style="background:#fff;border-radius:18px;padding:36px"><small>BRAVOSHOP</small><h1>Baja confirmada</h1><p>Ya no recibirás campañas comerciales de esta tienda. Si algún día quieres volver, podrás suscribirte de nuevo desde su web.</p></div></main></body></html>');
+});
 publicRouter.post("/newsletter/unsubscribe/:token",newsletterLimiter,async(req,res)=>{
  const token=String(req.params.token||"");
  if(!/^[0-9a-f-]{36}$/i.test(token))return res.status(404).json({error:"Enlace de baja no válido"});
