@@ -36,3 +36,14 @@ export const newsletterLimiter = rateLimit({
 	legacyHeaders: false,
 	message: { error: "Demasiados intentos de suscripción. Inténtalo de nuevo más tarde." },
 });
+
+
+// Authenticated tenant creation abuse guard. Commercial store-count limits remain a separate plan policy.
+export const storeCreationLimiter = rateLimit({
+	windowMs: 60 * 60 * 1000,
+	limit: 10,
+	keyGenerator: req => String(req.user?.id || "anonymous"),
+	standardHeaders: "draft-7",
+	legacyHeaders: false,
+	message: { error: "Has creado demasiadas tiendas en poco tiempo. Inténtalo más tarde." },
+});
