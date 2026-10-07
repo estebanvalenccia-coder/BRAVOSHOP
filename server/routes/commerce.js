@@ -64,7 +64,7 @@ commerceRouter.put("/products/:id/media",requirePermission("products.update"),as
 		if(valid.length!==ids.length)return res.status(400).json({error:"Una o más imágenes no pertenecen a esta tienda"});
 	}
 	const queries=[
-		sql`delete from product_media where product_id=${req.params.id}::uuid`,
+		sql`delete from product_media where product_id=${req.params.id}::uuid and store_id=${req.storeId}::uuid`,
 		...ids.map((id,position)=>sql`
 			insert into product_media(product_id,media_id,store_id,position,is_primary)
 			values(${req.params.id}::uuid,${id}::uuid,${req.storeId}::uuid,${position},${position===0})
@@ -72,7 +72,7 @@ commerceRouter.put("/products/:id/media",requirePermission("products.update"),as
 		sql`
 			update media_assets m
 			set visibility=case when exists(
-				select 1 from product_media pm where pm.media_id=m.id
+				select 1 from product_media pm where pm.media_id=m.id and pm.store_id=${req.storeId}::uuid
 			) then 'public' else 'private' end
 			where m.store_id=${req.storeId}::uuid
 		`,
