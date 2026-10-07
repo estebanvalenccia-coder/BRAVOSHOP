@@ -77,3 +77,20 @@ test("public storefront hides checkout when platform checkout control is disable
  assert.ok(block.includes("const checkoutEnabled=!controls.length||controls[0].enabled===true"));
  assert.ok(block.includes("checkoutEnabled&&process.env.STRIPE_SECRET_KEY"));
 });
+
+test("featured catalog keeps the canonical catalog anchor for legacy themes",async()=>{
+ const source=await readFile(new URL("../src/platform/config/storeTemplates.js",import.meta.url),"utf8");
+ assert.ok(source.includes('{id:"featured",type:"featured"'));
+ assert.ok(source.includes('x.id==="featured"&&x.type==="products"?"featured"'));
+ const storefront=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ assert.ok(storefront.includes('id={section.type==="featured"?"catalog":section.id}'));
+});
+
+test("marketing template selection and preview calls to action are wired",async()=>{
+ const app=await readFile(new URL("../src/platform/App.jsx",import.meta.url),"utf8");
+ assert.ok(app.includes('const requestedTemplate=params.get("template")||""'));
+ assert.ok(app.includes('initialTemplate={requestedTemplate}'));
+ assert.ok(app.includes('id="pricing"'));
+ assert.ok(!app.includes("<button>Explorar</button>"));
+ assert.ok(!app.includes("<button>Descubrir</button>"));
+});
