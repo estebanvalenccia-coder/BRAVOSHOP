@@ -6,6 +6,14 @@ import path from"node:path";
 const app=express();
 app.disable("x-powered-by");
 app.set("trust proxy",1);
+app.use((req,res,next)=>{
+ res.set("Access-Control-Allow-Origin","*");
+ res.set("Access-Control-Allow-Methods","GET,PUT,OPTIONS");
+ res.set("Access-Control-Allow-Headers","Content-Type");
+ res.set("Access-Control-Max-Age","86400");
+ if(req.method==="OPTIONS")return res.status(204).end();
+ next();
+});
 const PORT=Number(process.env.PORT||8080);
 const ROOT=process.env.MEDIA_ROOT||"/data";
 const SECRET=process.env.MEDIA_STORAGE_TOKEN||"";
