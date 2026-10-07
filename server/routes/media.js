@@ -136,7 +136,7 @@ mediaRouter.post("/media/complete", requirePermission("products.update"), async 
 mediaRouter.delete("/media/:id", requirePermission("products.update"), async (req, res) => {
 	const rows = await sql`
 		select m.*,exists(
-			select 1 from product_media pm where pm.media_id=m.id
+			select 1 from product_media pm where pm.media_id=m.id and pm.store_id=m.store_id and pm.store_id=${req.storeId}::uuid
 		) as in_use
 		from media_assets m
 		where m.id=${req.params.id}::uuid and m.store_id=${req.storeId}::uuid

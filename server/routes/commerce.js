@@ -42,7 +42,7 @@ commerceRouter.put("/products/:id",requirePermission("products.update"),async(re
 			update media_assets m
 			set visibility='public'
 			where m.store_id=${req.storeId}::uuid
-				and exists(select 1 from product_media pm where pm.product_id=${rows[0].id} and pm.media_id=m.id)
+				and exists(select 1 from product_media pm where pm.product_id=${rows[0].id} and pm.media_id=m.id and pm.store_id=${req.storeId}::uuid)
 		`;
 	}
 	res.json({product:rows[0]});
@@ -104,7 +104,7 @@ commerceRouter.put("/products/:id/media",requirePermission("products.update"),as
 		select m.*,pm.position,pm.is_primary
 		from product_media pm
 		join media_assets m on m.id=pm.media_id and m.store_id=${req.storeId}::uuid
-		where pm.product_id=${req.params.id}::uuid
+		where pm.product_id=${req.params.id}::uuid and pm.store_id=${req.storeId}::uuid
 		order by pm.position
 	`;
 	res.json({media});
@@ -174,7 +174,7 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 			const quantity=Number(requested?.quantity);
 			if(!/^[0-9a-f-]{36}$/i.test(itemId)||!Number.isSafeInteger(quantity)||quantity<=0||seen.has(itemId))return res.status(400).json({error:"Líneas de reembolso inválidas"});
 			seen.add(itemId);
-			const line=await sql`select oi.id,oi.quantity,oi.unit_price,coalesce((select sum(ri.quantity) from order_refund_items ri join order_refunds rr on rr.id=ri.refund_id where ri.order_item_id=oi.id and rr.status in ('processing','pending','succeeded')),0)::int as already_refunded from order_items oi join orders o on o.id=oi.order_id where oi.id=${itemId}::uuid and oi.order_id=${order.id}::uuid and o.store_id=${req.storeId}::uuid limit 1`;
+			const line=await sql`select oi.id,oi.quantity,oi.unit_price,coalesce((select sum(ri.quantity) from order_refund_items ri join order_refunds rr on rr.id=ri.refund_id where ri.order_item_id=oi.id and rr.store_id=${req.storeId}::uuid and rr.status in ('processing','pending','succeeded')),0)::int as already_refunded from order_items oi join orders o on o.id=oi.order_id where oi.id=${itemId}::uuid and oi.order_id=${order.id}::uuid and o.store_id=${req.storeId}::uuid limit 1`;
 			if(!line.length||quantity>line[0].quantity-line[0].already_refunded)return res.status(409).json({error:"Cantidad de artículo no reembolsable"});
 			const subtotal=Number(order.subtotal||0),discount=Number(order.discount_total||0),tax=Number(order.tax_total||0);
 			const discountFactor=subtotal>0?Math.max(0,(subtotal-discount)/subtotal):1;
