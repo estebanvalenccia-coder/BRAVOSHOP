@@ -51,4 +51,10 @@ await intruder(`/api/stores/${created.store.id}`,{expect:403});
 const store=await owner(`/api/public/store?host=${encodeURIComponent(slug+".bravoshop.online")}`);assert.equal(store.store.slug,slug);
 const products=await owner(`/api/public/products?host=${encodeURIComponent(slug+".bravoshop.online")}`);assert.ok(products.products.some(p=>p.id===product.product.id));
 const checkout=await owner("/api/public/checkout",{method:"POST",body:{host:slug+".bravoshop.online",items:[{variant_id:variant.variant.id,quantity:2}],currency:"EUR"}});assert.equal(Number(checkout.checkout.total),39.9);
+
+// Cross-store public checkout must not accept another store's variant.
+await owner("/api/public/checkout",{method:"POST",body:{host:slug+".bravoshop.online",items:[{variant_id:secondVariant.variant.id,quantity:1}],currency:"EUR"},expect:400});
+// Cross-store resource IDs remain isolated even for a user owning both stores.
+await owner(`/api/stores/${secondOwnerStore.store.id}/products/${product.product.id}`,{expect:404});
+await owner(`/api/stores/${secondOwnerStore.store.id}/variants/${variant.variant.id}/inventory`,{method:"PUT",body:{quantity:777},expect:404});
 console.log(JSON.stringify({ok:true,tenant_isolation:true,store:slug,checkout:checkout.checkout.token},null,2));
