@@ -14,6 +14,7 @@ import{insightsRouter}from"./routes/insights.js";
 import{adminRouter}from"./routes/admin.js";
 import{publicRouter}from"./routes/public.js";
 import{stripeWebhookRouter}from"./routes/stripeWebhook.js";
+import{billingRouter}from"./routes/billing.js";
 import{requestId}from"./middleware/requestId.js";
 import{sql,databaseConfigured}from"./db/neon.js";import{startNotificationWorker}from"./services/notifications.js";
 const app=express();app.disable("x-powered-by");app.set("trust proxy",1);
@@ -27,11 +28,11 @@ app.get("/api/ready",async(_req,res)=>{
   const rows=await sql`select table_name from information_schema.tables where table_schema='public' and table_name = any(${required})`;
   const found=new Set(rows.map(r=>r.table_name));const missing=required.filter(t=>!found.has(t));
   if(missing.length)return res.status(503).json({ok:false,database:"schema_incomplete",missing_count:missing.length});
-  const migration=await sql`select 1 from _bravoshop_migrations where name='0048_password_recovery.sql' limit 1`;
+  const migration=await sql`select 1 from _bravoshop_migrations where name='0049_platform_billing.sql' limit 1`;
   if(!migration.length)return res.status(503).json({ok:false,database:"migration_incomplete"});
   res.json({ok:true,database:"ready",schema:"ready"});
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
 });
-app.use("/api/public",publicRouter);app.use("/api/auth",authRouter);app.use("/api/admin",adminRouter);app.use("/api/stores",storesRouter);app.use("/api/stores/:storeId",teamMembersRouter);app.use("/api/stores/:storeId",domainsRouter);app.use("/api/stores/:storeId",commerceRouter);app.use("/api/stores/:storeId",mediaRouter);app.use("/api/stores/:storeId",insightsRouter);
+app.use("/api/public",publicRouter);app.use("/api/auth",authRouter);app.use("/api/admin",adminRouter);app.use("/api/stores",storesRouter);app.use("/api/stores/:storeId",teamMembersRouter);app.use("/api/stores/:storeId",domainsRouter);app.use("/api/stores/:storeId",billingRouter);app.use("/api/stores/:storeId",commerceRouter);app.use("/api/stores/:storeId",mediaRouter);app.use("/api/stores/:storeId",insightsRouter);
 app.use((err,req,res,_next)=>{console.error(JSON.stringify({level:"error",request_id:req.requestId,route:req.path,error_code:err.code||"INTERNAL_ERROR"}));const databaseUnavailable=err.code==="DATABASE_NOT_CONFIGURED";res.status(databaseUnavailable?503:500).json({error:databaseUnavailable?"Base de datos BravoShop no configurada":"Error interno",request_id:req.requestId});});
 const port=Number(process.env.PORT||3001);app.listen(port,()=>{console.log(`BravoShop API listening on ${port}`);startNotificationWorker()});
