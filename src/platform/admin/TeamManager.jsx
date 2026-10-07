@@ -12,7 +12,7 @@ const MEMBER_ROLES = [
 
 export function TeamManager({ store }) {
 	const [members, setMembers] = useState([]);
-\tconst [invitations, setInvitations] = useState([]);
+  const [invitations, setInvitations] = useState([]);
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState("staff");
 	const [message, setMessage] = useState("");
