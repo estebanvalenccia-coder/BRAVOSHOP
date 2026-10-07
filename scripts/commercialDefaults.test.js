@@ -17,3 +17,13 @@ test("master access code is generated at migration time and grants permanent Pre
  assert.ok(source.includes("'plan'"));
  assert.ok(source.includes('{"master":true}'));
 });
+
+test("plan access redemption refreshes store billing state immediately",async()=>{
+ const source=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const start=source.indexOf('storesRouter.post("/:storeId/access-codes/redeem"');
+ const end=source.indexOf('storesRouter.get("/:storeId/entitlements"',start);
+ const block=source.slice(start,end);
+ assert.ok(block.includes('if(result.grant_type==="plan")'));
+ assert.ok(block.includes("bravoshop_refresh_store_billing"));
+ assert.ok(block.includes("store_status:storeStatus"));
+});
