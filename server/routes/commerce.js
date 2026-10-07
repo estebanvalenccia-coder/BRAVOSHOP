@@ -50,30 +50,6 @@ commerceRouter.put("/products/:id",requirePermission("products.update"),async(re
 	res.json({product:rows[0]});
 });
 
-commerceRouter.get("/categories",requirePermission("products.read"),async(req,res)=>{const rows=await sql`select * from categories where store_id=${req.storeId}::uuid order by position,name`;res.json({categories:rows})});
-commerceRouter.post("/categories",requirePermission("products.create"),async(req,res)=>{
-	const category=req.body||{};
-	const name=typeof category.name==="string"?category.name.trim():"";
-	const slug=typeof category.slug==="string"?category.slug.trim().toLowerCase():"";
-	const position=Number(category.position??0);
-	if(!name||name.length>120||!SLUG_PATTERN.test(slug)||!Number.isSafeInteger(position)||position<0)return res.status(400).json({error:"Nombre, slug o posición no válida"});
-	const parentId=category.parent_id||null;
-	if(parentId!==null){
-		if(typeof parentId!=="string"||! /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parentId))return res.status(400).json({error:"Categoría padre no válida"});
-		const parent=await sql`select id from categories where id=${parentId}::uuid and store_id=${req.storeId}::uuid`;
-		if(!parent.length)return res.status(404).json({error:"Categoría padre no encontrada"});
-	}
-	const rows=await sql`
-		insert into categories(id,store_id,name,slug,description,parent_id,position,active)
-		values(
-			${randomUUID()}::uuid,${req.storeId}::uuid,${name},${slug},
-			${String(category.description||"").slice(0,5000)},${parentId}::uuid,${position},${category.active!==false}
-		)
-		returning *
-	`;
-	res.status(201).json({category:rows[0]});
-});
-
 commerceRouter.post("/products/:id/variants",requirePermission("products.update"),async(req,res)=>{const exists=await sql`select 1 from products where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid`;if(!exists.length)return res.status(404).json({error:"Producto no encontrado"});const v=req.body||{};const rows=await sql`insert into product_variants(id,store_id,product_id,sku,title,price,compare_at_price,options,active) values(${randomUUID()}::uuid,${req.storeId}::uuid,${req.params.id}::uuid,${v.sku||null},${v.title||"Default"},${v.price===""?null:Number(v.price)},${v.compare_at_price?Number(v.compare_at_price):null},${JSON.stringify(v.options||{})}::jsonb,${v.active!==false}) returning *`;res.status(201).json({variant:rows[0]})});
 commerceRouter.put("/products/:productId/variants/:variantId",requirePermission("products.update"),async(req,res)=>{const v=req.body||{};const rows=await sql`update product_variants pv set sku=${v.sku||null},title=${v.title||"Default"},price=${v.price===""?null:Number(v.price)},compare_at_price=${v.compare_at_price?Number(v.compare_at_price):null},options=${JSON.stringify(v.options||{})}::jsonb,active=${v.active!==false} from products p where pv.id=${req.params.variantId}::uuid and pv.product_id=${req.params.productId}::uuid and p.id=pv.product_id and pv.store_id=${req.storeId}::uuid and p.store_id=${req.storeId}::uuid returning pv.*`;if(!rows.length)return res.status(404).json({error:"Variante no encontrada"});res.json({variant:rows[0]})});
 commerceRouter.put("/variants/:variantId/inventory",requirePermission("inventory.update"),async(req,res)=>{const i=req.body||{};const quantity=Number(i.quantity);if(!Number.isSafeInteger(quantity)||quantity<0)return res.status(400).json({error:"La cantidad debe ser un entero no negativo"});const rows=await sql`select * from bravoshop_set_inventory(${req.storeId}::uuid,${req.params.variantId}::uuid,${quantity},${i.track_inventory!==false},${Boolean(i.allow_backorder)},${req.user.id}::uuid)`;if(!rows.length){const owns=await sql`select 1 from product_variants v where v.id=${req.params.variantId}::uuid and v.store_id=${req.storeId}::uuid`;if(!owns.length)return res.status(404).json({error:"Variante no encontrada"});return res.status(409).json({error:"La cantidad no puede quedar por debajo del inventario reservado"})}res.json({inventory:rows[0]})});
