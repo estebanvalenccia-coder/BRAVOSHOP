@@ -8,9 +8,12 @@ export async function enqueueOrderNotification({storeId,orderId,type,refundId=nu
  if(!databaseConfigured||!storeId||!orderId)return null;
  const rows=await sql`
   select o.id,o.order_number,o.customer_email,o.currency,o.total,o.shipping_method,o.tracking_number,o.tracking_url,
-         o.shipping_address,s.name as store_name
-  from orders o join stores s on s.id=o.store_id
-  where o.id=${orderId}::uuid and o.store_id=${storeId}::uuid limit 1`;
+         o.shipping_address,s.name as store_name,s.slug as store_slug,c.token as checkout_token
+  from orders o
+  join stores s on s.id=o.store_id
+  left join checkout_sessions c on c.completed_order_id=o.id and c.store_id=o.store_id
+  where o.id=${orderId}::uuid and o.store_id=${storeId}::uuid
+  order by c.paid_at desc nulls last limit 1`;
  const o=rows[0];if(!o?.customer_email||!emailPattern.test(o.customer_email))return null;
  const suffix=refundId?String(refundId):String(orderId);
  const key=(type+"/"+suffix).slice(0,256);
@@ -18,7 +21,8 @@ export async function enqueueOrderNotification({storeId,orderId,type,refundId=nu
   store_name:o.store_name,order_number:o.order_number||String(o.id).slice(0,8),
   total:Number(o.total||0),currency:o.currency||"EUR",shipping_method:o.shipping_method||null,
   tracking_number:o.tracking_number||null,tracking_url:o.tracking_url||null,
-  customer_name:o.shipping_address?.name||null,refund_amount:refundAmount==null?null:Number(refundAmount)
+  customer_name:o.shipping_address?.name||null,refund_amount:refundAmount==null?null:Number(refundAmount),
+  status_url:o.checkout_token?`https://${o.store_slug}.bravoshop.online/?checkout=${encodeURIComponent(o.checkout_token)}`:null
  };
  const inserted=await sql`
   insert into notification_outbox(store_id,order_id,type,recipient,payload,idempotency_key)
@@ -35,7 +39,7 @@ function renderEmail(row){
  if(row.type==="order.delivered"){title="Pedido entregado";lead="El pedido figura como entregado.";details=""}
  if(row.type==="refund.succeeded"){title="Reembolso confirmado";lead="Tu reembolso ha sido procesado correctamente.";details=p.refund_amount!=null?`<p><strong>Importe:</strong> ${esc(money(p.refund_amount,p.currency))}</p>`:""}
  const subject=`${title} · ${p.store_name||"BravoShop"} · #${p.order_number||""}`;
- const html=`<!doctype html><html><body style="margin:0;background:#f5f5f3;font-family:Arial,sans-serif;color:#171717"><div style="max-width:620px;margin:0 auto;padding:36px 20px"><div style="background:#fff;border-radius:18px;padding:32px"><p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#666">${store}</p><h1 style="font-size:28px;margin:8px 0 12px">${esc(title)}</h1><p>${esc(lead)}</p><p><strong>Pedido:</strong> #${order}</p>${details}<hr style="border:0;border-top:1px solid #eee;margin:28px 0"><p style="font-size:12px;color:#777">Este mensaje se ha enviado automáticamente desde una tienda gestionada con BravoShop.</p></div></div></body></html>`;
+ const html=`<!doctype html><html><body style="margin:0;background:#f5f5f3;font-family:Arial,sans-serif;color:#171717"><div style="max-width:620px;margin:0 auto;padding:36px 20px"><div style="background:#fff;border-radius:18px;padding:32px"><p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#666">${store}</p><h1 style="font-size:28px;margin:8px 0 12px">${esc(title)}</h1><p>${esc(lead)}</p><p><strong>Pedido:</strong> #${order}</p>${details}${p.status_url?`<p style="margin:24px 0"><a href="${esc(p.status_url)}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:10px">Ver estado del pedido</a></p>`:""}<hr style="border:0;border-top:1px solid #eee;margin:28px 0"><p style="font-size:12px;color:#777">Este mensaje se ha enviado automáticamente desde una tienda gestionada con BravoShop.</p></div></div></body></html>`;
  return{subject,html};
 }
 
