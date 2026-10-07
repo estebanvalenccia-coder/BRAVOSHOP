@@ -37,7 +37,7 @@ export function TeamManager({ store }) {
 			const result=await addStoreMember(store.id, { email, role });
 			setEmail("");
 			await refresh();
-			setMessage(result?.pending?"Invitación guardada. Se activará automáticamente cuando esa persona cree su cuenta BravoShop.":"Miembro añadido a la tienda");
+			setMessage(result?.pending?"Invitación segura enviada por correo. La persona deberá iniciar sesión con ese mismo email y aceptar el enlace.":"Miembro añadido a la tienda");
 		} catch (error) {
 			setMessage(error.message);
 		} finally {
@@ -86,7 +86,7 @@ export function TeamManager({ store }) {
 			</header>
 			<article className="panel formStack">
 				<h3>Añadir a una persona</h3>
-				<p>Introduce el correo de la persona. Si ya tiene cuenta BravoShop se añadirá inmediatamente; si no, quedará una invitación pendiente que se activará al registrarse con ese correo.</p>
+				<p>Introduce el correo de la persona. Si ya tiene cuenta BravoShop se añadirá inmediatamente; si no, recibirá un enlace seguro de un solo uso para aceptar la invitación.</p>
 				<form className="teamInviteForm" onSubmit={addMember}>
 					<label>Email de la cuenta<input type="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} /></label>
 					<label>Rol<select value={role} onChange={event => setRole(event.target.value)}>{availableRoles.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
