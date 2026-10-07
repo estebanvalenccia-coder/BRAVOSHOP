@@ -59,7 +59,7 @@ export async function listAbandonedCheckouts(storeId){const data=await api(`/api
 
 export async function acceptStoreInvitation(token){return api("/api/auth/invitations/accept",{method:"POST",body:{token}})}
 
-export async function listMarketingCampaigns(storeId){const data=await api(`/api/stores/${storeId}/campaigns`);return data.campaigns??[]}
+export async function listMarketingCampaigns(storeId){const data=await api(`/api/stores/${storeId}/campaigns`);return{campaigns:data.campaigns??[],email_ready:Boolean(data.email_ready)}}
 export async function createMarketingCampaign(storeId,input){const data=await api(`/api/stores/${storeId}/campaigns`,{method:"POST",body:input});return data.campaign}
 export async function deleteMarketingCampaign(storeId,id){return api(`/api/stores/${storeId}/campaigns/${id}`,{method:"DELETE"})}
 export async function sendMarketingCampaign(storeId,id){return api(`/api/stores/${storeId}/campaigns/${id}/send`,{method:"POST",body:{}})}
