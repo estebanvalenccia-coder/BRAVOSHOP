@@ -40,3 +40,12 @@ test("public storefront API calls never include merchant session cookies", async
 	assert.ok(storefrontSource.includes('import{publicApi}from"../../lib/api.js";'));
 	assert.ok(!storefrontSource.includes('import{api}from"../../lib/api.js";'));
 });
+
+
+test("storefront checkout requires public commerce readiness",async()=>{
+ const source=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ const publicSource=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ assert.ok(source.includes('store.commerce?.checkout_ready===true'));
+ assert.ok(publicSource.includes('commerce:{checkout_ready:checkoutReady}'));
+ assert.ok(publicSource.includes('process.env.STRIPE_WEBHOOK_SECRET'));
+});
