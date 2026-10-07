@@ -95,7 +95,7 @@ commerceRouter.get("/orders/:id",requirePermission("orders.read"),async(req,res)
 commerceRouter.patch("/orders/:id/fulfillment",requirePermission("orders.fulfill"),async(req,res)=>{const p=req.body||{};const allowed=new Set(["unfulfilled","preparing","fulfilled","delivered","cancelled"]);if(!allowed.has(p.fulfillment_status))return res.status(400).json({error:"Estado logístico no válido"});const rows=await sql`update orders set fulfillment_status=${p.fulfillment_status},tracking_number=coalesce(${p.tracking_number||null},tracking_number),tracking_url=coalesce(${p.tracking_url||null},tracking_url),carrier=coalesce(${p.carrier||null},carrier),merchant_notes=coalesce(${p.merchant_notes||null},merchant_notes),shipped_at=case when ${p.fulfillment_status}='fulfilled' then coalesce(shipped_at,now()) else shipped_at end,delivered_at=case when ${p.fulfillment_status}='delivered' then coalesce(delivered_at,now()) else delivered_at end,cancelled_at=case when ${p.fulfillment_status}='cancelled' then coalesce(cancelled_at,now()) else cancelled_at end,updated_at=now() where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid returning *`;if(!rows.length)return res.status(404).json({error:"Pedido no encontrado"});await sql`insert into order_events(order_id,event_type,message,actor_user_id,metadata) select o.id,'fulfillment.updated',${p.fulfillment_status},${req.user.id}::uuid,${JSON.stringify({carrier:p.carrier||null,tracking_number:p.tracking_number||null})}::jsonb from orders o where o.id=${req.params.id}::uuid and o.store_id=${req.storeId}::uuid`;res.json({order:rows[0]})});
 commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),async(req,res)=>{
 	const rows=await sql`
-		select o.id,o.store_id,o.total,o.refunded_total,o.refund_reserved_total,o.currency,
+		select o.id,o.store_id,o.subtotal,o.discount_total,o.total,o.refunded_total,o.refund_reserved_total,o.currency,
 			o.payment_status,o.payment_provider,o.provider_payment_id,pa.provider_account_id
 		from orders o
 		left join store_payment_accounts pa on pa.store_id=o.store_id and pa.provider='stripe'
@@ -123,7 +123,8 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 			seen.add(itemId);
 			const line=await sql`select oi.id,oi.quantity,oi.unit_price,coalesce((select sum(ri.quantity) from order_refund_items ri join order_refunds rr on rr.id=ri.refund_id where ri.order_item_id=oi.id and rr.status in ('processing','pending','succeeded')),0)::int as already_refunded from order_items oi join orders o on o.id=oi.order_id where oi.id=${itemId}::uuid and oi.order_id=${order.id}::uuid and o.store_id=${req.storeId}::uuid limit 1`;
 			if(!line.length||quantity>line[0].quantity-line[0].already_refunded)return res.status(409).json({error:"Cantidad de artículo no reembolsable"});
-			itemAmountCents+=Math.round(Number(line[0].unit_price)*100)*quantity;
+			const discountFactor=Number(order.subtotal)>0?Math.max(0,(Number(order.subtotal)-Number(order.discount_total||0))/Number(order.subtotal)):1;
+			itemAmountCents+=Math.round(Number(line[0].unit_price)*quantity*discountFactor*100);
 		}
 	}
 	const amountCents=itemAmountCents??(req.body?.amount==null?remainingCents:Math.round(Number(req.body.amount)*100));
