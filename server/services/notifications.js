@@ -65,8 +65,9 @@ export async function sendTransactionalEmail({to,subject,html,idempotencyKey}){
 }
 
 export async function processNotificationOutbox(limit=10){
- if(!databaseConfigured||!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return{configured:false,processed:0};
+ if(!databaseConfigured)return{configured:false,processed:0};
  await sql`select bravoshop_release_expired_inventory_reservations()`;
+ if(!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return{configured:false,processed:0};
  await sql`select bravoshop_enqueue_abandoned_checkout_notifications(20)`;
  const rows=await sql`select * from bravoshop_claim_notification_batch(${limit})`;let processed=0;
  for(const row of rows){

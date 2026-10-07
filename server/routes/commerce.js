@@ -237,6 +237,19 @@ commerceRouter.get("/customers",requirePermission("customers.read"),async(req,re
 commerceRouter.get("/customers/:id",requirePermission("customers.read"),async(req,res)=>{const rows=await sql`select * from customers where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;if(!rows.length)return res.status(404).json({error:"Cliente no encontrado"});const orders=await sql`select id,total,currency,payment_status,fulfillment_status,created_at from orders where store_id=${req.storeId}::uuid and lower(customer_email)=lower(${rows[0].email||""}) order by created_at desc limit 100`;res.json({customer:{...rows[0],orders}})});
 commerceRouter.patch("/customers/:id",requirePermission("customers.update"),async(req,res)=>{const p=req.body||{};const rows=await sql`update customers set name=coalesce(${p.name??null},name),phone=coalesce(${p.phone??null},phone),notes=coalesce(${p.notes??null},notes),updated_at=now() where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid returning *`;if(!rows.length)return res.status(404).json({error:"Cliente no encontrado"});res.json({customer:rows[0]})});
 
+commerceRouter.get("/abandoned-checkouts",requirePermission("marketing.read"),async(req,res)=>{
+ const limit=Math.min(100,Math.max(1,Number.parseInt(String(req.query.limit||"50"),10)||50));
+ const rows=await sql`
+  select id,customer_email,total,currency,status,expires_at,recovery_notified_at,created_at
+  from checkout_sessions
+  where store_id=${req.storeId}::uuid
+   and completed_order_id is null
+   and recovery_consent=true
+   and created_at>=now()-interval '30 days'
+  order by created_at desc
+  limit ${limit}`;
+ res.json({checkouts:rows});
+});
 commerceRouter.get("/newsletter",requirePermission("marketing.read"),async(req,res)=>{
  const limit=Math.min(250,Math.max(1,Number.parseInt(String(req.query.limit||"100"),10)||100));
  const status=String(req.query.status||"").trim();

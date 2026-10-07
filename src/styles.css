@@ -216,3 +216,5 @@ body{background:#f7f4ed;color:#17221c}
 
 /* Store launch readiness */
 .storeLaunchStatus{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 16px}.storeLaunchStatus article{display:flex;flex-direction:column;gap:5px;padding:16px 18px;border:1px solid #e5e5df;border-radius:15px;background:#fff}.storeLaunchStatus article.ready{background:#f5faf4}.storeLaunchStatus article.pending{background:#fffaf0}.storeLaunchStatus small{font-size:10px;letter-spacing:.08em;color:#777}.storeLaunchStatus b{font-size:17px}.storeLaunchStatus span{font-size:12px;color:#666;line-height:1.45}@media(max-width:700px){.storeLaunchStatus{grid-template-columns:1fr}}
+
+.recoveryConsent{display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.4;color:#657069}.recoveryConsent input{margin-top:2px;flex:0 0 auto}

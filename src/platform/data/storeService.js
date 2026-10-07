@@ -53,3 +53,5 @@ export async function deleteDiscount(storeId,id){return api(`/api/stores/${store
 
 export async function listNewsletterSubscribers(storeId,status=""){const q=status?"?status="+encodeURIComponent(status):"";const data=await api(`/api/stores/${storeId}/newsletter${q}`);return data.subscribers??[]}
 export async function unsubscribeNewsletterSubscriber(storeId,id){const data=await api(`/api/stores/${storeId}/newsletter/${id}/unsubscribe`,{method:"POST",body:{}});return data.subscriber}
+
+export async function listAbandonedCheckouts(storeId){const data=await api(`/api/stores/${storeId}/abandoned-checkouts`);return data.checkouts??[]}
