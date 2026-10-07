@@ -1,4 +1,4 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{domainToASCII}from"node:url";import{isIP}from"node:net";import{sql}from"../db/neon.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{normalizePublicHost,selectPublicStoreHost}from"../security/publicHost.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
 export const publicRouter=Router();
 publicRouter.param("token",(req,res,next,token)=>{
 	if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(token))return res.status(404).json({error:"Checkout no encontrado o caducado"});
@@ -32,19 +32,6 @@ const reservedSubdomains=new Set(["www","api","admin","app","support","status","
 const publicSettingKeys=["currency","locale","headline","subheadline","about","store_description","contact_email","contact_phone","seo_title","seo_description","legal_name","legal_email","legal_phone","tax_id","legal_address","privacy_email","privacy_notes","shipping_policy","returns_days","returns_policy"];
 function publicSettings(settings={}){return Object.fromEntries(publicSettingKeys.filter(key=>Object.hasOwn(settings,key)).map(key=>[key,settings[key]]))}
 async function publicFeatureEnabled(storeId,key){const rows=await sql`select 1 from store_features where store_id=${storeId}::uuid and feature_key=${key} and enabled=true limit 1`;return rows.length>0}
-export function normalizePublicHost(value){
-	if(typeof value!=="string"||value.length>300||/[\s/@?#\\]/.test(value))return null;
-	let candidate=value.trim().toLowerCase();
-	if(candidate.startsWith("http://")||candidate.startsWith("https://")){
-		try{const url=new URL(candidate);if(!["http:","https:"].includes(url.protocol)||url.username||url.password)return null;candidate=url.hostname.toLowerCase()}catch{return null}
-	}else candidate=candidate.replace(/:\d{1,5}$/,"");
-	candidate=candidate.replace(/\.$/,"");
-	const ascii=domainToASCII(candidate);
-	if(!ascii||ascii.length>253||isIP(ascii))return null;
-	const labels=ascii.split(".");
-	if(labels.some(label=>label.length>63||!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)))return null;
-	return ascii;
-}
 async function resolveStore(hostInput){
 	const host=normalizePublicHost(hostInput);if(!host)return null;
 	if(host.endsWith(".bravoshop.online")){
@@ -58,12 +45,13 @@ async function resolveStore(hostInput){
 }
 async function requirePublicStore(req,res,next){
 	if(req.method==="POST"&&req.path==="/checkout")await sql`select bravoshop_release_expired_inventory_reservations()`;
-	const requestedHost=req.query.host||req.body?.host;
-	const originHost=(()=>{try{return req.get("origin")?new URL(req.get("origin")).hostname:null}catch{return null}})();
-	const requestHost=req.get("host");
-	const candidates=[requestedHost,originHost,requestHost].filter(Boolean);
-	let store=null;
-	for(const candidate of candidates){store=await resolveStore(candidate);if(store)break}
+	const selection=selectPublicStoreHost({
+		requestedHost:req.query.host||req.body?.host,
+		origin:req.get("origin"),
+		requestHost:req.get("host")
+	});
+	if(selection.conflict)return res.status(400).json({error:"La tienda solicitada no coincide con el origen"});
+	const store=selection.host?await resolveStore(selection.host):null;
 	if(!store)return res.status(404).json({error:"Tienda no encontrada"});
 	const billingState=await sql`select bravoshop_refresh_store_billing(${store.id}::uuid) as status`;
 	store.status=billingState[0]?.status||store.status;
