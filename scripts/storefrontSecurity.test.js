@@ -49,3 +49,14 @@ test("storefront checkout requires public commerce readiness",async()=>{
  assert.ok(publicSource.includes('commerce:{checkout_ready:checkoutReady}'));
  assert.ok(publicSource.includes('process.env.STRIPE_WEBHOOK_SECRET'));
 });
+
+
+test("public checkout refuses to create sessions until payments are fully ready",async()=>{
+ const source=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const start=source.indexOf('publicRouter.post("/checkout"');
+ const normalized=source.indexOf("const normalized=[]",start);
+ const readiness=source.indexOf("platformPaymentsReady",start);
+ assert.ok(start>=0&&readiness>start&&readiness<normalized);
+ assert.ok(source.slice(start,normalized).includes("payouts_enabled"));
+ assert.ok(source.slice(start,normalized).includes("STRIPE_WEBHOOK_SECRET"));
+});

@@ -124,6 +124,10 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	if(!await publicFeatureEnabled(req.publicStore.id,"checkout"))return res.status(503).json({error:"La tienda no tiene el checkout activado"});
 	const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
 	if(controls.length&&!controls[0].enabled)return res.status(503).json({error:"Checkout temporalmente desactivado"});
+	const paymentRows=await sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled,default_currency from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;
+	const paymentAccount=paymentRows[0];
+	const platformPaymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET);
+	if(!platformPaymentsReady||paymentAccount?.provider!=="stripe"||paymentAccount?.status!=="active"||!paymentAccount?.provider_account_id||!paymentAccount?.charges_enabled||!paymentAccount?.payouts_enabled)return res.status(503).json({error:"La tienda todavía no está lista para aceptar pagos"});
 	const normalized=[];
 	let subtotalCents=0;
 	for(const item of req.body.items){
@@ -150,8 +154,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 		normalized.push({...product,quantity:item.quantity,unit_price:unitPriceCents/100,total:lineTotalCents/100});
 	}
 
-	const payment=await sql`select default_currency from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;
-	const currency=String(payment[0]?.default_currency||req.publicStore.settings?.currency||"EUR").toUpperCase();
+	const currency=String(paymentAccount.default_currency||req.publicStore.settings?.currency||"EUR").toUpperCase();
 	if(req.body.currency&&req.body.currency.toUpperCase()!==currency)return res.status(400).json({error:"Moneda no válida para esta tienda"});
 	const address=req.body.shipping_address;
 	const country=String(address.country||"").trim().toUpperCase();
