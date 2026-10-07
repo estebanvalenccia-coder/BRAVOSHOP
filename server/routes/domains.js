@@ -38,7 +38,7 @@ domainsRouter.get("/domains", requirePermission("domains.read"), async (req, res
 		where store_id=${req.storeId}::uuid
 		order by is_primary desc,created_at
 	`;
-	res.json({ domains: rows });
+	res.json({ domains: rows, provisioning_ready: railwayDomainsReady() });
 });
 
 domainsRouter.post("/domains", requirePermission("domains.manage"), async (req, res) => {

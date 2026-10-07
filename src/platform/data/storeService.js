@@ -39,7 +39,7 @@ export async function removeStoreMember(storeId,userId){return api(`/api/stores/
 export async function updateStoreInvitation(storeId,invitationId,role){return api(`/api/stores/${storeId}/members/invitations/${invitationId}`,{method:"PATCH",body:{role}})}
 export async function removeStoreInvitation(storeId,invitationId){return api(`/api/stores/${storeId}/members/invitations/${invitationId}`,{method:"DELETE"})}
 
-export async function listDomains(storeId){const data=await api(`/api/stores/${storeId}/domains`);return data.domains??[]}
+export async function listDomains(storeId){const data=await api(`/api/stores/${storeId}/domains`);return{domains:data.domains??[],provisioning_ready:Boolean(data.provisioning_ready)}}
 export async function addDomain(storeId,hostname){return api(`/api/stores/${storeId}/domains`,{method:"POST",body:{hostname}})}
 export async function verifyDomain(storeId,domainId){return api(`/api/stores/${storeId}/domains/${domainId}/verify`,{method:"POST",body:{}})}
 export async function syncDomain(storeId,domainId){return api(`/api/stores/${storeId}/domains/${domainId}/sync`,{method:"POST",body:{}})}
