@@ -143,3 +143,11 @@ test("public checkout enforces the same commercial readiness shown by merchant a
  assert.ok(block.includes('req.publicStore.sector!=="services"'));
  assert.ok(block.includes("shipping_zones"));
 });
+
+test("service stores do not require physical shipping in readiness or checkout UI",async()=>{
+ const insights=await readFile(new URL("../server/routes/insights.js",import.meta.url),"utf8");
+ const storefront=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ assert.ok(insights.includes('sector==="services"||shipping[0].value>0'));
+ assert.ok(storefront.includes('requiresShipping={store.sector!=="services"}'));
+ assert.ok(storefront.includes('requiresShipping?"Entrega":"Datos de contacto"'));
+});
