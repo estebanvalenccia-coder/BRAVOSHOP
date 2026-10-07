@@ -82,10 +82,10 @@ authRouter.post("/owner/activate", authLimiter, async (req, res) => {
 
 authRouter.post("/register", authLimiter, async (req, res) => {
 	const { email, password, name } = req.body || {};
-	if (typeof email !== "string" || typeof password !== "string" || password.length < 8) {
-		return res.status(400).json({ error: "Email y contraseña de 8+ caracteres requeridos" });
+	const normalized = typeof email === "string" ? email.trim().toLowerCase() : "";
+	if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || normalized.length > 254 || typeof password !== "string" || password.length < 8) {
+		return res.status(400).json({ error: "Email válido y contraseña de 8+ caracteres requeridos" });
 	}
-	const normalized = email.trim().toLowerCase();
 	if (superAdmins().has(normalized)) return res.status(403).json({ error: "Usa el flujo de activación del propietario" });
 	try {
 		const userId=randomUUID();
