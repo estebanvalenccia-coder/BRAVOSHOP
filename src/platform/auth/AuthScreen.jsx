@@ -39,7 +39,7 @@ export function AuthScreen({mode="login",onDone,onBack,onModeChange,resetToken="
    <form onSubmit={submit}>
     {register&&<label>Nombre<input autoComplete="name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>}
     {!reset&&<label>Email<input type="email" autoComplete="email" required value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label>}
-    {!forgot&&<label>Nueva contraseña{!reset&&"Contraseña"}<input type="password" autoComplete={register||reset?"new-password":"current-password"} minLength="8" required value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label>}
+    {!forgot&&<label>{reset?"Nueva contraseña":"Contraseña"}<input type="password" autoComplete={register||reset?"new-password":"current-password"} minLength="8" required value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label>}
     {reset&&<label>Repetir contraseña<input type="password" autoComplete="new-password" minLength="8" required value={form.confirm} onChange={e=>setForm({...form,confirm:e.target.value})}/></label>}
     {error&&<div className="errorBox">{error}</div>}{notice&&<div className="successBox">{notice}</div>}
     {!(reset&&notice)&&<button disabled={busy} type="submit">{busy?"Un momento…":forgot?"Enviar enlace":reset?"Guardar nueva contraseña":register?"Crear cuenta":"Entrar"}</button>}
