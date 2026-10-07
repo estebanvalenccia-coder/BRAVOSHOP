@@ -1,0 +1,28 @@
+name: BravoShop tenant smoke (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: API URL for an isolated test/staging environment
+        required: true
+        type: string
+jobs:
+  tenant-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Refuse production target
+        env:
+          TARGET: ${{ inputs.api_url }}
+        run: |
+          case "$TARGET" in
+            *api.bravoshop.online*|*bravoshop-api-production*) echo "Refusing destructive smoke against production"; exit 1 ;;
+          esac
+      - name: Run tenant isolation smoke suite
+        env:
+          SMOKE_API_URL: ${{ inputs.api_url }}
+        run: node scripts/smoke.js
