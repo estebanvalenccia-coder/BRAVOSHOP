@@ -94,3 +94,17 @@ test("marketing template selection and preview calls to action are wired",async(
  assert.ok(!app.includes("<button>Explorar</button>"));
  assert.ok(!app.includes("<button>Descubrir</button>"));
 });
+
+test("default storefront navigation targets resolve to rendered template sections",async()=>{
+ const mod=await import("../src/platform/config/storeTemplates.js");
+ const anchors={catalog:"featured",categories:"categories",about:"story"};
+ for(const template of mod.STORE_TEMPLATES){
+  const sections=mod.templateSections(template.id);
+  for(const item of template.defaults.menu||[]){
+   if(!String(item.url||"").startsWith("#"))continue;
+   const anchor=String(item.url).slice(1);
+   if(!anchors[anchor])continue;
+   assert.ok(sections.some(section=>section.type===anchors[anchor]),template.id+" missing target "+item.url);
+  }
+ }
+});
