@@ -65,12 +65,14 @@ async function requirePublicStore(req,res,next){
 	next();
 }
 publicRouter.get("/store",requirePublicStore,async(req,res)=>{
- const[features,payments]=await Promise.all([
+ const[features,payments,controls]=await Promise.all([
   sql`select feature_key,enabled from store_features where store_id=${req.publicStore.id}::uuid and enabled=true`,
-  sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`
+  sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`,
+  sql`select enabled from platform_controls where key='checkout' limit 1`
  ]);
  const payment=payments[0];
- const checkoutReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
+ const checkoutEnabled=!controls.length||controls[0].enabled===true;
+ const checkoutReady=Boolean(checkoutEnabled&&process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
  res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,theme:req.publicStore.theme||{},settings:publicSettings(req.publicStore.settings||{}),features,commerce:{checkout_ready:checkoutReady}}});
 });
 publicRouter.post("/newsletter/subscribe",newsletterLimiter,requirePublicStore,async(req,res)=>{

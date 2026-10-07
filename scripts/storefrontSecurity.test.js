@@ -67,3 +67,13 @@ test("storefront payment flow reports async preparation and confirmation failure
   assert.ok(source.includes('setPaymentStatus({error:e?.message||"No se pudo confirmar el pago"})'));
   assert.ok(source.includes("finally{setBusy(false)}"));
 });
+
+test("public storefront hides checkout when platform checkout control is disabled",async()=>{
+ const source=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const start=source.indexOf('publicRouter.get("/store"');
+ const end=source.indexOf('publicRouter.post("/newsletter/subscribe"',start);
+ const block=source.slice(start,end);
+ assert.ok(block.includes("platform_controls where key='checkout'"));
+ assert.ok(block.includes("const checkoutEnabled=!controls.length||controls[0].enabled===true"));
+ assert.ok(block.includes("checkoutEnabled&&process.env.STRIPE_SECRET_KEY"));
+});
