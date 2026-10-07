@@ -150,6 +150,15 @@ authRouter.post("/password/reset", authLimiter, async (req, res) => {
  res.json({ok:true});
 });
 
+authRouter.post("/invitations/accept",authLimiter,requireAuth,async(req,res)=>{
+ const token=String(req.body?.token||"");
+ if(token.length<20||token.length>200)return res.status(400).json({error:"Invitación no válida"});
+ const tokenHash=createHash("sha256").update(token).digest("hex");
+ const rows=await sql`select * from bravoshop_accept_store_invitation(${tokenHash},${req.user.id}::uuid)`;
+ if(!rows.length)return res.status(400).json({error:"La invitación ha caducado, ya fue utilizada o pertenece a otro correo"});
+ res.json({ok:true,store_id:rows[0].store_id,role:rows[0].role});
+});
+
 authRouter.post("/logout", (_req, res) => {
 	res.setHeader("Set-Cookie", clearSessionCookie());
 	res.status(204).end();
