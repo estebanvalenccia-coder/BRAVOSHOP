@@ -203,6 +203,25 @@ domainsRouter.post("/domains/:domainId/sync", requirePermission("domains.manage"
 	}
 });
 
+domainsRouter.post("/domains/:domainId/primary", requirePermission("domains.manage"), async (req,res)=>{
+ const rows=await sql`
+  select id,hostname,is_primary,status,infrastructure_status
+  from domains
+  where id=${req.params.domainId}::uuid and store_id=${req.storeId}::uuid and kind='custom'
+  limit 1`;
+ if(!rows.length)return res.status(404).json({error:"Dominio no encontrado"});
+ const domain=rows[0];
+ if(domain.status!=="verified"||domain.infrastructure_status!=="active")return res.status(409).json({error:"El dominio debe estar activo con SSL antes de ser principal"});
+ if(!domain.is_primary){
+  await sql.transaction([
+   sql`update domains set is_primary=false where store_id=${req.storeId}::uuid and is_primary=true`,
+   sql`update domains set is_primary=true where id=${domain.id}::uuid and store_id=${req.storeId}::uuid`
+  ]);
+  await recordAudit({actorUserId:req.user.id,storeId:req.storeId,action:"domain.primary.updated",resourceType:"domain",resourceId:domain.id,requestId:req.requestId,ip:req.ip,userAgent:req.get("user-agent")||null,metadata:{hostname:domain.hostname}});
+ }
+ res.json({ok:true,domain:{...domain,is_primary:true}});
+});
+
 domainsRouter.delete("/domains/:domainId", requirePermission("domains.manage"), async (req, res) => {
 	const existing=await sql`
 		select id,hostname,provider_domain_id from domains
