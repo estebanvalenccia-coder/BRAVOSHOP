@@ -29,7 +29,7 @@ app.get("/api/ready",async(_req,res)=>{
   if(missing.length)return res.status(503).json({ok:false,database:"schema_incomplete",missing_count:missing.length});
   const migration=await sql`select 1 from _bravoshop_migrations where name='0063_marketing_campaigns.sql' limit 1`;
   if(!migration.length)return res.status(503).json({ok:false,database:"migration_incomplete"});
-  res.json({ok:true,database:"ready",schema:"ready",integrations:{media:mediaReady(),payments:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET),custom_domains:railwayDomainsReady()},commit:process.env.RAILWAY_GIT_COMMIT_SHA||null});
+  res.json({ok:true,database:"ready",schema:"ready",integrations:{media:mediaReady(),payments:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET),notifications:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),custom_domains:railwayDomainsReady()},commit:process.env.RAILWAY_GIT_COMMIT_SHA||null});
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
 });
 app.use("/api/public",publicRouter);app.use("/api/auth",authRouter);app.use("/api/admin",adminRouter);app.use("/api/stores",storesRouter);app.use("/api/stores/:storeId",teamMembersRouter);app.use("/api/stores/:storeId",domainsRouter);app.use("/api/stores/:storeId",commerceRouter);app.use("/api/stores/:storeId",mediaRouter);app.use("/api/stores/:storeId",insightsRouter);

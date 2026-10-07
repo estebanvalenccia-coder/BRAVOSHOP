@@ -16,7 +16,7 @@ const health=await get("/api/health");
 if(health.ok!==true)throw new Error("Health check failed");
 const ready=await get("/api/ready");
 if(ready.ok!==true||ready.database!=="ready"||ready.schema!=="ready")throw new Error("Readiness check failed: "+JSON.stringify(ready));
-if(!ready.integrations||ready.integrations.media!==true||typeof ready.integrations.payments!=="boolean"||typeof ready.integrations.custom_domains!=="boolean")throw new Error("Integration readiness missing or invalid: "+JSON.stringify(ready.integrations));
+if(!ready.integrations||ready.integrations.media!==true||typeof ready.integrations.payments!=="boolean"||typeof ready.integrations.notifications!=="boolean"||typeof ready.integrations.custom_domains!=="boolean")throw new Error("Integration readiness missing or invalid: "+JSON.stringify(ready.integrations));
 const expected=process.env.EXPECTED_COMMIT_SHA||"";
 if(expected&&ready.commit!==expected)throw new Error("Production commit mismatch: expected "+expected+" got "+(ready.commit||"none"));
 
