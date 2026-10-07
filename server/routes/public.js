@@ -121,11 +121,11 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const country=String(address.country||"").trim().toUpperCase();
 	const zones=await sql`select count(*)::int as n from shipping_zones where store_id=${req.publicStore.id}::uuid and active=true`;
 	if(zones[0].n>0&&!/^[A-Z]{2}$/.test(country))return res.status(400).json({error:"Indica un país de entrega válido"});
-	let shippingCents=0;
+	let shippingCents=0,shippingRateId=null,shippingRateName=null;
 	if(country){
 		const requestedRate=req.body.shipping_rate_id||null;
 		const rates=await sql`
-			select r.id,r.price,r.free_over
+			select r.id,r.name,r.price,r.free_over
 			from shipping_rates r
 			join shipping_zones z on z.id=r.zone_id and z.store_id=r.store_id
 			where r.store_id=${req.publicStore.id}::uuid and z.active=true and r.active=true
@@ -139,6 +139,8 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 			const priceCents=Math.round(Number(rates[0].price)*100);
 			const freeOverCents=rates[0].free_over===null?null:Math.round(Number(rates[0].free_over)*100);
 			shippingCents=freeOverCents!==null&&subtotalCents>=freeOverCents?0:priceCents;
+			shippingRateId=rates[0].id;
+			shippingRateName=rates[0].name;
 		}
 	}
 
@@ -168,10 +170,10 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const queries=[
 		sql`
 			insert into checkout_sessions(
-				id,store_id,token,status,currency,subtotal,discount_total,discount_code,shipping_total,tax_total,total,customer_email,shipping_address
+				id,store_id,token,status,currency,subtotal,discount_total,discount_code,shipping_total,shipping_rate_id,shipping_rate_name,tax_total,total,customer_email,shipping_address
 			) values(
 				${id}::uuid,${req.publicStore.id}::uuid,${token}::uuid,'open',${currency},
-				${subtotal},${discount},${discountCode},${shipping},${tax},${total},${req.body.email||null},${addressJson}::jsonb
+				${subtotal},${discount},${discountCode},${shipping},${shippingRateId}::uuid,${shippingRateName},${tax},${total},${req.body.email||null},${addressJson}::jsonb
 			)
 		`,
 		...normalized.map(item=>sql`
@@ -188,7 +190,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	await sql.transaction(queries);
 	res.status(201).json({
 		checkout:{
-			token,currency,subtotal,discount_total:discount,discount_code:discountCode,shipping_total:shipping,tax_total:tax,total,status:"open",
+			token,currency,subtotal,discount_total:discount,discount_code:discountCode,shipping_total:shipping,shipping_rate_id:shippingRateId,shipping_rate_name:shippingRateName,tax_total:tax,total,status:"open",
 			items:normalized.map(item=>({
 				variant_id:item.variant_id,
 				title:`${item.product_name} · ${item.variant_title}`,
@@ -202,7 +204,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{const rows=await sql`select c.id,c.store_id,c.status,c.currency,c.total,s.status as store_status,pa.provider,pa.status as account_status,pa.charges_enabled,pa.provider_account_id from checkout_sessions c join stores s on s.id=c.store_id left join store_payment_accounts pa on pa.store_id=c.store_id where c.token=${req.params.token}::uuid and c.expires_at>now() limit 1`;if(!rows.length)return res.status(404).json({error:"Checkout no encontrado o caducado"});const c=rows[0];if(c.status==="completed")return res.status(409).json({error:"Checkout ya pagado"});if(!["active","trial"].includes(c.store_status))return res.status(423).json({error:"Tienda no disponible"});if(c.provider!=="stripe"||!c.provider_account_id||!c.charges_enabled)return res.status(503).json({error:"La tienda todavía no tiene pagos reales habilitados"});if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Proveedor de pagos pendiente de configuración"});await sql`select bravoshop_release_expired_inventory_reservations()`;const reservation=await sql`select bravoshop_reserve_checkout_inventory(${c.id}::uuid) as reserved`;if(!reservation[0]?.reserved)return res.status(409).json({error:"Stock insuficiente o checkout caducado"});const claim=await sql`select bravoshop_claim_checkout_payment(${c.id}::uuid) as claimed`;if(!claim[0]?.claimed)return res.status(409).json({error:"El pago ya se está preparando; inténtalo de nuevo en unos segundos"});const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);let intent;try{intent=await stripe.paymentIntents.create({amount:Math.round(Number(c.total)*100),currency:String(c.currency).toLowerCase(),automatic_payment_methods:{enabled:true},metadata:{bravoshop_checkout_id:String(c.id),bravoshop_store_id:String(c.store_id)}},{stripeAccount:c.provider_account_id,idempotencyKey:"bravoshop-checkout-"+c.id});const finished=await sql`select bravoshop_finish_checkout_payment_claim(${c.id}::uuid,${intent.id}) as finished`;if(!finished[0]?.finished)return res.status(409).json({error:"El checkout cambió mientras se preparaba el pago"})}catch(error){await sql`select bravoshop_release_checkout_payment_claim(${c.id}::uuid)`;throw error}res.json({provider:"stripe",client_secret:intent.client_secret,status:intent.status})});
 publicRouter.get("/checkout/:token",checkoutLimiter,async(req,res)=>{
 	const rows=await sql`
-		select c.status,c.currency,c.subtotal,c.shipping_total,c.tax_total,c.discount_total,c.total,c.expires_at,
+		select c.status,c.currency,c.subtotal,c.shipping_total,c.shipping_rate_id,c.shipping_rate_name,c.tax_total,c.discount_total,c.total,c.expires_at,
 			s.name as store_name,s.slug as store_slug
 		from checkout_sessions c
 		join stores s on s.id=c.store_id
