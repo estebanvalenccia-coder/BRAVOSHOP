@@ -11,17 +11,15 @@ commerceRouter.post("/products",requirePermission("products.create"),async(req,r
 	const price=Number(p.price??0);const status=["draft","active","archived"].includes(p.status)?p.status:"draft";
 	if(!name||name.length>180||!SLUG_PATTERN.test(slug))return res.status(400).json({error:"Nombre o slug no válido"});
 	if(!Number.isFinite(price)||price<0)return res.status(400).json({error:"Precio no válido"});
-	const id=randomUUID();
-	const rows=await sql`
-		insert into products(id,store_id,name,slug,description,price,status,product_type,vendor,metadata,seo)
-		values(
-			${id}::uuid,${req.storeId}::uuid,${name},${slug},${String(p.description||"").slice(0,10000)},
-			${price},${status},${p.product_type||null},${p.vendor||null},
-			${JSON.stringify(p.metadata||{})}::jsonb,${JSON.stringify(p.seo||{})}::jsonb
-		)
-		returning *
-	`;
-	res.status(201).json({product:rows[0]});
+	const id=randomUUID(),variantId=randomUUID();
+	const queries=[
+		sql`insert into products(id,store_id,name,slug,description,price,status,product_type,vendor,metadata,seo,published_at) values(${id}::uuid,${req.storeId}::uuid,${name},${slug},${String(p.description||"").slice(0,10000)},${price},${status},${p.product_type||null},${p.vendor||null},${JSON.stringify(p.metadata||{})}::jsonb,${JSON.stringify(p.seo||{})}::jsonb,case when ${status}='active' then now() else null end)`,
+		sql`insert into product_variants(id,store_id,product_id,title,price,active) values(${variantId}::uuid,${req.storeId}::uuid,${id}::uuid,'Default',null,true)`,
+		sql`insert into inventory_levels(variant_id,quantity,reserved,track_inventory,allow_backorder) values(${variantId}::uuid,0,0,false,false)`,
+	];
+	await sql.transaction(queries);
+	const rows=await sql`select * from products where id=${id}::uuid and store_id=${req.storeId}::uuid`;
+	res.status(201).json({product:rows[0],variant:{id:variantId,store_id:req.storeId,product_id:id,title:"Default",price:null,active:true,quantity:0,reserved:0,track_inventory:false,allow_backorder:false}});
 });
 commerceRouter.put("/products/:id",requirePermission("products.update"),async(req,res)=>{
 	const p=req.body||{};
