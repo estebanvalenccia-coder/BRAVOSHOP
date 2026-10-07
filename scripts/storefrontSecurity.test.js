@@ -115,3 +115,13 @@ test("onboarding keeps core commerce modules enabled by default",async()=>{
  assert.ok(source.includes('disabled={core}'));
  assert.ok(source.includes("Incluido en todas las tiendas"));
 });
+
+test("premium category gallery uses tenant catalog imagery",async()=>{
+ const publicSource=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const storefront=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ assert.ok(publicSource.includes("as image_url from categories"));
+ assert.ok(publicSource.includes("pc2.store_id=c.store_id"));
+ assert.ok(publicSource.includes("m.store_id=c.store_id"));
+ assert.ok(storefront.includes("premiumCategoryGrid"));
+ assert.ok(storefront.includes('theme?.template==="premium-organic"'));
+});
