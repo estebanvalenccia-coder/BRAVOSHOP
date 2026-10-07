@@ -50,3 +50,6 @@ export async function createDiscount(storeId,input){return api(`/api/stores/${st
 export async function updateDiscount(storeId,id,input){const data=await api(`/api/stores/${storeId}/discounts/${id}`,{method:"PATCH",body:input});return data.discount}
 export async function toggleDiscount(storeId,id,active){return updateDiscount(storeId,id,{active})}
 export async function deleteDiscount(storeId,id){return api(`/api/stores/${storeId}/discounts/${id}`,{method:"DELETE"})}
+
+export async function listNewsletterSubscribers(storeId,status=""){const q=status?"?status="+encodeURIComponent(status):"";const data=await api(`/api/stores/${storeId}/newsletter${q}`);return data.subscribers??[]}
+export async function unsubscribeNewsletterSubscriber(storeId,id){const data=await api(`/api/stores/${storeId}/newsletter/${id}/unsubscribe`,{method:"POST",body:{}});return data.subscriber}
