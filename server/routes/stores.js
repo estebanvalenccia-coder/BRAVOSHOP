@@ -98,10 +98,7 @@ storesRouter.post("/:storeId/publication",requireStore,requirePermission("store.
  if(publish){
   const billing=await sql`select bravoshop_refresh_store_billing(${req.storeId}::uuid) as status`;
   const products=await sql`select count(*)::int as n from products where store_id=${req.storeId}::uuid and status='active'`;
-  const shipping=await sql`select count(*)::int as n from shipping_zones z join shipping_rates r on r.zone_id=z.id and r.store_id=z.store_id where z.store_id=${req.storeId}::uuid and z.active=true and r.active=true`;
-  const payment=await sql`select charges_enabled,payouts_enabled,status from store_payment_accounts where store_id=${req.storeId}::uuid limit 1`;
-  const legal=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
-  const checks={billing:["active","trial"].includes(billing[0]?.status),catalog:products[0].n>0,design:Boolean(current.theme?.template),shipping:shipping[0].n>0,legal,payments:Boolean(payment[0]?.charges_enabled&&payment[0]?.payouts_enabled&&payment[0]?.status==="active"),notifications:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM)};
+  const checks={billing:["active","trial"].includes(billing[0]?.status),catalog:products[0].n>0,design:Boolean(current.theme?.template)};
   const missing=Object.entries(checks).filter(([,ok])=>!ok).map(([key])=>key);
   if(missing.length)return res.status(409).json({error:"La tienda todavía no está lista para publicarse",missing});
  }
