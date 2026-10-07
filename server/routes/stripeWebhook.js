@@ -148,8 +148,7 @@ async function updateRefundFromStripe(event, refund, req) {
 	const owners = await sql`
 		select o.store_id
 		from order_refunds r
-		join orders o on o.id=r.order_id
-		where r.id=${refundId}::uuid
+				where r.id=${refundId}::uuid
 		limit 1
 	`;
 	if (!owners.length) return null;
