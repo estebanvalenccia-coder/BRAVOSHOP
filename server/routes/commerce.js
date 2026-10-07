@@ -283,7 +283,7 @@ commerceRouter.get("/campaigns",requirePermission("marketing.read"),async(req,re
   from marketing_campaigns
   where store_id=${req.storeId}::uuid
   order by created_at desc limit 100`;
- res.json({campaigns:rows});
+ res.json({campaigns:rows,email_ready:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM)});
 });
 commerceRouter.post("/campaigns",requirePermission("marketing.manage"),async(req,res)=>{
  const p=req.body||{},name=String(p.name||"").trim().slice(0,120),subject=String(p.subject||"").trim().slice(0,160),heading=String(p.heading||"").trim().slice(0,160),body=String(p.body_text||"").trim().slice(0,5000),buttonLabel=String(p.button_label||"").trim().slice(0,80),buttonUrl=normalizeCampaignUrl(p.button_url);
