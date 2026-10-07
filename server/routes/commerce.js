@@ -110,9 +110,9 @@ commerceRouter.put("/products/:id/media",requirePermission("products.update"),as
 	res.json({media});
 });
 
-commerceRouter.get("/orders",requirePermission("orders.read"),async(req,res)=>{const rows=await sql`select * from orders where store_id=${req.storeId}::uuid order by created_at desc limit 200`;res.json({orders:rows})});
+commerceRouter.get("/orders",requirePermission("orders.read"),async(req,res)=>{const rows=await sql`select o.*,c.name as customer_name,coalesce(c.phone,o.shipping_address->>'phone') as customer_phone from orders o left join customers c on c.id=o.customer_id and c.store_id=o.store_id where o.store_id=${req.storeId}::uuid order by o.created_at desc limit 200`;res.json({orders:rows})});
 commerceRouter.get("/orders/:id",requirePermission("orders.read"),async(req,res)=>{
- const rows=await sql`select * from orders where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;
+ const rows=await sql`select o.*,c.name as customer_name,coalesce(c.phone,o.shipping_address->>'phone') as customer_phone from orders o left join customers c on c.id=o.customer_id and c.store_id=o.store_id where o.id=${req.params.id}::uuid and o.store_id=${req.storeId}::uuid limit 1`;
  if(!rows.length)return res.status(404).json({error:"Pedido no encontrado"});
  const items=await sql`
   select oi.*,
