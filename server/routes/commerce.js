@@ -241,7 +241,22 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 });
 commerceRouter.get("/customers",requirePermission("customers.read"),async(req,res)=>{const rows=await sql`select c.*,count(o.id)::int as order_count,coalesce(sum(case when o.payment_status in ('paid','partially_refunded') then o.total else 0 end),0)::numeric as lifetime_value,max(o.created_at) as last_order_at from customers c left join orders o on o.store_id=c.store_id and lower(o.customer_email)=lower(c.email) where c.store_id=${req.storeId}::uuid group by c.id order by last_order_at desc nulls last,c.created_at desc limit 500`;res.json({customers:rows})});
 commerceRouter.get("/customers/:id",requirePermission("customers.read"),async(req,res)=>{const rows=await sql`select * from customers where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;if(!rows.length)return res.status(404).json({error:"Cliente no encontrado"});const orders=await sql`select id,total,currency,payment_status,fulfillment_status,created_at from orders where store_id=${req.storeId}::uuid and lower(customer_email)=lower(${rows[0].email||""}) order by created_at desc limit 100`;res.json({customer:{...rows[0],orders}})});
-commerceRouter.patch("/customers/:id",requirePermission("customers.update"),async(req,res)=>{const p=req.body||{};const rows=await sql`update customers set name=coalesce(${p.name??null},name),phone=coalesce(${p.phone??null},phone),notes=coalesce(${p.notes??null},notes),updated_at=now() where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid returning *`;if(!rows.length)return res.status(404).json({error:"Cliente no encontrado"});res.json({customer:rows[0]})});
+commerceRouter.patch("/customers/:id",requirePermission("customers.update"),async(req,res)=>{
+ const p=req.body||{};
+ const name=p.name===undefined?null:String(p.name).trim();
+ const phone=p.phone===undefined?null:String(p.phone).trim();
+ const notes=p.notes===undefined?null:String(p.notes).trim();
+ if(name!==null&&(!name||name.length>180))return res.status(400).json({error:"Nombre de cliente no válido"});
+ if(phone!==null&&phone.length>80)return res.status(400).json({error:"Teléfono no válido"});
+ if(notes!==null&&notes.length>5000)return res.status(400).json({error:"Las notas son demasiado largas"});
+ const rows=await sql`
+  update customers
+  set name=coalesce(${name},name),phone=coalesce(${phone},phone),notes=coalesce(${notes},notes),updated_at=now()
+  where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid
+  returning *`;
+ if(!rows.length)return res.status(404).json({error:"Cliente no encontrado"});
+ res.json({customer:rows[0]});
+});
 
 commerceRouter.get("/abandoned-checkouts",requirePermission("marketing.read"),async(req,res)=>{
  const limit=Math.min(100,Math.max(1,Number.parseInt(String(req.query.limit||"50"),10)||50));

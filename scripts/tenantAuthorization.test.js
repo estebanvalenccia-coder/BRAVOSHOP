@@ -140,3 +140,14 @@ test("refund webhook fallback remains scoped to the connected store", async () =
 	assert.ok(block.includes("provider_refund_id=${refund.id} and store_id=${storeId}::uuid"));
 	assert.ok(block.includes("r.id=${refundId}::uuid and r.store_id=${storeId}::uuid"));
 });
+
+
+test("critical commerce and media mutations stay tenant scoped", async () => {
+	const commerce=await readFile(new URL("../server/routes/commerce.js",import.meta.url),"utf8");
+	const media=await readFile(new URL("../server/routes/media.js",import.meta.url),"utf8");
+	assert.ok(commerce.includes('where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid'));
+	assert.ok(commerce.includes('where v.id=${req.params.variantId}::uuid and v.store_id=${req.storeId}::uuid'));
+	assert.ok(commerce.includes('where m.id=${req.params.id}::uuid and m.store_id=${req.storeId}::uuid'));
+	assert.ok(media.includes('where m.id=${req.params.id}::uuid and m.store_id=${req.storeId}::uuid'));
+	assert.ok(media.includes('const expectedPrefix = `${req.storeId}/library/`;'));
+});
