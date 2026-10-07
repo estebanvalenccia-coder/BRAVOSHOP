@@ -11,6 +11,7 @@ storesRouter.post("/",async(req,res)=>{
  const cleanFeatures=[...new Set(Array.isArray(features)?features:[])].filter(x=>MERCHANT_FEATURE_KEYS.has(x));
  const country=/^[A-Z]{2}$/.test(String(settings?.country||"").toUpperCase())?String(settings.country).toUpperCase():null;
  const currency=/^[A-Z]{3}$/.test(String(settings?.currency||"").toUpperCase())?String(settings.currency).toUpperCase():"EUR";
+ const initialSettings={...(settings||{}),published:false,preview_token:randomUUID()};
  for(let attempt=0;attempt<25;attempt++){
   const suffix=attempt===0?"":"-"+(attempt+1);
   const maxBase=63-suffix.length;
@@ -21,7 +22,7 @@ storesRouter.post("/",async(req,res)=>{
    sql`insert into organizations(id,name) values(${orgId}::uuid,${String(name).trim()})`,
    sql`insert into stores(id,organization_id,name,slug,sector,status) values(${storeId}::uuid,${orgId}::uuid,${String(name).trim()},${candidate},${sector||null},'trial')`,
    sql`insert into store_members(store_id,user_id,role) values(${storeId}::uuid,${req.user.id}::uuid,'owner')`,
-   sql`insert into store_settings(store_id,settings) values(${storeId}::uuid,${JSON.stringify(settings)}::jsonb)`,
+   sql`insert into store_settings(store_id,settings) values(${storeId}::uuid,${JSON.stringify(initialSettings)}::jsonb)`,
    sql`insert into store_theme(store_id,theme) values(${storeId}::uuid,${JSON.stringify(theme)}::jsonb)`,
    sql`insert into store_payment_accounts(store_id,provider,status,country,default_currency) values(${storeId}::uuid,'stripe','not_connected',${country},${currency})`,
    sql`insert into store_subscriptions(store_id,plan_id,status,trial_ends_at,updated_at)
@@ -31,7 +32,7 @@ storesRouter.post("/",async(req,res)=>{
   ];
   try{
    await sql.transaction(queries);
-   return res.status(201).json({store:{id:storeId,name:String(name).trim(),slug:candidate,sector:sector||null,status:"trial",role:"owner",settings:settings||{},theme:theme||{},features:cleanFeatures.map(feature=>({feature_key:feature,enabled:true}))}});
+   return res.status(201).json({store:{id:storeId,name:String(name).trim(),slug:candidate,sector:sector||null,status:"trial",role:"owner",settings:initialSettings,theme:theme||{},features:cleanFeatures.map(feature=>({feature_key:feature,enabled:true}))}});
   }catch(e){
    if(String(e).toLowerCase().includes("unique")&&attempt<24)continue;
    throw e;
@@ -69,9 +70,27 @@ storesRouter.get("/:storeId/payments",requireStore,requirePermission("payments.r
  res.json({payment_account:{provider:"stripe",status:"not_connected",provider_account_id:null,charges_enabled:false,payouts_enabled:false,details_submitted:false,default_currency:fallback[0]?.settings?.currency||"EUR",country:fallback[0]?.settings?.country||null}});
 });
 storesRouter.get("/:storeId",requireStore,requirePermission("store.read"),async(req,res)=>{const rows=await sql`select s.*,ss.settings,st.theme from stores s left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where s.id=${req.storeId}::uuid`;if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});const features=await sql`select feature_key,enabled,config from store_features where store_id=${req.storeId}::uuid`;res.json({store:{...rows[0],features}})});
-storesRouter.patch("/:storeId",requireStore,requirePermission("store.update"),async(req,res)=>{const{name,sector,theme,settings}=req.body||{};if(name!==undefined&&(!String(name).trim()||String(name).trim().length>120))return res.status(400).json({error:"Nombre de tienda inválido"});await sql.transaction([...(name!==undefined||sector!==undefined?[sql`update stores set name=coalesce(${name===undefined?null:String(name).trim()},name),sector=coalesce(${sector===undefined?null:sector},sector),updated_at=now() where id=${req.storeId}::uuid`]:[]),...(settings!==undefined?[sql`insert into store_settings(store_id,settings) values(${req.storeId}::uuid,${JSON.stringify(settings||{})}::jsonb) on conflict(store_id) do update set settings=excluded.settings`]:[]),...(theme!==undefined?[sql`insert into store_theme(store_id,theme) values(${req.storeId}::uuid,${JSON.stringify(theme||{})}::jsonb) on conflict(store_id) do update set theme=excluded.theme`]:[])]);res.json({ok:true})});
-storesRouter.put("/:storeId/features",requireStore,requirePermission("store.update"),async(req,res)=>{const features=Array.isArray(req.body?.features)?req.body.features:[];const clean=[...new Set(features)].filter(x=>MERCHANT_FEATURE_KEYS.has(x));const queries=[sql`update store_features set enabled=false where store_id=${req.storeId}::uuid`,...clean.map(feature=>sql`insert into store_features(store_id,feature_key,enabled) values(${req.storeId}::uuid,${feature},true) on conflict(store_id,feature_key) do update set enabled=true`)];await sql.transaction(queries);res.json({features:clean})});
+storesRouter.patch("/:storeId",requireStore,requirePermission("store.update"),async(req,res)=>{const{name,sector,theme,settings}=req.body||{};if(name!==undefined&&(!String(name).trim()||String(name).trim().length>120))return res.status(400).json({error:"Nombre de tienda inválido"});let safeSettings=settings;if(settings!==undefined){safeSettings={...(settings||{})};delete safeSettings.published;delete safeSettings.preview_token}await sql.transaction([...(name!==undefined||sector!==undefined?[sql`update stores set name=coalesce(${name===undefined?null:String(name).trim()},name),sector=coalesce(${sector===undefined?null:sector},sector),updated_at=now() where id=${req.storeId}::uuid`]:[]),...(safeSettings!==undefined?[sql`insert into store_settings(store_id,settings) values(${req.storeId}::uuid,${JSON.stringify(safeSettings||{})}::jsonb) on conflict(store_id) do update set settings=store_settings.settings||excluded.settings`]:[]),...(theme!==undefined?[sql`insert into store_theme(store_id,theme) values(${req.storeId}::uuid,${JSON.stringify(theme||{})}::jsonb) on conflict(store_id) do update set theme=excluded.theme`]:[])]);res.json({ok:true})});
+storesRouter.put("/:storeId/features",requireStore,requirePermission("store.update"),async(req,res)=>{const features=Array.isArray(req.body?.features)?req.body.features:[];const clean=[...new Set(features)].filter(x=>MERCHANT_FEATURE_KEYS.has(x));const merchantKeys=[...MERCHANT_FEATURE_KEYS];const queries=[sql`update store_features set enabled=false where store_id=${req.storeId}::uuid and feature_key=any(${merchantKeys})`,...clean.map(feature=>sql`insert into store_features(store_id,feature_key,enabled) values(${req.storeId}::uuid,${feature},true) on conflict(store_id,feature_key) do update set enabled=true`)];await sql.transaction(queries);res.json({features:clean})});
 
+storesRouter.post("/:storeId/publication",requireStore,requirePermission("store.update"),async(req,res)=>{
+ const publish=Boolean(req.body?.published);
+ const rows=await sql`select s.id,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme from stores s left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where s.id=${req.storeId}::uuid limit 1`;
+ if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});
+ const current=rows[0],settings=current.settings||{};
+ if(publish){
+  const products=await sql`select count(*)::int as n from products where store_id=${req.storeId}::uuid and status='active'`;
+  const shipping=await sql`select count(*)::int as n from shipping_zones z join shipping_rates r on r.zone_id=z.id and r.store_id=z.store_id where z.store_id=${req.storeId}::uuid and z.active=true and r.active=true`;
+  const payment=await sql`select charges_enabled,payouts_enabled,status from store_payment_accounts where store_id=${req.storeId}::uuid limit 1`;
+  const legal=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
+  const checks={catalog:products[0].n>0,design:Boolean(current.theme?.template),shipping:shipping[0].n>0,legal,payments:Boolean(payment[0]?.charges_enabled&&payment[0]?.payouts_enabled&&payment[0]?.status==="active"),notifications:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM)};
+  const missing=Object.entries(checks).filter(([,ok])=>!ok).map(([key])=>key);
+  if(missing.length)return res.status(409).json({error:"La tienda todavía no está lista para publicarse",missing});
+ }
+ const next={...settings,published:publish,preview_token:settings.preview_token||randomUUID()};
+ await sql`insert into store_settings(store_id,settings) values(${req.storeId}::uuid,${JSON.stringify(next)}::jsonb) on conflict(store_id) do update set settings=excluded.settings`;
+ res.json({ok:true,published:publish,preview_token:next.preview_token});
+});
 storesRouter.get("/:storeId/shipping",requireStore,requirePermission("shipping.read"),async(req,res)=>{const zones=await sql`select z.*,coalesce(json_agg(json_build_object('id',r.id,'name',r.name,'price',r.price,'free_over',r.free_over,'min_days',r.min_days,'max_days',r.max_days,'active',r.active)) filter(where r.id is not null),'[]') as rates from shipping_zones z left join shipping_rates r on r.zone_id=z.id and r.store_id=z.store_id where z.store_id=${req.storeId}::uuid group by z.id order by z.created_at`;res.json({zones})});
 storesRouter.post("/:storeId/shipping/zones",requireStore,requirePermission("shipping.manage"),async(req,res)=>{const p=req.body||{};if(!String(p.name||"").trim())return res.status(400).json({error:"Nombre requerido"});const countries=[...new Set((Array.isArray(p.countries)?p.countries:[]).map(x=>String(x).toUpperCase()).filter(x=>/^[A-Z]{2}$/.test(x)))];const rows=await sql`insert into shipping_zones(store_id,name,countries) values(${req.storeId}::uuid,${String(p.name).trim()},${countries}) returning *`;res.status(201).json({zone:rows[0]})});
 storesRouter.post("/:storeId/shipping/zones/:zoneId/rates",requireStore,requirePermission("shipping.manage"),async(req,res)=>{const p=req.body||{};const zone=await sql`select id from shipping_zones where id=${req.params.zoneId}::uuid and store_id=${req.storeId}::uuid`;if(!zone.length)return res.status(404).json({error:"Zona no encontrada"});const price=Number(p.price||0),free=p.free_over==null||p.free_over===""?null:Number(p.free_over),min=p.min_days==null||p.min_days===""?null:Number(p.min_days),max=p.max_days==null||p.max_days===""?null:Number(p.max_days);if(!String(p.name||"").trim()||!Number.isFinite(price)||price<0||free!==null&&(!Number.isFinite(free)||free<0)||min!==null&&(!Number.isInteger(min)||min<0)||max!==null&&(!Number.isInteger(max)||max<0)||(min!==null&&max!==null&&max<min))return res.status(400).json({error:"Tarifa inválida"});const rows=await sql`insert into shipping_rates(zone_id,store_id,name,price,free_over,min_days,max_days) values(${req.params.zoneId}::uuid,${req.storeId}::uuid,${String(p.name).trim()},${price},${free},${min},${max}) returning *`;res.status(201).json({rate:rows[0]})});
