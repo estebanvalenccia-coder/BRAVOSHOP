@@ -125,14 +125,23 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 		}
 	}
 
+	let discountCode=null,discountCents=0;
+	const requestedCode=String(req.body.discount_code||"").trim().toUpperCase();
+	if(requestedCode){
+		const claimed=await sql`select * from bravoshop_claim_discount(${req.publicStore.id}::uuid,${requestedCode},${subtotalCents/100})`;
+		if(!claimed.length)return res.status(422).json({error:"Código de descuento no válido, caducado o no aplicable"});
+		discountCode=claimed[0].code;discountCents=Math.round(Number(claimed[0].discount_amount)*100);
+	}
+	const taxableSubtotalCents=Math.max(0,subtotalCents-discountCents);
 	const taxRows=await sql`select enabled,prices_include_tax,default_rate from store_tax_settings where store_id=${req.publicStore.id}::uuid limit 1`;
 	const taxConfig=taxRows[0];
 	const taxCents=taxConfig?.enabled&&!taxConfig.prices_include_tax
-		?Math.round(subtotalCents*(Number(taxConfig.default_rate)/100))
+		?Math.round(taxableSubtotalCents*(Number(taxConfig.default_rate)/100))
 		:0;
-	const totalCents=subtotalCents+shippingCents+taxCents;
+	const totalCents=taxableSubtotalCents+shippingCents+taxCents;
 	if(!Number.isSafeInteger(totalCents))return res.status(400).json({error:"Importe del carrito no válido"});
 	const subtotal=subtotalCents/100;
+	const discount=discountCents/100;
 	const shipping=shippingCents/100;
 	const tax=taxCents/100;
 	const total=totalCents/100;
@@ -142,10 +151,10 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const queries=[
 		sql`
 			insert into checkout_sessions(
-				id,store_id,token,status,currency,subtotal,shipping_total,tax_total,total,customer_email,shipping_address
+				id,store_id,token,status,currency,subtotal,discount_total,discount_code,shipping_total,tax_total,total,customer_email,shipping_address
 			) values(
 				${id}::uuid,${req.publicStore.id}::uuid,${token}::uuid,'open',${currency},
-				${subtotal},${shipping},${tax},${total},${req.body.email||null},${addressJson}::jsonb
+				${subtotal},${discount},${discountCode},${shipping},${tax},${total},${req.body.email||null},${addressJson}::jsonb
 			)
 		`,
 		...normalized.map(item=>sql`
@@ -162,7 +171,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	await sql.transaction(queries);
 	res.status(201).json({
 		checkout:{
-			token,currency,subtotal,shipping_total:shipping,tax_total:tax,total,status:"open",
+			token,currency,subtotal,discount_total:discount,discount_code:discountCode,shipping_total:shipping,tax_total:tax,total,status:"open",
 			items:normalized.map(item=>({
 				variant_id:item.variant_id,
 				title:`${item.product_name} · ${item.variant_title}`,
