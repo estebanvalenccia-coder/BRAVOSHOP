@@ -38,8 +38,9 @@ function renderEmail(row){
  if(row.type==="order.shipped"){title="Tu pedido está en camino";lead="El vendedor ha marcado tu pedido como enviado.";details=`${p.shipping_method?`<p><strong>Envío:</strong> ${esc(p.shipping_method)}</p>`:""}${p.tracking_number?`<p><strong>Seguimiento:</strong> ${esc(p.tracking_number)}</p>`:""}${p.tracking_url?`<p><a href="${esc(p.tracking_url)}">Consultar seguimiento</a></p>`:""}`}
  if(row.type==="order.delivered"){title="Pedido entregado";lead="El pedido figura como entregado.";details=""}
  if(row.type==="refund.succeeded"){title="Reembolso confirmado";lead="Tu reembolso ha sido procesado correctamente.";details=p.refund_amount!=null?`<p><strong>Importe:</strong> ${esc(money(p.refund_amount,p.currency))}</p>`:""}
- const subject=`${title} · ${p.store_name||"BravoShop"} · #${p.order_number||""}`;
- const html=`<!doctype html><html><body style="margin:0;background:#f5f5f3;font-family:Arial,sans-serif;color:#171717"><div style="max-width:620px;margin:0 auto;padding:36px 20px"><div style="background:#fff;border-radius:18px;padding:32px"><p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#666">${store}</p><h1 style="font-size:28px;margin:8px 0 12px">${esc(title)}</h1><p>${esc(lead)}</p><p><strong>Pedido:</strong> #${order}</p>${details}${p.status_url?`<p style="margin:24px 0"><a href="${esc(p.status_url)}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:10px">Ver estado del pedido</a></p>`:""}<hr style="border:0;border-top:1px solid #eee;margin:28px 0"><p style="font-size:12px;color:#777">Este mensaje se ha enviado automáticamente desde una tienda gestionada con BravoShop.</p></div></div></body></html>`;
+ if(row.type==="checkout.abandoned"){title="¿Quieres terminar tu compra?";lead="Guardamos los artículos que dejaste en el carrito para que puedas retomarlo.";details=`${p.item_count?`<p><strong>Artículos:</strong> ${esc(p.item_count)}</p>`:""}${p.total!=null?`<p><strong>Total orientativo:</strong> ${esc(money(p.total,p.currency))}</p>`:""}${p.recovery_url?`<p style="margin:24px 0"><a href="${esc(p.recovery_url)}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:10px">Recuperar carrito</a></p>`:""}` }
+ const subject=row.type==="checkout.abandoned"?`${title} · ${p.store_name||"BravoShop"}`:`${title} · ${p.store_name||"BravoShop"} · #${p.order_number||""}`;
+ const html=`<!doctype html><html><body style="margin:0;background:#f5f5f3;font-family:Arial,sans-serif;color:#171717"><div style="max-width:620px;margin:0 auto;padding:36px 20px"><div style="background:#fff;border-radius:18px;padding:32px"><p style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#666">${store}</p><h1 style="font-size:28px;margin:8px 0 12px">${esc(title)}</h1><p>${esc(lead)}</p>${row.type==="checkout.abandoned"?"":`<p><strong>Pedido:</strong> #${order}</p>`}${details}${p.status_url?`<p style="margin:24px 0"><a href="${esc(p.status_url)}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:10px">Ver estado del pedido</a></p>`:""}<hr style="border:0;border-top:1px solid #eee;margin:28px 0"><p style="font-size:12px;color:#777">Este mensaje se ha enviado automáticamente desde una tienda gestionada con BravoShop.</p></div></div></body></html>`;
  return{subject,html};
 }
 
@@ -65,6 +66,8 @@ export async function sendTransactionalEmail({to,subject,html,idempotencyKey}){
 
 export async function processNotificationOutbox(limit=10){
  if(!databaseConfigured||!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return{configured:false,processed:0};
+ await sql`select bravoshop_release_expired_inventory_reservations()`;
+ await sql`select bravoshop_enqueue_abandoned_checkout_notifications(20)`;
  const rows=await sql`select * from bravoshop_claim_notification_batch(${limit})`;let processed=0;
  for(const row of rows){
   try{
