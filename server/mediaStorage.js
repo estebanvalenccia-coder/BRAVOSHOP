@@ -1,6 +1,6 @@
 import express from"express";
 import{createHmac,timingSafeEqual}from"node:crypto";
-import{mkdir,writeFile,readFile,rm}from"node:fs/promises";
+import{mkdir,writeFile,readFile,rm,stat}from"node:fs/promises";
 import path from"node:path";
 
 const app=express();
@@ -50,7 +50,7 @@ app.put("/upload",express.raw({type:"*/*",limit:"16mb"}),async(req,res,next)=>{
   const expected=sign(`${storeId}|${fileId}|${type}|${size}|${expires}`);
   if(!safeEq(sig,expected))return res.status(403).json({error:"Invalid signature"});
   if(!Buffer.isBuffer(req.body)||req.body.length!==size)return res.status(400).json({error:"Upload size mismatch"});
-  const fp=filePaths(storeId,fileId);await mkdir(fp.dir,{recursive:true});await writeFile(fp.file,req.body,{flag:"wx"}).catch(async e=>{if(e.code!=="EEXIST")throw e;await writeFile(fp.file,req.body)});await writeFile(fp.meta,JSON.stringify({content_type:type,size_bytes:size,updated_at:new Date().toISOString()}));
+  const fp=filePaths(storeId,fileId);await mkdir(fp.dir,{recursive:true});try{await writeFile(fp.file,req.body,{flag:"wx"})}catch(e){if(e.code==="EEXIST")return res.status(409).json({error:"Upload already completed"});throw e}await writeFile(fp.meta,JSON.stringify({content_type:type,size_bytes:size,updated_at:new Date().toISOString()}),{flag:"wx"});
   res.status(201).json({ok:true});
  }catch(e){next(e)}
 });
@@ -59,6 +59,21 @@ app.get("/media/:storeId/:fileId",async(req,res)=>{
  const{storeId,fileId}=req.params;
  if(!/^[0-9a-f-]{36}$/i.test(storeId)||!/^[0-9a-f-]{36}$/i.test(fileId))return res.status(404).end();
  try{const fp=filePaths(storeId.toLowerCase(),fileId.toLowerCase());const[buf,raw]=await Promise.all([readFile(fp.file),readFile(fp.meta,"utf8")]);const meta=JSON.parse(raw);res.set("Content-Type",allowed.has(meta.content_type)?meta.content_type:"application/octet-stream");res.set("Cache-Control","public, max-age=31536000, immutable");res.set("X-Content-Type-Options","nosniff");res.send(buf)}catch(e){if(e.code==="ENOENT")return res.status(404).end();throw e}
+});
+
+app.post("/verify",express.json({limit:"64kb"}),async(req,res,next)=>{
+ try{
+  if(!authorized(req))return res.status(401).json({error:"Unauthorized"});
+  const parsed=parseObject(req.body?.object_path),expectedType=String(req.body?.content_type||""),expectedSize=Number(req.body?.size_bytes);
+  if(!parsed||!allowed.has(expectedType)||!Number.isSafeInteger(expectedSize)||expectedSize<=0||expectedSize>maxBytes)return res.status(400).json({error:"Invalid object"});
+  const fp=filePaths(parsed.storeId,parsed.fileId);
+  try{
+   const[info,raw]=await Promise.all([stat(fp.file),readFile(fp.meta,"utf8")]);
+   const meta=JSON.parse(raw);
+   if(info.size!==expectedSize||Number(meta.size_bytes)!==expectedSize||meta.content_type!==expectedType)return res.status(409).json({error:"Stored object does not match upload intent"});
+   return res.json({ok:true,size_bytes:info.size,content_type:meta.content_type,public_url:publicUrl(parsed.storeId,parsed.fileId)});
+  }catch(e){if(e.code==="ENOENT")return res.status(404).json({error:"Object not found"});throw e}
+ }catch(e){next(e)}
 });
 
 app.post("/delete",express.json({limit:"64kb"}),async(req,res,next)=>{
