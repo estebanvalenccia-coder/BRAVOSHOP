@@ -111,7 +111,22 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 	const remainingCents=Math.round(Number(order.total)*100)
 		-Math.round(Number(order.refunded_total||0)*100)
 		-Math.round(Number(order.refund_reserved_total||0)*100);
-	const amountCents=req.body?.amount==null?remainingCents:Math.round(Number(req.body.amount)*100);
+	const requestedItems=Array.isArray(req.body?.items)?req.body.items:[];
+	let itemAmountCents=null;
+	if(requestedItems.length){
+		if(requestedItems.length>100)return res.status(400).json({error:"Demasiadas líneas de reembolso"});
+		const seen=new Set();itemAmountCents=0;
+		for(const requested of requestedItems){
+			const itemId=String(requested?.order_item_id||"");
+			const quantity=Number(requested?.quantity);
+			if(!/^[0-9a-f-]{36}$/i.test(itemId)||!Number.isSafeInteger(quantity)||quantity<=0||seen.has(itemId))return res.status(400).json({error:"Líneas de reembolso inválidas"});
+			seen.add(itemId);
+			const line=await sql`select oi.id,oi.quantity,oi.unit_price,coalesce((select sum(ri.quantity) from order_refund_items ri join order_refunds rr on rr.id=ri.refund_id where ri.order_item_id=oi.id and rr.status in ('processing','pending','succeeded')),0)::int as already_refunded from order_items oi join orders o on o.id=oi.order_id where oi.id=${itemId}::uuid and oi.order_id=${order.id}::uuid and o.store_id=${req.storeId}::uuid limit 1`;
+			if(!line.length||quantity>line[0].quantity-line[0].already_refunded)return res.status(409).json({error:"Cantidad de artículo no reembolsable"});
+			itemAmountCents+=Math.round(Number(line[0].unit_price)*100)*quantity;
+		}
+	}
+	const amountCents=itemAmountCents??(req.body?.amount==null?remainingCents:Math.round(Number(req.body.amount)*100));
 	if(!Number.isSafeInteger(amountCents)||amountCents<=0||amountCents>remainingCents)return res.status(400).json({error:"Importe de reembolso inválido o ya reservado"});
 	const amount=amountCents/100;
 	const reason=String(req.body?.reason||"").trim().slice(0,500)||null;
@@ -122,6 +137,15 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 	`;
 	const refundId=reserved[0]?.refund_id;
 	if(!refundId)return res.status(409).json({error:"El importe disponible cambió; vuelve a consultar el pedido"});
+	if(requestedItems.length){
+		for(const requested of requestedItems){
+			const added=await sql`select bravoshop_add_refund_item(${refundId}::uuid,${req.storeId}::uuid,${requested.order_item_id}::uuid,${Number(requested.quantity)}) as added`;
+			if(!added[0]?.added){
+				await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${req.storeId}::uuid,null,'failed')`;
+				return res.status(409).json({error:"Las cantidades reembolsables cambiaron; vuelve a consultar el pedido"});
+			}
+		}
+	}
 
 	const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
 	let providerRefund;
