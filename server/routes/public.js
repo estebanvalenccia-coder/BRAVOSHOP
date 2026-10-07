@@ -26,7 +26,7 @@ function validateCheckoutBody(req,res,next){
 	next();
 }
 const reservedSubdomains=new Set(["www","api","admin","app","support","status","mail","cdn","assets","static","dashboard","billing","auth","login","register","help","ftp","pop","smtp","autoconfig","store","stores","shop","checkout","webhook","webhooks","docs","developer","developers","dev","staging","test","internal","root","security","contact","notifications","imap","pop3","ns1","ns2","mx","email","media","images","files","uploads","download","downloads","public","private","system","platform"]);
-const publicSettingKeys=["currency","locale","headline","subheadline","about","legal_name","legal_email","tax_id","legal_address","privacy_email","privacy_notes","shipping_policy","returns_days","returns_policy"];
+const publicSettingKeys=["currency","locale","headline","subheadline","about","store_description","contact_email","contact_phone","legal_name","legal_email","legal_phone","tax_id","legal_address","privacy_email","privacy_notes","shipping_policy","returns_days","returns_policy"];
 function publicSettings(settings={}){return Object.fromEntries(publicSettingKeys.filter(key=>Object.hasOwn(settings,key)).map(key=>[key,settings[key]]))}
 export function normalizePublicHost(value){
 	if(typeof value!=="string"||value.length>300||/[\s/@?#\\]/.test(value))return null;
