@@ -36,5 +36,6 @@ export async function removeDomain(storeId,domainId){return api(`/api/stores/${s
 
 export async function listDiscounts(storeId){const data=await api(`/api/stores/${storeId}/discounts`);return data.discounts??[]}
 export async function createDiscount(storeId,input){return api(`/api/stores/${storeId}/discounts`,{method:"POST",body:input})}
-export async function toggleDiscount(storeId,id,active){return api(`/api/stores/${storeId}/discounts/${id}`,{method:"PATCH",body:{active}})}
+export async function updateDiscount(storeId,id,input){const data=await api(`/api/stores/${storeId}/discounts/${id}`,{method:"PATCH",body:input});return data.discount}
+export async function toggleDiscount(storeId,id,active){return updateDiscount(storeId,id,{active})}
 export async function deleteDiscount(storeId,id){return api(`/api/stores/${storeId}/discounts/${id}`,{method:"DELETE"})}
