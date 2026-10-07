@@ -141,7 +141,7 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 		const outcomeUnknown=error.statusCode>=500
 			||["StripeConnectionError","StripeAPIError","StripeRateLimitError"].includes(error.type);
 		if(!outcomeUnknown){
-			await sql`select bravoshop_update_refund(${refundId}::uuid,null,'failed')`;
+			await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${req.storeId}::uuid,null,'failed')`;
 		}
 		console.error(JSON.stringify({
 			level:"error",
@@ -158,7 +158,7 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 		:providerRefund.status==="failed"||providerRefund.status==="canceled"
 			?"failed"
 			:"pending";
-	await sql`select bravoshop_update_refund(${refundId}::uuid,${providerRefund.id},${status})`;
+	await sql`select bravoshop_update_refund_for_store(${refundId}::uuid,${req.storeId}::uuid,${providerRefund.id},${status})`;
 	const refund=await sql`select r.* from order_refunds r join orders o on o.id=r.order_id and o.store_id=${req.storeId}::uuid where r.id=${refundId}::uuid and r.order_id=${order.id}::uuid`;
 	res.status(201).json({refund:refund[0]});
 });
