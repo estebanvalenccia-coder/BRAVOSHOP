@@ -77,3 +77,17 @@ insightsRouter.get("/analytics", requirePermission("analytics.read"), async (req
 	const sales30=daily.reduce((n,x)=>n+Number(x.sales),0),orders30=daily.reduce((n,x)=>n+Number(x.orders),0);
 	res.json({period_days:30,metrics:{sales:sales30,orders:orders30,average_order:orders30?sales30/orders30:0,repeat_customers:repeatCustomers[0].value},daily:daily.map(x=>({...x,sales:Number(x.sales)})),top_products:topProducts.map(x=>({...x,revenue:Number(x.revenue)})),order_statuses:statuses});
 });
+
+insightsRouter.get("/inventory/movements", requirePermission("inventory.read"), async (req,res)=>{
+ const rows=await sql`
+  select im.id,im.type,im.quantity_delta,im.reserved_delta,im.reference_type,im.reference_id,im.created_at,
+   v.sku,v.title as variant_title,p.name as product_name,u.email as actor_email
+  from inventory_movements im
+  join product_variants v on v.id=im.variant_id and v.store_id=im.store_id
+  join products p on p.id=v.product_id and p.store_id=im.store_id
+  left join app_users u on u.id=im.actor_user_id
+  where im.store_id=${req.storeId}::uuid
+  order by im.created_at desc
+  limit 200`;
+ res.json({movements:rows});
+});
