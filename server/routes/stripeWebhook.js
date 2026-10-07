@@ -131,7 +131,7 @@ async function releaseFailedCheckout(event, req) {
 		await recordWebhookIncident(req, event, storeId, "metadata_store_mismatch");
 		throw new Error("PaymentIntent tenant metadata does not match checkout");
 	}
-	await sql`select bravoshop_release_checkout_inventory(${checkout.id}::uuid,'payment_failed')`;
+	await sql`select bravoshop_release_checkout_inventory(${checkout.id}::uuid,'payment_failed',${intent.id})`;
 	return storeId;
 }
 
