@@ -180,15 +180,18 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 			itemAmountCents+=Math.round(Number(line[0].unit_price)*quantity*discountFactor*100);
 		}
 	}
-	const amountCents=itemAmountCents??(req.body?.amount==null?remainingCents:Math.round(Number(req.body.amount)*100));
+	let amountCents=itemAmountCents??(req.body?.amount==null?remainingCents:Math.round(Number(req.body.amount)*100));
 	if(!Number.isSafeInteger(amountCents)||amountCents<=0||amountCents>remainingCents)return res.status(400).json({error:"Importe de reembolso inválido o ya reservado"});
-	const amount=amountCents/100;
+	let amount=amountCents/100;
 	const reason=String(req.body?.reason||"").trim().slice(0,500)||null;
 	let refundId;
 	if(requestedItems.length){
 		const createdRefund=await sql`select * from bravoshop_create_item_refund(${order.id}::uuid,${req.storeId}::uuid,${JSON.stringify(requestedItems)}::jsonb,${reason},${req.user.id}::uuid)`;
 		refundId=createdRefund[0]?.refund_id;
 		if(!refundId)return res.status(409).json({error:"Las cantidades o el importe reembolsable cambiaron; vuelve a consultar el pedido"});
+		amountCents=Math.round(Number(createdRefund[0].amount)*100);
+		if(!Number.isSafeInteger(amountCents)||amountCents<=0)return res.status(409).json({error:"La base de datos devolvió un importe de reembolso no válido"});
+		amount=amountCents/100;
 	}else{
 		const reserved=await sql`select bravoshop_create_refund(${order.id}::uuid,${req.storeId}::uuid,${amount},${reason},${req.user.id}::uuid) as refund_id`;
 		refundId=reserved[0]?.refund_id;
