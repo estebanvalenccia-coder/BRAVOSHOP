@@ -3,6 +3,19 @@ export const storesRouter=Router();storesRouter.use(requireAuth);
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const AI_FEATURE_KEYS=new Set(["ai_assistant","ai_images","image_analysis"]);const FEATURE_KEYS=new Set(["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist","gift_cards","reservations","subscriptions","pos","blog","marketing","automations","b2b"]);const MERCHANT_FEATURE_KEYS=new Set(["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist"]);
 const RESERVED=new Set(["www","api","admin","app","support","status","mail","cdn","assets","static","dashboard","billing","auth","login","register","help","ftp","pop","smtp","autoconfig","store","stores","shop","checkout","webhook","webhooks","docs","developer","developers","dev","staging","test","internal","root","security","contact","notifications","imap","pop3","ns1","ns2","mx","email","media","images","files","uploads","download","downloads","public","private","system","platform"]);
+
+async function canUsePremiumTemplate(storeId){
+ const rows=await sql`
+  select 1
+  from store_subscriptions ss
+  join plans p on p.id=ss.plan_id
+  join plan_features pf on pf.plan_id=p.id and pf.feature_key='premium_templates' and pf.enabled=true
+  where ss.store_id=${storeId}::uuid
+    and (ss.status='active' or (ss.status='trialing' and (ss.trial_ends_at is null or ss.trial_ends_at>now())))
+    and (ss.complimentary_reason is null or ss.complimentary_until is null or ss.complimentary_until>now())
+  limit 1`;
+ return rows.length>0;
+}
 storesRouter.get("/",async(req,res)=>{const rows=await sql`select s.*,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme from stores s join store_members sm on sm.store_id=s.id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where sm.user_id=${req.user.id}::uuid and sm.status='active' order by s.created_at desc`;res.json({stores:rows})});
 storesRouter.post("/",async(req,res)=>{
  const{name,slug,sector,theme={},settings={},features=[]}=req.body||{};
@@ -11,6 +24,7 @@ storesRouter.post("/",async(req,res)=>{
  const cleanFeatures=[...new Set(Array.isArray(features)?features:[])].filter(x=>MERCHANT_FEATURE_KEYS.has(x));
  const country=/^[A-Z]{2}$/.test(String(settings?.country||"").toUpperCase())?String(settings.country).toUpperCase():null;
  const currency=/^[A-Z]{3}$/.test(String(settings?.currency||"").toUpperCase())?String(settings.currency).toUpperCase():"EUR";
+ if(theme?.template==="premium-organic")return res.status(403).json({error:"La plantilla Premium requiere un plan Premium"});
  const initialSettings={...(settings||{}),published:false,preview_token:randomUUID()};
  const basePlans=await sql`select id,trial_days from plans where slug='basic' and status='active' limit 1`;
  if(!basePlans.length)return res.status(503).json({error:"El plan Basic de BravoShop no está configurado"});
@@ -73,7 +87,7 @@ storesRouter.get("/:storeId/payments",requireStore,requirePermission("payments.r
  res.json({payment_account:{provider:"stripe",status:"not_connected",provider_account_id:null,charges_enabled:false,payouts_enabled:false,details_submitted:false,default_currency:fallback[0]?.settings?.currency||"EUR",country:fallback[0]?.settings?.country||null}});
 });
 storesRouter.get("/:storeId",requireStore,requirePermission("store.read"),async(req,res)=>{const rows=await sql`select s.*,ss.settings,st.theme from stores s left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where s.id=${req.storeId}::uuid`;if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});const features=await sql`select feature_key,enabled,config from store_features where store_id=${req.storeId}::uuid`;res.json({store:{...rows[0],features}})});
-storesRouter.patch("/:storeId",requireStore,requirePermission("store.update"),async(req,res)=>{const{name,sector,theme,settings}=req.body||{};if(name!==undefined&&(!String(name).trim()||String(name).trim().length>120))return res.status(400).json({error:"Nombre de tienda inválido"});let safeSettings=settings;if(settings!==undefined){safeSettings={...(settings||{})};delete safeSettings.published;delete safeSettings.preview_token}await sql.transaction([...(name!==undefined||sector!==undefined?[sql`update stores set name=coalesce(${name===undefined?null:String(name).trim()},name),sector=coalesce(${sector===undefined?null:sector},sector),updated_at=now() where id=${req.storeId}::uuid`]:[]),...(safeSettings!==undefined?[sql`insert into store_settings(store_id,settings) values(${req.storeId}::uuid,${JSON.stringify(safeSettings||{})}::jsonb) on conflict(store_id) do update set settings=store_settings.settings||excluded.settings`]:[]),...(theme!==undefined?[sql`insert into store_theme(store_id,theme) values(${req.storeId}::uuid,${JSON.stringify(theme||{})}::jsonb) on conflict(store_id) do update set theme=excluded.theme`]:[])]);res.json({ok:true})});
+storesRouter.patch("/:storeId",requireStore,requirePermission("store.update"),async(req,res)=>{const{name,sector,theme,settings}=req.body||{};if(theme?.template==="premium-organic"&&!await canUsePremiumTemplate(req.storeId))return res.status(403).json({error:"La plantilla Premium requiere un plan Premium"});if(name!==undefined&&(!String(name).trim()||String(name).trim().length>120))return res.status(400).json({error:"Nombre de tienda inválido"});let safeSettings=settings;if(settings!==undefined){safeSettings={...(settings||{})};delete safeSettings.published;delete safeSettings.preview_token}await sql.transaction([...(name!==undefined||sector!==undefined?[sql`update stores set name=coalesce(${name===undefined?null:String(name).trim()},name),sector=coalesce(${sector===undefined?null:sector},sector),updated_at=now() where id=${req.storeId}::uuid`]:[]),...(safeSettings!==undefined?[sql`insert into store_settings(store_id,settings) values(${req.storeId}::uuid,${JSON.stringify(safeSettings||{})}::jsonb) on conflict(store_id) do update set settings=store_settings.settings||excluded.settings`]:[]),...(theme!==undefined?[sql`insert into store_theme(store_id,theme) values(${req.storeId}::uuid,${JSON.stringify(theme||{})}::jsonb) on conflict(store_id) do update set theme=excluded.theme`]:[])]);res.json({ok:true})});
 storesRouter.put("/:storeId/features",requireStore,requirePermission("store.update"),async(req,res)=>{const features=Array.isArray(req.body?.features)?req.body.features:[];const clean=[...new Set(features)].filter(x=>MERCHANT_FEATURE_KEYS.has(x));const merchantKeys=[...MERCHANT_FEATURE_KEYS];const queries=[sql`update store_features set enabled=false where store_id=${req.storeId}::uuid and feature_key=any(${merchantKeys})`,...clean.map(feature=>sql`insert into store_features(store_id,feature_key,enabled) values(${req.storeId}::uuid,${feature},true) on conflict(store_id,feature_key) do update set enabled=true`)];await sql.transaction(queries);res.json({features:clean})});
 
 storesRouter.post("/:storeId/publication",requireStore,requirePermission("store.update"),async(req,res)=>{
