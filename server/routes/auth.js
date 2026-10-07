@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { sql } from "../db/neon.js";
 import { clearSessionCookie, createSessionToken, sessionCookie } from "../auth/session.js";
 import { requireAuth } from "../middleware/auth.js";
 import { authLimiter } from "../middleware/rateLimit.js";
+import { sendTransactionalEmail } from "../services/notifications.js";
 
 export const authRouter = Router();
 
@@ -104,14 +105,50 @@ authRouter.post("/register", authLimiter, async (req, res) => {
 authRouter.post("/login", authLimiter, async (req, res) => {
 	const { email, password } = req.body || {};
 	const normalized = String(email || "").trim().toLowerCase();
-	const rows = await sql`select id,email,name,role,status,password_hash from app_users where lower(email)=${normalized} limit 1`;
+	const rows = await sql`select id,email,name,role,status,password_hash,session_version from app_users where lower(email)=${normalized} limit 1`;
 	if (!rows.length || rows[0].status !== "active" || !verifyPassword(String(password || ""), rows[0].password_hash)) {
 		return res.status(401).json({ error: "Credenciales incorrectas" });
 	}
-	const user = { id: rows[0].id, email: rows[0].email, name: rows[0].name, role: rows[0].role };
+	const user = { id: rows[0].id, email: rows[0].email, name: rows[0].name, role: rows[0].role, session_version: rows[0].session_version };
 	const token = await createSessionToken(user);
 	res.setHeader("Set-Cookie", sessionCookie(token));
 	res.json({ user });
+});
+
+authRouter.post("/password/forgot", authLimiter, async (req, res) => {
+ const normalized=String(req.body?.email||"").trim().toLowerCase();
+ const done=()=>res.status(202).json({ok:true,message:"Si existe una cuenta activa, recibirás instrucciones para restablecer la contraseña."});
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)||normalized.length>254)return done();
+ const rows=await sql`select id,email from app_users where lower(email)=${normalized} and status='active' limit 1`;
+ if(!rows.length)return done();
+ const user=rows[0];
+ const rawToken=randomBytes(32).toString("base64url");
+ const tokenHash=createHash("sha256").update(rawToken).digest("hex");
+ const tokenId=randomUUID();
+ await sql`update password_reset_tokens set used_at=now() where user_id=${user.id}::uuid and used_at is null`;
+ await sql`insert into password_reset_tokens(id,user_id,token_hash,expires_at) values(${tokenId}::uuid,${user.id}::uuid,${tokenHash},now()+interval '30 minutes')`;
+ const base=String(process.env.BRAVOSHOP_APP_URL||"https://app.bravoshop.online").replace(/\/$/,"");
+ const resetUrl=base+"/?reset_token="+encodeURIComponent(rawToken);
+ const html=`<!doctype html><html><body style="font-family:Arial,sans-serif;background:#f5f5f3;margin:0"><div style="max-width:600px;margin:auto;padding:36px 20px"><div style="background:#fff;padding:32px;border-radius:18px"><small>BRAVOSHOP</small><h1>Restablecer contraseña</h1><p>Hemos recibido una solicitud para cambiar la contraseña de tu cuenta.</p><p><a href="${resetUrl}" style="display:inline-block;padding:12px 18px;background:#111;color:#fff;text-decoration:none;border-radius:10px">Crear nueva contraseña</a></p><p>Este enlace caduca en 30 minutos y solo puede utilizarse una vez.</p><p style="font-size:12px;color:#777">Si no solicitaste este cambio, puedes ignorar este mensaje.</p></div></div></body></html>`;
+ try{
+  const sent=await sendTransactionalEmail({to:user.email,subject:"Restablece tu contraseña de BravoShop",html,idempotencyKey:"password-reset/"+tokenId});
+  if(!sent.configured){await sql`delete from password_reset_tokens where id=${tokenId}::uuid`;console.error(JSON.stringify({level:"error",error_code:"PASSWORD_RESET_EMAIL_NOT_CONFIGURED"}))}
+ }catch(error){
+  await sql`delete from password_reset_tokens where id=${tokenId}::uuid`;
+  console.error(JSON.stringify({level:"error",error_code:"PASSWORD_RESET_EMAIL_FAILED",message:error.message}));
+ }
+ return done();
+});
+
+authRouter.post("/password/reset", authLimiter, async (req, res) => {
+ const token=String(req.body?.token||"");
+ const password=req.body?.password;
+ if(token.length<20||token.length>200||typeof password!=="string"||password.length<8)return res.status(400).json({error:"Enlace o contraseña no válidos"});
+ const tokenHash=createHash("sha256").update(token).digest("hex");
+ const rows=await sql`select bravoshop_reset_password(${tokenHash},${hashPassword(password)}) as user_id`;
+ if(!rows[0]?.user_id)return res.status(400).json({error:"El enlace ha caducado o ya fue utilizado"});
+ res.setHeader("Set-Cookie",clearSessionCookie());
+ res.json({ok:true});
 });
 
 authRouter.post("/logout", (_req, res) => {
