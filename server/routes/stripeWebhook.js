@@ -118,6 +118,7 @@ async function completePaidCheckout(event, req) {
 		) as order_id
 	`;
 	if (!rows[0]?.order_id) throw new Error("No se pudo completar el pedido del pago confirmado");
+	await sql`update orders o set shipping_rate_id=c.shipping_rate_id,shipping_method=c.shipping_rate_name from checkout_sessions c where o.id=${rows[0].order_id}::uuid and o.store_id=${storeId}::uuid and c.id=${checkout.id}::uuid and c.store_id=${storeId}::uuid`;
 	return storeId;
 }
 
