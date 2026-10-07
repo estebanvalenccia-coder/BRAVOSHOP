@@ -8,9 +8,16 @@ export async function enqueueOrderNotification({storeId,orderId,type,refundId=nu
  if(!databaseConfigured||!storeId||!orderId)return null;
  const rows=await sql`
   select o.id,o.order_number,o.customer_email,o.currency,o.total,o.shipping_method,o.tracking_number,o.tracking_url,
-         o.shipping_address,s.name as store_name,s.slug as store_slug,c.token as checkout_token
+         o.shipping_address,s.name as store_name,s.slug as store_slug,
+         coalesce(d.hostname,s.slug||'.bravoshop.online') as public_host,c.token as checkout_token
   from orders o
   join stores s on s.id=o.store_id
+  left join lateral (
+   select hostname from domains
+   where store_id=s.id and kind='custom' and status='verified' and infrastructure_status='active'
+   order by is_primary desc,created_at
+   limit 1
+  ) d on true
   left join checkout_sessions c on c.completed_order_id=o.id and c.store_id=o.store_id
   where o.id=${orderId}::uuid and o.store_id=${storeId}::uuid
   order by c.paid_at desc nulls last limit 1`;
@@ -22,7 +29,7 @@ export async function enqueueOrderNotification({storeId,orderId,type,refundId=nu
   total:Number(o.total||0),currency:o.currency||"EUR",shipping_method:o.shipping_method||null,
   tracking_number:o.tracking_number||null,tracking_url:o.tracking_url||null,
   customer_name:o.shipping_address?.name||null,refund_amount:refundAmount==null?null:Number(refundAmount),
-  status_url:o.checkout_token?`https://${o.store_slug}.bravoshop.online/?checkout=${encodeURIComponent(o.checkout_token)}`:null
+  status_url:o.checkout_token?`https://${o.public_host}/?checkout=${encodeURIComponent(o.checkout_token)}`:null
  };
  const inserted=await sql`
   insert into notification_outbox(store_id,order_id,type,recipient,payload,idempotency_key)
