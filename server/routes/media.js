@@ -120,7 +120,7 @@ mediaRouter.post("/media/complete", requirePermission("products.update"), async 
 		insert into media_assets(
 			store_id,provider,object_path,public_url,original_name,mime_type,size_bytes,created_by
 		)
-		select store_id,'r2',object_path,public_url,${originalName},mime_type,size_bytes,created_by
+		select store_id,'bravoshop',object_path,public_url,${originalName},mime_type,size_bytes,created_by
 		from claimed
 		returning *
 	`;
