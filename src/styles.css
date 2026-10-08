@@ -289,3 +289,6 @@ body{background:#f7f4ed;color:#17221c}
 .publicTemplateCard.tech-grid .phero{background-image:linear-gradient(90deg,#000a,#0001),url(https://images.unsplash.com/photo-1498049794561-7780e7231661)}
 .publicTemplateCard.interior-catalog .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1600210492486-724fe5c67fb0)}
 .publicTemplateCard.playful-pets .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1583511655857-d19b40a7a54e)}
+
+.publicTemplateCard.service-booking .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1497366811353-6870744d04b2)}
+.publicTemplateCard.premium-organic .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1416879595882-3373a0480b5b)}
