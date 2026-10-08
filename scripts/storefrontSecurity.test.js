@@ -246,3 +246,12 @@ test("guest checkout requires a valid normalized email for transactional updates
  assert.ok(validate.includes("El email de contacto es obligatorio"));
  assert.ok(ui.includes("email.trim())&&address.name"));
 });
+
+test("public checkout rejects negative or unsafe source prices before pricing cart totals",async()=>{
+ const source=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const block=source.slice(source.indexOf('publicRouter.post("/checkout"'),source.indexOf('publicRouter.post("/checkout/',source.indexOf('publicRouter.post("/checkout"')+1));
+ const guard=block.indexOf("!Number.isSafeInteger(unitPriceCents)||unitPriceCents<0");
+ assert.ok(guard>=0);
+ assert.ok(guard<block.indexOf("const lineTotalCents=unitPriceCents*item.quantity"));
+ assert.ok(block.includes("Este producto tiene un precio inválido"));
+});
