@@ -129,7 +129,8 @@ test("premium category gallery uses tenant catalog imagery",async()=>{
 
 test("unsafe custom navigation falls back to the catalog instead of a dead hash",async()=>{
  const storefront=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
- assert.ok(storefront.includes('safeStorefrontUrl(m.url,"#catalog")'));
+ assert.ok(storefront.includes('const menuUrl=url=>{const safe=safeStorefrontUrl(url,"#catalog")'));
+ assert.ok(storefront.includes('href={menuUrl(m.url)}'));
 });
 
 test("public checkout enforces the same commercial readiness shown by merchant admin",async()=>{
