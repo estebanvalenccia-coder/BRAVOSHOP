@@ -112,6 +112,24 @@ publicRouter.post("/newsletter/unsubscribe/:token",newsletterLimiter,async(req,r
  res.json({ok:true});
 });
 publicRouter.get("/payment-config",requirePublicStore,async(req,res)=>{const rows=await sql`select provider,provider_account_id,charges_enabled from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;const p=rows[0];if(!p||p.provider!=="stripe"||!p.provider_account_id||!p.charges_enabled)return res.status(503).json({error:"La tienda todavía no tiene pagos habilitados"});const publishableKey=process.env.STRIPE_PUBLISHABLE_KEY;if(!publishableKey||!publishableKey.startsWith("pk_"))return res.status(503).json({error:"Stripe público pendiente de configuración"});res.json({provider:"stripe",publishable_key:publishableKey,account_id:p.provider_account_id})});
+publicRouter.get("/blog/posts",requirePublicStore,async(req,res)=>{
+ if(!await publicFeatureEnabled(req.publicStore.id,"blog"))return res.status(404).json({error:"Blog no disponible"});
+ const rows=await sql`select b.id,b.title,b.slug,b.excerpt,b.published_at,m.public_url as cover_url
+ from store_blog_posts b left join media_assets m on m.id=b.cover_media_id and m.store_id=b.store_id and m.visibility='public'
+ where b.store_id=${req.publicStore.id}::uuid and b.status='published'
+ order by b.published_at desc,b.id desc limit 100`;
+ res.json({posts:rows});
+});
+publicRouter.get("/blog/posts/:slug",requirePublicStore,async(req,res)=>{
+ if(!await publicFeatureEnabled(req.publicStore.id,"blog"))return res.status(404).json({error:"Blog no disponible"});
+ const slug=String(req.params.slug||"");
+ if(slug.length>120||!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))return res.status(404).json({error:"Artículo no encontrado"});
+ const rows=await sql`select b.id,b.title,b.slug,b.excerpt,b.content,b.published_at,m.public_url as cover_url
+ from store_blog_posts b left join media_assets m on m.id=b.cover_media_id and m.store_id=b.store_id and m.visibility='public'
+ where b.store_id=${req.publicStore.id}::uuid and b.status='published' and b.slug=${slug} limit 1`;
+ if(!rows.length)return res.status(404).json({error:"Artículo no encontrado"});
+ res.json({post:rows[0]});
+});
 publicRouter.get("/products",requirePublicStore,async(req,res)=>{
  const limit=Math.min(100,Math.max(1,Number.parseInt(String(req.query.limit||"48"),10)||48));
  const offset=Math.min(100000,Math.max(0,Number.parseInt(String(req.query.offset||"0"),10)||0));
