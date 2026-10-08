@@ -251,16 +251,16 @@ storesRouter.post("/:storeId/billing/checkout",requireStore,requirePermission("b
 storesRouter.post("/:storeId/billing/cancel",requireStore,requirePermission("billing.manage"),async(req,res)=>{
  if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"La facturación de BravoShop todavía no está configurada"});
  const rows=await sql`select provider_subscription_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;if(!rows[0]?.provider_subscription_id)return res.status(409).json({error:"No hay una suscripción Stripe activa"});
- const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);const sub=await stripe.subscriptions.update(rows[0].provider_subscription_id,{cancel_at_period_end:true});
+ const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);const current=await stripe.subscriptions.retrieve(rows[0].provider_subscription_id);if(["canceled","incomplete_expired"].includes(current.status))return res.status(409).json({error:"Esta suscripción ya ha finalizado; contrata un plan nuevo"});const unchanged=current.cancel_at_period_end===true;const sub=unchanged?current:await stripe.subscriptions.update(current.id,{cancel_at_period_end:true});
  await sql`update store_subscriptions set cancel_at_period_end=true,current_period_end=to_timestamp(${sub.current_period_end||0}),updated_at=now() where store_id=${req.storeId}::uuid`;
- res.json({ok:true,cancel_at_period_end:true,current_period_end:sub.current_period_end||null});
+ res.json({ok:true,unchanged,cancel_at_period_end:true,current_period_end:sub.current_period_end||null});
 });
 storesRouter.post("/:storeId/billing/resume",requireStore,requirePermission("billing.manage"),async(req,res)=>{
  if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"La facturación de BravoShop todavía no está configurada"});
  const rows=await sql`select provider_subscription_id from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;if(!rows[0]?.provider_subscription_id)return res.status(409).json({error:"No hay una suscripción Stripe activa"});
- const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);const sub=await stripe.subscriptions.update(rows[0].provider_subscription_id,{cancel_at_period_end:false});
+ const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);const current=await stripe.subscriptions.retrieve(rows[0].provider_subscription_id);if(["canceled","incomplete_expired"].includes(current.status))return res.status(409).json({error:"Esta suscripción ya ha finalizado; contrata un plan nuevo"});const unchanged=current.cancel_at_period_end===false;const sub=unchanged?current:await stripe.subscriptions.update(current.id,{cancel_at_period_end:false});
  await sql`update store_subscriptions set cancel_at_period_end=false,current_period_end=to_timestamp(${sub.current_period_end||0}),updated_at=now() where store_id=${req.storeId}::uuid`;
- res.json({ok:true,cancel_at_period_end:false,current_period_end:sub.current_period_end||null});
+ res.json({ok:true,unchanged,cancel_at_period_end:false,current_period_end:sub.current_period_end||null});
 });
 storesRouter.post("/:storeId/billing/portal",requireStore,requirePermission("billing.manage"),async(req,res)=>{
  if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"La facturación de BravoShop todavía no está configurada"});

@@ -240,3 +240,17 @@ test("repeat SaaS checkout clicks reuse an open matching Stripe session",async()
  assert.ok(route.includes('pending.client_reference_id===String(req.storeId)'));
  assert.ok(route.includes('res.json({url:pending.url,reused:true})'));
 });
+
+test("repeated Stripe cancellation and reactivation do not produce duplicate writes",async()=>{
+ const source=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const cancel=source.slice(source.indexOf('storesRouter.post("/:storeId/billing/cancel"'),source.indexOf('storesRouter.post("/:storeId/billing/resume"'));
+ const resume=source.slice(source.indexOf('storesRouter.post("/:storeId/billing/resume"'),source.indexOf('storesRouter.post("/:storeId/billing/portal"'));
+ for(const route of [cancel,resume]){
+  assert.ok(route.includes("stripe.subscriptions.retrieve(rows[0].provider_subscription_id)"));
+  assert.ok(route.includes('["canceled","incomplete_expired"].includes(current.status)'));
+  assert.ok(route.includes("const sub=unchanged?current:await stripe.subscriptions.update"));
+  assert.ok(route.includes("res.json({ok:true,unchanged,"));
+ }
+ assert.ok(cancel.includes("current.cancel_at_period_end===true"));
+ assert.ok(resume.includes("current.cancel_at_period_end===false"));
+});
