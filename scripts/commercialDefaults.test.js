@@ -54,3 +54,14 @@ test("core commercial plans cannot be hidden from the public offer",async()=>{
  const ui=await readFile(new URL("../src/platform/admin/SuperAdmin.jsx",import.meta.url),"utf8");
  assert.ok(ui.includes("Público obligatorio"));
 });
+
+test("every store design starts with a photo, but merchants retain their uploaded hero",async()=>{
+ const {STORE_TEMPLATES,TEMPLATE_IMAGE_URLS,applyTemplate}=await import("../src/platform/config/storeTemplates.js");
+ for(const template of STORE_TEMPLATES){
+  assert.ok(TEMPLATE_IMAGE_URLS[template.id]?.startsWith("https://"),template.id);
+  assert.equal(applyTemplate(template.id).sections.find(section=>section.id==="hero")?.content?.image,TEMPLATE_IMAGE_URLS[template.id]);
+ }
+ const image="https://media.example.com/my-own-hero.jpg";
+ const previous={sections:[{id:"hero",type:"hero",content:{image}}]};
+ assert.equal(applyTemplate("market-fresh",previous).sections.find(section=>section.id==="hero").content.image,image);
+});
