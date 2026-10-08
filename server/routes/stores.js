@@ -29,7 +29,7 @@ storesRouter.post("/",storeCreationLimiter,async(req,res)=>{
   if(!creationKey)return null;
   const previous=await sql`select s.id,s.name,s.slug,s.sector,s.status,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme
   from store_creation_requests cr join stores s on s.id=cr.store_id
-  join store_members sm on sm.store_id=s.id and sm.user_id=cr.user_id
+  join store_members sm on sm.store_id=s.id and sm.user_id=cr.user_id and sm.status='active'
   left join store_settings ss on ss.store_id=s.id
   left join store_theme st on st.store_id=s.id
   where cr.user_id=${req.user.id}::uuid and cr.request_key=${creationKey}::uuid limit 1`;

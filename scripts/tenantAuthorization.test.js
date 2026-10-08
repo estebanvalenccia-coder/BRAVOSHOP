@@ -175,3 +175,13 @@ test("merchant managers can save the design without altering store identity",asy
  assert.ok(service.includes('export async function updateStoreTheme('));
  assert.ok(frontend.includes('if(mode==="design")await updateStoreTheme(store.id,full.theme)'));
 });
+
+test("idempotent store creation never returns draft tokens after tenant membership revocation",async()=>{
+ const route=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const start=route.indexOf("const findPrevious=async");
+ const end=route.indexOf("const existing=await findPrevious()",start);
+ const query=route.slice(start,end);
+ assert.ok(query.includes("sm.user_id=cr.user_id and sm.status='active'"));
+ assert.ok(query.includes("cr.user_id=${req.user.id}::uuid"));
+ assert.ok(query.includes("cr.request_key=${creationKey}::uuid"));
+});
