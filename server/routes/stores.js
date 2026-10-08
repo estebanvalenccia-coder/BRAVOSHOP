@@ -2,6 +2,7 @@ import{connectedAccountStatus,onboardingReturnUrl,stripeConnectSetupError}from".
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth,requireStore}from"../middleware/auth.js";import{codeRedemptionLimiter,storeCreationLimiter}from"../middleware/rateLimit.js";import{requirePermission}from"../middleware/permissions.js";import{persistPlatformSubscription}from"../services/platformBilling.js";
 export const storesRouter=Router();storesRouter.use(requireAuth);
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const CREATION_KEY=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AI_FEATURE_KEYS=new Set(["ai_assistant","ai_images","image_analysis"]);const FEATURE_KEYS=new Set(["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist","gift_cards","reservations","subscriptions","pos","blog","marketing","automations","b2b"]);const MERCHANT_FEATURE_KEYS=new Set(["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist"]);
 const platformBillingConfigured=()=>Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_WEBHOOK_SECRET);
 const RESERVED=new Set(["www","api","admin","app","support","status","mail","cdn","assets","static","dashboard","billing","auth","login","register","help","ftp","pop","smtp","autoconfig","store","stores","shop","checkout","webhook","webhooks","docs","developer","developers","dev","staging","test","internal","root","security","contact","notifications","imap","pop3","ns1","ns2","mx","email","media","images","files","uploads","download","downloads","public","private","system","platform"]);
@@ -21,6 +22,21 @@ async function canUsePremiumTemplate(storeId){
 storesRouter.get("/",async(req,res)=>{await sql`select bravoshop_expire_billing_access(200)`;const rows=await sql`select s.*,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme,(select count(*)::int from products p where p.store_id=s.id and p.status='active') as published_products from stores s join store_members sm on sm.store_id=s.id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where sm.user_id=${req.user.id}::uuid and sm.status='active' order by s.created_at desc`;res.json({stores:rows})});
 storesRouter.post("/",storeCreationLimiter,async(req,res)=>{
  const{name,slug,sector,theme={},settings={},features=[]}=req.body||{};
+ const keyHeader=req.get("Idempotency-Key")||"";
+ if(keyHeader&&!CREATION_KEY.test(keyHeader))return res.status(400).json({error:"Idempotency-Key debe ser un UUID v4 válido"});
+ const creationKey=keyHeader||null;
+ const findPrevious=async()=>{
+  if(!creationKey)return null;
+  const previous=await sql`select s.id,s.name,s.slug,s.sector,s.status,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme
+  from store_creation_requests cr join stores s on s.id=cr.store_id
+  join store_members sm on sm.store_id=s.id and sm.user_id=cr.user_id
+  left join store_settings ss on ss.store_id=s.id
+  left join store_theme st on st.store_id=s.id
+  where cr.user_id=${req.user.id}::uuid and cr.request_key=${creationKey}::uuid limit 1`;
+  return previous[0]||null;
+ };
+ const existing=await findPrevious();
+ if(existing)return res.status(200).json({store:existing,idempotent:true});
  const baseSlug=String(slug||"").trim().toLowerCase();
  if(!name||!SLUG.test(baseSlug)||RESERVED.has(baseSlug))return res.status(400).json({error:"Nombre y subdominio válido requeridos"});
  const cleanFeatures=[...new Set(Array.isArray(features)?features:[])].filter(x=>MERCHANT_FEATURE_KEYS.has(x));
@@ -47,12 +63,14 @@ storesRouter.post("/",storeCreationLimiter,async(req,res)=>{
    sql`insert into store_payment_accounts(store_id,provider,status,country,default_currency) values(${storeId}::uuid,'stripe','not_connected',${country},${currency})`,
    sql`insert into store_subscriptions(store_id,plan_id,status,trial_ends_at,updated_at)
        values(${storeId}::uuid,${basePlan.id}::uuid,${initialSubscriptionStatus},case when ${startsTrial} then now()+make_interval(days=>${trialDays}) else null end,now())`,
-   ...cleanFeatures.map(feature=>sql`insert into store_features(store_id,feature_key,enabled) values(${storeId}::uuid,${feature},true)`)
+   ...cleanFeatures.map(feature=>sql`insert into store_features(store_id,feature_key,enabled) values(${storeId}::uuid,${feature},true)`),
+   ...(creationKey?[sql`insert into store_creation_requests(user_id,request_key,store_id) values(${req.user.id}::uuid,${creationKey}::uuid,${storeId}::uuid)`]:[])
   ];
   try{
    await sql.transaction(queries);
    return res.status(201).json({store:{id:storeId,name:String(name).trim(),slug:candidate,sector:sector||null,status:initialStoreStatus,role:"owner",settings:initialSettings,theme:theme||{},features:cleanFeatures.map(feature=>({feature_key:feature,enabled:true}))}});
   }catch(e){
+   if(creationKey){const previouslyCreated=await findPrevious();if(previouslyCreated)return res.status(200).json({store:previouslyCreated,idempotent:true})}
    if(String(e).toLowerCase().includes("unique")&&attempt<24)continue;
    throw e;
   }

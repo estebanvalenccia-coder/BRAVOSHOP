@@ -132,3 +132,21 @@ test("deactivated Stripe promotions cannot accidentally be reactivated by syncin
  assert.ok(ui.includes("deactivatePlatformPromotion(p.id)"));
  assert.ok(ui.includes("Esta acción no se puede deshacer."));
 });
+
+test("store creation requests have durable per-merchant idempotency even across retries",async()=>{
+ const migration=await readFile(new URL("../database/migrations/0067_store_creation_idempotency.sql",import.meta.url),"utf8");
+ const route=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const data=await readFile(new URL("../src/platform/data/storeService.js",import.meta.url),"utf8");
+ const wizard=await readFile(new URL("../src/platform/onboarding/Onboarding.jsx",import.meta.url),"utf8");
+ const app=await readFile(new URL("../src/platform/App.jsx",import.meta.url),"utf8");
+ assert.ok(migration.includes("primary key(user_id,request_key)"));
+ assert.ok(migration.includes("references stores(id) on delete cascade"));
+ assert.ok(route.includes('req.get("Idempotency-Key")'));
+ assert.ok(route.includes("insert into store_creation_requests(user_id,request_key,store_id)"));
+ assert.ok(route.includes("const previouslyCreated=await findPrevious()"));
+ assert.ok(data.includes('"Idempotency-Key":input.creation_key'));
+ assert.ok(wizard.includes("sessionStorage.getItem(key)"));
+ assert.ok(wizard.includes("creation_key:creationKey"));
+ assert.ok(app.includes('sessionStorage.removeItem("bravoshop:store-creation-key")'));
+ assert.ok(app.includes('history.replaceState({},"",window.location.pathname);setStores'));
+});
