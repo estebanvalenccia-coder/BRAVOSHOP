@@ -7,7 +7,7 @@ test("blog is available in merchant and removed from roadmap",async()=>{
  assert.ok(admin.includes('<BlogManager store={current}/>'));
  assert.ok(admin.includes('"Blog","blog"'));
  assert.ok(flags.includes('"marketing","blog"'));
- assert.ok(!flags.includes('"pos","blog"'));
+ const roadmap=flags.match(/ROADMAP_FEATURES=\[([^\]]*)\]/)?.[1]||"";assert.ok(!roadmap.includes('"blog"'));
 });
 test("public blog route and media picker are connected",async()=>{
  const store=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
