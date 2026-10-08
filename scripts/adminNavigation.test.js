@@ -70,3 +70,16 @@ test("design studio keeps React hooks unconditional and shows real photographic 
  assert.ok(body.includes("Guardar diseño"));
  assert.ok(!body.includes("Guardar y publicar"));
 });
+
+test("visual design editor supports deterministic undo and unique section ids",async()=>{
+ const source=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ const begin=source.indexOf("function StoreSettings(");
+ const end=source.indexOf("function ",begin+20);
+ const editor=source.slice(begin,end>begin?end:undefined);
+ assert.ok(editor.includes("const patchTheme=next=>{const before=normalizeTheme(full.theme||{})"));
+ assert.ok(editor.includes("setFull(x=>({...x,theme:{...normalizeTheme(x.theme||{}),...next}}))"));
+ assert.ok(editor.includes("id:src.type+\"-\"+crypto.randomUUID()"));
+ assert.ok(editor.includes("id:type+\"-\"+crypto.randomUUID()"));
+ assert.ok(editor.includes("patchTheme(applyTemplate(t.id,full.theme||{}))"));
+ assert.ok(!editor.includes('setHistory(h=>[...h.slice(-29),before]);setFuture([]);return'));
+});
