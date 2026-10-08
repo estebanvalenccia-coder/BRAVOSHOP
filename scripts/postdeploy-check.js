@@ -1,4 +1,5 @@
 import { resolve4, resolve6 } from "node:dns/promises";
+import{inspectStorefrontShell}from"./storefrontShellCheck.js";
 const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");
 const MEDIA=(process.env.MEDIA_HEALTH_URL||"https://bravoshop-media-production.up.railway.app").replace(/\/$/,"");
 async function request(path,options={}){
@@ -56,3 +57,19 @@ try {
  console.warn(JSON.stringify({warning:"MERCHANT_STOREFRONT_DNS_UNRESOLVED",hostname:storefrontHost}));
 }
 console.log(JSON.stringify({storefront_hostname:storefrontHost,storefront_dns:storefrontDns,strict_dns:requireStorefrontDns}));
+
+const requireStorefrontHttps=process.env.REQUIRE_STOREFRONT_HTTPS!=="0";
+async function checkStorefrontHttps(path){
+ const url="https://"+storefrontHost+path;
+ const response=await fetch(url,{headers:{Accept:"text/html","Cache-Control":"no-cache"},signal:AbortSignal.timeout(12000)});
+ const body=await response.text();
+ return inspectStorefrontShell({url:response.url,status:response.status,contentType:response.headers.get("content-type"),body},storefrontHost);
+}
+try{
+ const main=await checkStorefrontHttps("/");
+ const deepLink=await checkStorefrontHttps("/products/bravoshop-synthetic-link-probe");
+ console.log(JSON.stringify({storefront_https:"ok",hostname:storefrontHost,homepage:main,deep_link:deepLink}));
+}catch(error){
+ if(requireStorefrontHttps)throw new Error("Merchant storefront HTTPS/SPA failed for "+storefrontHost+": "+error.message);
+ console.warn(JSON.stringify({warning:"MERCHANT_STOREFRONT_HTTPS_UNVERIFIED",hostname:storefrontHost,reason:error.message}));
+}
