@@ -306,3 +306,6 @@ body{background:#f7f4ed;color:#17221c}
 
 /* Read-only showcase: never mixed with paid catalogue items. */
 .demoCatalog{margin:16px 0 24px}.demoDisclaimer{font-size:13px;color:#59665b;margin:0 0 18px;line-height:1.6;padding:12px 18px;border:1px solid #d4e0d6;border-radius:12px;background:#f1f5ef}.demoProduct{cursor:default;overflow:hidden}.demoProduct .storeProductImage img{object-fit:cover;width:100%;height:100%}.demoProduct .storeProductInfo{padding:14px 16px 18px}.demoProduct .storeProductInfo small{color:#66796d}.demoProductGrid{grid-template-columns:repeat(3,minmax(0,1fr))}@media(max-width:650px){.demoProductGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Actionable publication requirements, separate from the online-selling checklist. */
+.launchRequirements{margin:16px 0 20px;padding:18px 20px;border-radius:14px;border:1px solid #d7caa8;background:#fdf9ec;color:#4c3c20}.launchRequirements>b{display:block;margin-bottom:12px}.launchRequirements>div{display:flex;gap:8px;flex-wrap:wrap}.launchRequirements button{display:flex;align-items:center;gap:8px;justify-content:space-between;text-align:left;border:1px solid #dbcaa2;border-radius:10px;background:white;padding:10px 12px;cursor:pointer;color:inherit;max-width:100%}.launchRequirements button:hover{background:#f5edd9}
