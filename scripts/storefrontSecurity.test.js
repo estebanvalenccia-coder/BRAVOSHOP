@@ -182,3 +182,27 @@ test("draft preview never invents saleable products or unlocks checkout",async()
   assert.ok(demos.every(x=>!Object.hasOwn(x,"price")&&!Object.hasOwn(x,"variant_id")));
  }
 });
+
+test("merchant preview navigation preserves tenant and token while routing inside app preview",async()=>{
+ const {isMerchantPreviewRoute,getStorefrontRoutePath,storefrontRouteHref}=await import("../src/platform/storefront/previewRouting.js");
+ const initial=new URL("https://app.bravoshop.online/preview?host=shop.bravoshop.online&preview_token=12345678-aaaa-bbbb-cccc-123456789abc&studio=1");
+ assert.equal(isMerchantPreviewRoute(initial),true);
+ const product=storefrontRouteHref("/products/bolso",initial);
+ assert.equal(product.startsWith("/preview?"),true);
+ const target=new URL(product,initial);
+ assert.equal(target.searchParams.get("host"),"shop.bravoshop.online");
+ assert.equal(target.searchParams.get("preview_token"),"12345678-aaaa-bbbb-cccc-123456789abc");
+ assert.equal(getStorefrontRoutePath(target),"/products/bolso");
+ assert.equal(getStorefrontRoutePath(new URL(storefrontRouteHref("/categoria/moda",target),target)),"/categoria/moda");
+ assert.equal(getStorefrontRoutePath(new URL(storefrontRouteHref("/",target),target)),"/");
+ assert.equal(storefrontRouteHref("//attacker.example",target),"/preview?host=shop.bravoshop.online&preview_token=12345678-aaaa-bbbb-cccc-123456789abc&studio=1");
+ assert.equal(storefrontRouteHref("/products/bolso",new URL("https://real-shop.bravoshop.online/")),"/products/bolso");
+});
+test("product and category links never leave the merchant preview",async()=>{
+ const source=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ assert.ok(source.includes("onClickCapture={handleInternalPreviewLink}"));
+ assert.ok(source.includes('getStorefrontRoutePath(window.location)'));
+ assert.ok(source.includes('navigateStoreRoute("/products/"+encodeURIComponent(p.slug))'));
+ assert.ok(source.includes("navigateStoreRoute(x.slug==="));
+ assert.ok(!source.includes('history.pushState({product:p.slug},"","/products/'));
+});
