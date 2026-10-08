@@ -1,3 +1,4 @@
+import{connectedAccountStatus}from"../services/stripeConnect.js";
 import { Router } from "express";
 import Stripe from "stripe";
 import { sql } from "../db/neon.js";
@@ -243,9 +244,7 @@ async function updateConnectedAccount(event, req) {
 	`;
 	if (!owners.length) return null;
 
-	const status = account.charges_enabled && account.payouts_enabled
-		? "active"
-		: account.details_submitted ? "restricted" : "onboarding";
+	const status = connectedAccountStatus(account);
 	await sql`
 		update store_payment_accounts
 		set status=${status},
