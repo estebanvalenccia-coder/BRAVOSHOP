@@ -8,6 +8,14 @@ export async function api(path,{method="GET",body,headers={},signal}={}){
 }
 
 export async function publicApi(path,{method="GET",body,headers={},signal}={}){
+  if(method==="GET"&&typeof window!=="undefined"&&window.location.hostname==="app.bravoshop.online"&&window.location.pathname==="/preview"&&path.startsWith("/api/public/")){
+    const current=new URLSearchParams(window.location.search);
+    const requested=new URLSearchParams(path.split("?")[1]||"");
+    if(current.get("host")&&current.get("host")===requested.get("host")&&current.get("preview_token")){
+      requested.set("preview_token",current.get("preview_token"));
+      path=path.split("?")[0]+"?"+requested.toString();
+    }
+  }
   const response=await fetch(API+path,{method,credentials:"omit",signal,headers:{"Content-Type":"application/json",...headers},body:body===undefined?undefined:JSON.stringify(body)});
   if(response.status===204)return null;
   const data=await response.json().catch(()=>({}));
