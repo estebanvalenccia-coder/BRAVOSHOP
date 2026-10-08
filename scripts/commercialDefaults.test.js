@@ -105,3 +105,11 @@ test("super admin promotion codes must exist in Stripe before becoming active",a
  assert.ok(ui.includes("Sincronizar Stripe"));
  assert.ok(ui.includes("Stripe activo"));
 });
+
+test("monthly and annual offers preserve real configured prices and billing interval",async()=>{
+ const app=await readFile(new URL("../src/platform/App.jsx",import.meta.url),"utf8");
+ assert.ok(app.includes('aria-label="Modalidad de facturación"'));
+ assert.ok(app.includes('setBillingInterval("year")'));
+ assert.ok(app.includes("p.annual_price"));
+ assert.ok(app.includes('billingInterval==="year"&&p.annual_price!=null?"year":"month"'));
+});
