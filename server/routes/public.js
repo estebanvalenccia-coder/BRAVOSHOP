@@ -216,6 +216,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 		const available=product.quantity-product.reserved;
 		if(product.track_inventory&&!product.allow_backorder&&available<item.quantity)return res.status(409).json({error:`Stock insuficiente para ${product.product_name}`});
 		const unitPriceCents=Math.round(Number(product.unit_price)*100);
+  if(!Number.isSafeInteger(unitPriceCents)||unitPriceCents<0)return res.status(409).json({error:"Este producto tiene un precio inválido. Contacta con la tienda."});
 		const lineTotalCents=unitPriceCents*item.quantity;
 		if(!Number.isSafeInteger(lineTotalCents)||!Number.isSafeInteger(subtotalCents+lineTotalCents))return res.status(400).json({error:"Importe del carrito no válido"});
 		subtotalCents+=lineTotalCents;
