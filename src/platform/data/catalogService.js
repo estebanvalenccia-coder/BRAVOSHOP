@@ -14,3 +14,5 @@ export async function setProductCategories(storeId,productId,categoryIds){const 
 
 export async function deleteProduct(storeId,productId){return api(`/api/stores/${storeId}/products/${productId}`,{method:"DELETE"})}
 export async function deleteVariant(storeId,productId,variantId){return api(`/api/stores/${storeId}/products/${productId}/variants/${variantId}`,{method:"DELETE"})}
+
+export async function bulkUpdateProductStatus(storeId,ids,status){const data=await api(`/api/stores/${storeId}/products/bulk-status`,{method:"POST",body:{ids,status}});return data}

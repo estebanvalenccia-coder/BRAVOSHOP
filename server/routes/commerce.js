@@ -3,6 +3,32 @@ export const commerceRouter=Router({mergeParams:true});commerceRouter.use(requir
 const SLUG_PATTERN=/^[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?$/;
 
 commerceRouter.get("/products",requirePermission("products.read"),async(req,res)=>{const rows=await sql`select * from products where store_id=${req.storeId}::uuid order by created_at desc`;res.json({products:rows})});
+
+// Atomic bulk status updates: every requested product must belong to this tenant.
+commerceRouter.post("/products/bulk-status",requirePermission("products.update"),async(req,res)=>{
+ const raw=req.body?.ids,status=req.body?.status;
+ if(!Array.isArray(raw)||raw.length<1||raw.length>100||!["active","draft","archived"].includes(status))
+  return res.status(400).json({error:"Selecciona de 1 a 100 productos y un estado válido"});
+ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+ if(raw.some(x=>typeof x!=="string"||!UUID.test(x))||new Set(raw).size!==raw.length)
+  return res.status(400).json({error:"Lista de productos no válida"});
+ const ids=raw,storeId=req.storeId;
+ const updated=await sql`
+ with owned as (select id from products where store_id=${storeId}::uuid and id=any(${ids}::uuid[]))
+ update products p set status=${status},updated_at=now(),
+ published_at=case when ${status}='active' then coalesce(p.published_at,now()) else p.published_at end
+ where p.store_id=${storeId}::uuid and p.id in (select id from owned)
+ and (select count(*) from owned)=${ids.length}
+ returning p.id`;
+ if(updated.length!==ids.length)return res.status(404).json({error:"Algún producto no pertenece a esta tienda"});
+ if(status==="active")await sql`
+ update media_assets m set visibility='public'
+ where m.store_id=${storeId}::uuid
+ and exists(select 1 from product_media pm where pm.store_id=${storeId}::uuid
+ and pm.media_id=m.id and pm.product_id=any(${ids}::uuid[]))`;
+ res.json({updated:updated.map(x=>x.id),status});
+});
+
 commerceRouter.get("/products/:id",requirePermission("products.read"),async(req,res)=>{const rows=await sql`select * from products where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;if(!rows.length)return res.status(404).json({error:"Producto no encontrado"});const variants=await sql`select v.*,i.quantity,i.reserved,i.track_inventory,i.allow_backorder from product_variants v left join inventory_levels i on i.variant_id=v.id where v.product_id=${req.params.id}::uuid and v.store_id=${req.storeId}::uuid order by v.created_at`;const media=await sql`select m.*,pm.position,pm.is_primary from product_media pm join media_assets m on m.id=pm.media_id and m.store_id=${req.storeId}::uuid where pm.product_id=${req.params.id}::uuid and pm.store_id=${req.storeId}::uuid order by pm.position`;const categories=await sql`select pc.category_id from product_categories pc join categories c on c.id=pc.category_id and c.store_id=pc.store_id where pc.product_id=${req.params.id}::uuid and pc.store_id=${req.storeId}::uuid`;res.json({product:{...rows[0],variants,media,categories:categories.map(x=>x.category_id)}})});
 commerceRouter.post("/products",requirePermission("products.create"),async(req,res)=>{
 	const p=req.body||{};
