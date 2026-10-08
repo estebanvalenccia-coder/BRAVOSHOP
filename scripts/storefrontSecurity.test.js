@@ -255,3 +255,11 @@ test("public checkout rejects negative or unsafe source prices before pricing ca
  assert.ok(guard<block.indexOf("const lineTotalCents=unitPriceCents*item.quantity"));
  assert.ok(block.includes("Este producto tiene un precio inválido"));
 });
+
+test("GET requests avoid unnecessary JSON content-type preflights while mutations remain JSON",async()=>{
+ const api=await readFile(new URL("../src/lib/api.js",import.meta.url),"utf8");
+ const expected='headers:body===undefined?headers:{"Content-Type":"application/json",...headers}';
+ assert.equal(api.split(expected).length-1,2);
+ assert.ok(api.includes('credentials:"omit"'));
+ assert.ok(api.includes('credentials:"include"'));
+});
