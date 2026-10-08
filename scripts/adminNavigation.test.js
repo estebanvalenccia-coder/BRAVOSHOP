@@ -46,3 +46,14 @@ test("read-only merchant roles never see buttons for Stripe account mutations or
  assert.ok(source.includes("function PlatformBilling({store,canManage=false})"));
  assert.ok(source.includes('disabled={!canManage||!data.provider_configured'));
 });
+
+test("merchant dashboard hides publication and product creation for read-only roles",async()=>{
+ const source=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ assert.ok(source.includes('availableSections={visibleMenu.map(x=>x[2])}'));
+ assert.ok(source.includes('store.permissions.includes("store.update")'));
+ assert.ok(source.includes('store.permissions.includes("products.create")'));
+ assert.ok(source.includes("{canPublish&&<button"));
+ assert.ok(source.includes('{canCreateProduct&&<button onClick={()=>navigate("products")}'));
+ assert.ok(source.includes('disabled={!availableSections.includes(x.go)}'));
+ assert.ok(source.includes('.filter(([,key])=>availableSections.includes(key))'));
+});
