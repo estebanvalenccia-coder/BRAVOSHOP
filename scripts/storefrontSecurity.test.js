@@ -76,7 +76,7 @@ test("public storefront hides checkout when platform checkout control is disable
  const block=source.slice(start,end);
  assert.ok(block.includes("platform_controls where key='checkout'"));
  assert.ok(block.includes("const checkoutEnabled=!controls.length||controls[0].enabled===true"));
- assert.ok(block.includes("const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET"));assert.ok(block.includes("const checkoutReady=Boolean(checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady)"));
+ assert.ok(block.includes("const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET"));assert.ok(block.includes("const checkoutReady=Boolean(!req.previewStore&&checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady)"));
 });
 
 test("featured catalog keeps the canonical catalog anchor for legacy themes",async()=>{
