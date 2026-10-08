@@ -200,6 +200,18 @@ storesRouter.post("/:storeId/billing/checkout",requireStore,requirePermission("b
  const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
  const existingRows=await sql`select * from store_subscriptions where store_id=${req.storeId}::uuid limit 1`;const existing=existingRows[0]||null;
  const priceId=await ensurePlanStripePrice(stripe,plan,interval);
+ // Reuse the existing checkout for this store/plan/interval while it remains open.
+ // Repeated clicks must not create a second payable Stripe session.
+ if(existing?.status==="checkout_pending"&&String(existing.plan_id)===String(plan.id)&&existing.billing_interval===interval&&existing.provider_price_id===priceId&&existing.provider_checkout_session_id){
+  try{
+   const pending=await stripe.checkout.sessions.retrieve(existing.provider_checkout_session_id);
+   if(pending.status==="open"&&pending.mode==="subscription"&&pending.url&&pending.client_reference_id===String(req.storeId))
+    return res.json({url:pending.url,reused:true});
+  }catch(error){
+   // A deleted/expired Stripe session is replaceable; provider outages are not.
+   if(error.statusCode!==404&&error.code!=="resource_missing")throw error;
+  }
+ }
  if(existing?.provider_subscription_id){
   const sub=await stripe.subscriptions.retrieve(existing.provider_subscription_id);
   if(["past_due","unpaid","paused","incomplete"].includes(String(sub.status))){
