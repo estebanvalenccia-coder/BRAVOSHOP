@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { parseCatalogPrice, parseVariantPrices } from "../server/services/catalogPricing.js";
+import { parseCatalogPrice, parseVariantPrices, parseStockQuantity } from "../server/services/catalogPricing.js";
 
 test("product prices accept free and exact two-decimal amounts", () => {
   for (const [input, expected] of [[undefined, 0], ["", 0], [0, 0], ["0.00", 0], ["19.95", 19.95], [123.4, 123.4], ["9999999999.99", 9999999999.99]]) {
@@ -28,4 +28,15 @@ test("both merchant create and update routes validate product and variant prices
   assert.equal(source.split("parseCatalogPrice(p.price)").length - 1, 2);
   assert.equal(source.split("parseVariantPrices(v)").length - 1, 2);
   assert.ok(source.includes("return res.status(400).json({error:\"Precio de variante no válido\"})"));
+});
+
+test("stock updates reject missing values, negatives, decimals and database overflows", () => {
+  for (const [input,expected] of [[0,0],["0",0],[42,42],["2147483647",2147483647]]) assert.equal(parseStockQuantity(input),expected);
+  for (const input of [undefined,null,"",false,true,-1,"-1","1.5","1e3",2147483648,"2147483648",Infinity,{},[]]) assert.equal(parseStockQuantity(input),null);
+});
+
+test("inventory route validates before executing SQL", async () => {
+  const source=await readFile(new URL("../server/routes/commerce.js",import.meta.url),"utf8");
+  assert.ok(source.includes("const quantity=parseStockQuantity(i.quantity)"));
+  assert.ok(source.includes("if(quantity===null)return res.status(400)"));
 });
