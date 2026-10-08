@@ -151,3 +151,10 @@ test("service stores do not require physical shipping in readiness or checkout U
  assert.ok(storefront.includes('requiresShipping={store.sector!=="services"}'));
  assert.ok(storefront.includes('requiresShipping?"Entrega":"Datos de contacto"'));
 });
+
+test("hidden storefront sections cannot leave dead header anchors",async()=>{
+ const source=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ assert.ok(source.includes('const visibleAnchors=new Set((theme.sections||[]).filter(x=>x.visible!==false)'));
+ assert.ok(source.includes('safe.startsWith("#")&&!visibleAnchors.has(safe.slice(1))?"#catalog":safe'));
+ assert.ok(source.includes('href={menuUrl(m.url)}'));
+});
