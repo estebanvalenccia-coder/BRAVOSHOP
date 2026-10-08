@@ -206,3 +206,17 @@ test("product and category links never leave the merchant preview",async()=>{
  assert.ok(source.includes("navigateStoreRoute(x.slug==="));
  assert.ok(!source.includes('history.pushState({product:p.slug},"","/products/'));
 });
+
+test("preview tokens only allow catalog reads, not checkout or recovery endpoints",async()=>{
+ const {isPreviewContentRequest}=await import("../server/security/publicPreviewRoutes.js");
+ for(const path of ["/store","/products","/categories","/products/test-1","/blog/posts","/blog/posts/mi-articulo"])
+  assert.equal(isPreviewContentRequest("GET",path),true,path);
+ for(const path of ["/checkout","/payment-config","/checkout/1234","/recovery/1234","/shipping-rates","/newsletter/unsubscribe/1234","/products/../../checkout"])
+  assert.equal(isPreviewContentRequest("GET",path),false,path);
+ assert.equal(isPreviewContentRequest("POST","/products"),false);
+ assert.equal(isPreviewContentRequest("PUT","/store"),false);
+ const source=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ assert.ok(source.includes("const previewReadable=isPreviewContentRequest(req.method,req.path)"));
+ assert.ok(source.includes("const tokenMatches=previewReadable&&previewToken.length>=32"));
+ assert.ok(source.includes("const platformPreview=previewReadable&&"));
+});

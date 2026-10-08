@@ -1,4 +1,4 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{normalizePublicHost,selectPublicStoreHost}from"../security/publicHost.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{normalizePublicHost,selectPublicStoreHost}from"../security/publicHost.js";import{isPreviewContentRequest}from"../security/publicPreviewRoutes.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
 export const publicRouter=Router();
 publicRouter.get("/plans",async(_req,res)=>{const rows=await sql`select name,slug,monthly_price,annual_price,currency,trial_days,metadata from plans where status=\'active\' and is_public=true order by coalesce(monthly_price,999999),name`;res.json({plans:rows})});
 publicRouter.param("token",(req,res,next,token)=>{
@@ -47,7 +47,8 @@ async function resolveStore(hostInput){
 async function requirePublicStore(req,res,next){
  if(req.method==="POST"&&req.path==="/checkout")await sql`select bravoshop_release_expired_inventory_reservations()`;
  const previewToken=typeof req.query.preview_token==="string"?req.query.preview_token:"";
- const platformPreview=req.method==="GET"&&req.get("origin")==="https://app.bravoshop.online"&&previewToken.length>0;
+ const previewReadable=isPreviewContentRequest(req.method,req.path);
+ const platformPreview=previewReadable&&req.get("origin")==="https://app.bravoshop.online"&&previewToken.length>0;
  const selection=selectPublicStoreHost({
   requestedHost:req.query.host||req.body?.host,
   origin:req.get("origin"),
@@ -58,7 +59,7 @@ async function requirePublicStore(req,res,next){
  const store=selection.host?await resolveStore(selection.host):null;
  if(!store)return res.status(404).json({error:"Tienda no encontrada"});
  // A preview token is a read-only capability: it never activates payments or publication.
- const tokenMatches=req.method==="GET"&&previewToken.length>=32&&previewToken===String(store.settings?.preview_token||"");
+ const tokenMatches=previewReadable&&previewToken.length>=32&&previewToken===String(store.settings?.preview_token||"");
  if(platformPreview&&!tokenMatches)return res.status(403).json({error:"Vista previa no autorizada"});
  const billingState=await sql`select bravoshop_refresh_store_billing(${store.id}::uuid) as status`;
  store.status=billingState[0]?.status||store.status;
