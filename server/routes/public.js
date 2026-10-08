@@ -77,7 +77,7 @@ publicRouter.get("/store",requirePublicStore,async(req,res)=>{
  const legalReady=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
  const notificationsReady=Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM);
  const shippingReady=req.publicStore.sector==="services"||Number(shipping[0]?.value||0)>0;
- const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
+ const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
  const checkoutReady=Boolean(checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady);
  res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,theme:req.publicStore.theme||{},settings:publicSettings(settings),features,commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady}}});
 });
@@ -142,7 +142,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
  }
  const paymentRows=await sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled,default_currency from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;
 	const paymentAccount=paymentRows[0];
-	const platformPaymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET);
+	const platformPaymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET);
 	if(!platformPaymentsReady||paymentAccount?.provider!=="stripe"||paymentAccount?.status!=="active"||!paymentAccount?.provider_account_id||!paymentAccount?.charges_enabled||!paymentAccount?.payouts_enabled)return res.status(503).json({error:"La tienda todavía no está lista para aceptar pagos"});
 	const normalized=[];
 	let subtotalCents=0;
