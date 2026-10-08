@@ -15,7 +15,7 @@ test("cents-based Stripe checkout admits exact cents and checks Stripe maximum s
   for (const value of [0,0.01,1.25,999999.99,"15.50"])
     assert.equal(isValidTwoDecimalStripeAmount(value), true, String(value));
   for (const value of [-0.01,0.001,2.999,1000000,Infinity,NaN,"hello",null])
-    assert.equal(isValidTwoDecimalStripeAmount(value), value===null, String(value));
+    assert.equal(isValidTwoDecimalStripeAmount(value), false, String(value));
 });
 
 test("public checkout guards currency on both creation and payment before Stripe call", async () => {
