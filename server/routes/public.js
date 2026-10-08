@@ -82,7 +82,7 @@ publicRouter.get("/store",requirePublicStore,async(req,res)=>{
  const shippingReady=req.publicStore.sector==="services"||Number(shipping[0]?.value||0)>0;
  const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
  const checkoutReady=Boolean(!req.previewStore&&checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady);
- res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,theme:req.publicStore.theme||{},settings:publicSettings(settings),features,commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady}}});
+ res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,preview:Boolean(req.previewStore),theme:req.publicStore.theme||{},settings:publicSettings(settings),features,commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady}}});
 });
 publicRouter.post("/newsletter/subscribe",newsletterLimiter,requirePublicStore,async(req,res)=>{
  const email=String(req.body?.email||"").trim().toLowerCase();

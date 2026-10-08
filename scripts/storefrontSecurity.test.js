@@ -165,3 +165,20 @@ test("implemented marketing is not presented as roadmap",async()=>{
  const operative=source.match(/OPERATIVE_FEATURES=\[([^\]]*)\]/)?.[1]||"";assert.ok(operative.includes('"marketing"'));
  const roadmap=source.match(/ROADMAP_FEATURES=\[([^\]]*)\]/)?.[1]||"";assert.ok(!roadmap.includes('"marketing"'));
 });
+
+test("draft preview never invents saleable products or unlocks checkout",async()=>{
+ const backend=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const front=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ const {demoCatalogForTemplate}=await import("../src/platform/config/demoCatalog.js");
+ assert.ok(backend.includes("preview:Boolean(req.previewStore)"));
+ assert.ok(backend.includes("!req.previewStore&&checkoutEnabled"));
+ assert.ok(front.includes('store.preview===true&&!products.length'));
+ assert.ok(front.includes("no pueden comprarse"));
+ assert.ok(front.includes("demoCatalogForTemplate(template)"));
+ for(const t of ["editorial-fashion","market-fresh","beauty-luxe","tech-grid","interior-catalog","playful-pets","service-booking","premium-organic"]){
+  const demos=demoCatalogForTemplate(t);
+  assert.equal(demos.length,3);
+  assert.ok(demos.every(x=>x.name&&x.image.startsWith("https://")));
+  assert.ok(demos.every(x=>!Object.hasOwn(x,"price")&&!Object.hasOwn(x,"variant_id")));
+ }
+});
