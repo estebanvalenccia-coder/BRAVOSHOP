@@ -379,7 +379,7 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
    join orders o on o.id=c.completed_order_id and o.store_id=c.store_id
    where c.id=${c.id}::uuid and o.payment_provider='free'
      and o.payment_status='paid' and o.total=0 limit 1`;
-  if(prior.length)return res.json({provider:"free",status:"completed",order_id:prior[0].id});
+  if(prior.length){await enqueueOrderNotification({storeId:c.store_id,orderId:prior[0].id,type:"order.confirmed"});return res.json({provider:"free",status:"completed",order_id:prior[0].id})}
   return res.status(409).json({error:"Checkout ya pagado"});
  }
  const billingState=await sql`select bravoshop_refresh_store_billing(${c.store_id}::uuid) as status`;
