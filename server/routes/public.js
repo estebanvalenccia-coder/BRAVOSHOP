@@ -1,4 +1,5 @@
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{normalizePublicHost,selectPublicStoreHost}from"../security/publicHost.js";import{isPreviewContentRequest}from"../security/publicPreviewRoutes.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
+import{requiresCurrencyMinorUnitUpgrade,isValidTwoDecimalStripeAmount}from"../services/paymentCurrency.js";
 export const publicRouter=Router();
 publicRouter.get("/plans",async(_req,res)=>{const rows=await sql`select name,slug,monthly_price,annual_price,currency,trial_days,metadata from plans where status=\'active\' and is_public=true order by coalesce(monthly_price,999999),name`;res.json({plans:rows})});
 publicRouter.param("token",(req,res,next,token)=>{
@@ -243,7 +244,8 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	}
 
 	const currency=String(paymentAccount.default_currency||req.publicStore.settings?.currency||"EUR").toUpperCase();
-	if(req.body.currency&&req.body.currency.toUpperCase()!==currency)return res.status(400).json({error:"Moneda no válida para esta tienda"});
+	if(req.body.currency&&String(req.body.currency).toUpperCase()!==currency)return res.status(400).json({error:"Moneda no válida para esta tienda"});
+ if(requiresCurrencyMinorUnitUpgrade(currency))return res.status(422).json({error:"Esta moneda necesita validación específica de importes antes de habilitar pagos en BravoShop"});
 	const address=req.body.shipping_address;
 	const country=String(address.country||"").trim().toUpperCase();
 	const zones=await sql`select count(*)::int as n from shipping_zones where store_id=${req.publicStore.id}::uuid and active=true`;
@@ -295,7 +297,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 		?Math.round(taxableSubtotalCents*(Number(taxConfig.default_rate)/100))
 		:0;
 	const totalCents=taxableSubtotalCents+shippingCents+taxCents;
-	if(!Number.isSafeInteger(totalCents))return res.status(400).json({error:"Importe del carrito no válido"});
+	if(!Number.isSafeInteger(totalCents)||!isValidTwoDecimalStripeAmount(totalCents/100))return res.status(422).json({error:"El importe excede los límites de cobro admitidos para esta moneda"});
 	const subtotal=subtotalCents/100;
 	const discount=discountCents/100;
 	const shipping=shippingCents/100;
@@ -382,6 +384,8 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
   if(prior.length){await enqueueOrderNotification({storeId:c.store_id,orderId:prior[0].id,type:"order.confirmed"});return res.json({provider:"free",status:"completed",order_id:prior[0].id})}
   return res.status(409).json({error:"Checkout ya pagado"});
  }
+ if(requiresCurrencyMinorUnitUpgrade(c.currency))return res.status(422).json({error:"Esta moneda aún no admite cobros seguros en BravoShop"});
+ if(!isValidTwoDecimalStripeAmount(c.total))return res.status(422).json({error:"Importe no admitido por Stripe. Contacta con la tienda"});
  const billingState=await sql`select bravoshop_refresh_store_billing(${c.store_id}::uuid) as status`;
  c.store_status=billingState[0]?.status||c.store_status;
  if(!await publicFeatureEnabled(c.store_id,"checkout"))
