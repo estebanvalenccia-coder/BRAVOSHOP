@@ -65,3 +65,23 @@ test("every store design starts with a photo, but merchants retain their uploade
  const previous={sections:[{id:"hero",type:"hero",content:{image}}]};
  assert.equal(applyTemplate("market-fresh",previous).sections.find(section=>section.id==="hero").content.image,image);
 });
+
+test("the landing-page plan selection reaches merchant billing checkout without charging automatically",async()=>{
+ const app=await readFile(new URL("../src/platform/App.jsx",import.meta.url),"utf8");
+ const onboarding=await readFile(new URL("../src/platform/onboarding/Onboarding.jsx",import.meta.url),"utf8");
+ assert.ok(app.includes('requestedPlan=["basic","premium"].includes(params.get("plan"))'));
+ assert.ok(app.includes("startBillingCheckout(ready.id,requestedPlan,requestedInterval)"));
+ assert.ok(app.includes("setInitialSection(requestedPlan?"));
+ assert.ok(app.includes("app.bravoshop.online?plan="));
+ assert.ok(onboarding.includes("Crear tienda y continuar al pago"));
+ assert.ok(onboarding.includes("TEMPLATE_IMAGE_URLS[t.id]"));
+});
+test("Stripe Checkout shows a promotion-code field for new platform subscriptions",async()=>{
+ const source=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const start=source.indexOf('storesRouter.post("/:storeId/billing/checkout"');
+ const end=source.indexOf('storesRouter.post("/:storeId/billing/cancel"',start);
+ const checkout=source.slice(start,end);
+ assert.ok(checkout.includes("allow_promotion_codes:true"));
+ assert.ok(checkout.includes('mode:"subscription"'));
+ assert.ok(checkout.includes("ensurePlanStripePrice"));
+});
