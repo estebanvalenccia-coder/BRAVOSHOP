@@ -1,5 +1,5 @@
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import Stripe from"stripe";import{requireAuth,requireStore}from"../middleware/auth.js";import{requirePermission}from"../middleware/permissions.js";import{enqueueOrderNotification}from"../services/notifications.js";import{isValidTrackingUrl}from"../security/trackingUrl.js";
-import{parseCatalogPrice,parseVariantPrices}from"../services/catalogPricing.js";
+import{parseCatalogPrice,parseVariantPrices,parseStockQuantity}from"../services/catalogPricing.js";
 export const commerceRouter=Router({mergeParams:true});commerceRouter.use(requireAuth,requireStore);
 const SLUG_PATTERN=/^[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?$/;
 
@@ -118,7 +118,7 @@ commerceRouter.delete("/products/:productId/variants/:variantId",requirePermissi
  await sql`delete from product_variants where id=${req.params.variantId}::uuid and product_id=${req.params.productId}::uuid and store_id=${req.storeId}::uuid`;
  res.status(204).end();
 });
-commerceRouter.put("/variants/:variantId/inventory",requirePermission("inventory.update"),async(req,res)=>{const i=req.body||{};const quantity=Number(i.quantity);if(!Number.isSafeInteger(quantity)||quantity<0)return res.status(400).json({error:"La cantidad debe ser un entero no negativo"});const rows=await sql`select * from bravoshop_set_inventory(${req.storeId}::uuid,${req.params.variantId}::uuid,${quantity},${i.track_inventory!==false},${Boolean(i.allow_backorder)},${req.user.id}::uuid)`;if(!rows.length){const owns=await sql`select 1 from product_variants v where v.id=${req.params.variantId}::uuid and v.store_id=${req.storeId}::uuid`;if(!owns.length)return res.status(404).json({error:"Variante no encontrada"});return res.status(409).json({error:"La cantidad no puede quedar por debajo del inventario reservado"})}res.json({inventory:rows[0]})});
+commerceRouter.put("/variants/:variantId/inventory",requirePermission("inventory.update"),async(req,res)=>{const i=req.body||{};const quantity=parseStockQuantity(i.quantity);if(quantity===null)return res.status(400).json({error:"El stock debe ser un entero entre 0 y 2147483647"});const rows=await sql`select * from bravoshop_set_inventory(${req.storeId}::uuid,${req.params.variantId}::uuid,${quantity},${i.track_inventory!==false},${Boolean(i.allow_backorder)},${req.user.id}::uuid)`;if(!rows.length){const owns=await sql`select 1 from product_variants v where v.id=${req.params.variantId}::uuid and v.store_id=${req.storeId}::uuid`;if(!owns.length)return res.status(404).json({error:"Variante no encontrada"});return res.status(409).json({error:"La cantidad no puede quedar por debajo del inventario reservado"})}res.json({inventory:rows[0]})});
 
 commerceRouter.put("/products/:id/media",requirePermission("products.update"),async(req,res)=>{
 	const supplied=req.body?.media_ids??[];
