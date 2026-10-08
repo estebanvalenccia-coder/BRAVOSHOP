@@ -71,7 +71,7 @@ test("the landing-page plan selection reaches merchant billing checkout without 
  const onboarding=await readFile(new URL("../src/platform/onboarding/Onboarding.jsx",import.meta.url),"utf8");
  assert.ok(app.includes('requestedPlan=["basic","premium"].includes(params.get("plan"))'));
  assert.ok(app.includes("startBillingCheckout(ready.id,requestedPlan,requestedInterval)"));
- assert.ok(app.includes("setInitialSection(requestedPlan?"));
+ assert.ok(app.includes("setInitialSection(requestedPlan||data.access_code?"));
  assert.ok(app.includes("app.bravoshop.online?plan="));
  assert.ok(onboarding.includes("Crear tienda y continuar al pago"));
  assert.ok(onboarding.includes("TEMPLATE_IMAGE_URLS[t.id]"));
