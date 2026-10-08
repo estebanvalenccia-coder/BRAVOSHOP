@@ -201,3 +201,12 @@ test("Stripe promotion code connector supports modern and legacy API without dou
  assert.equal(adopted.id,"promo_existing");assert.equal(createAttempts,0);
  await assert.rejects(createCompatiblePromotionCode({promotionCodes:{list:async()=>({data:[]}),create:async()=>{throw new Error("Permission denied")}}},{code:"SALE10",couponId:"coupon_abc",recordId:"uuid-4"}),/Permission denied/);
 });
+
+test("merchant stores hub uses actual store hero or photographic template art",async()=>{
+ const app=await readFile(new URL("../src/platform/App.jsx",import.meta.url),"utf8");
+ assert.ok(app.includes("function storeHubCoverImage(store)"));
+ assert.ok(app.includes('x.id==="hero"'));
+ assert.ok(app.includes("safeStorefrontImage(image)"));
+ assert.ok(app.includes("TEMPLATE_IMAGE_URLS[store?.theme?.template]"));
+ assert.ok(app.includes('className="storeHubCoverImage"'));
+});
