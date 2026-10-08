@@ -36,10 +36,11 @@ adminRouter.get("/health",async(_req,res)=>{
  const started=Date.now();
  const integrations={
   stripe:{
-   configured:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET),
+   configured:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET),
    secret_key:Boolean(process.env.STRIPE_SECRET_KEY),
    publishable_key:Boolean(process.env.STRIPE_PUBLISHABLE_KEY),
-   webhook_secret:Boolean(process.env.STRIPE_WEBHOOK_SECRET)
+   webhook_secret:Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+   connect_webhook_secret:Boolean(process.env.STRIPE_CONNECT_WEBHOOK_SECRET)
   },
   email:{configured:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM)},
   media:{configured:mediaReady()},
