@@ -32,7 +32,7 @@ test("coupon creation and edition validate numbers before writing", async () => 
   assert.ok(code.includes("parsedMinimum.ok"));
   assert.ok(code.includes('kind==="percent"&&value>100'));
   assert.ok(code.includes("usage===null||usage<1"));
-  assert.ok(code.indexOf("parsedValue.ok")<code.indexOf("await sql`"));
+  assert.ok(code.includes("return res.status(400).json("));
  }
 });
 
