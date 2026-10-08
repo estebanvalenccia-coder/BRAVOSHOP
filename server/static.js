@@ -1,53 +1,56 @@
 import"dotenv/config";
 import express from"express";
 import{resolve}from"node:path";
+import{robotsText,siteKind,marketingSitemap,storefrontSitemapIndex,storefrontPagesSitemap,storefrontProductsSitemap,SITEMAP_CHUNK_SIZE}from"./seo/sitemap.js";
 
 const app=express();
 const dist=resolve("dist");
 const api=(process.env.VITE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");
 app.disable("x-powered-by");
 app.set("trust proxy",1);
-
-const escXml=v=>String(v??"").replace(/[<>&'"]/g,ch=>({"<":"&lt;",">":"&gt;","&":"&amp;","'":"&apos;",'"':"&quot;"}[ch]));
 const publicHost=req=>String(req.get("x-forwarded-host")||req.get("host")||"").split(",")[0].trim().split(":")[0].toLowerCase();
-const reserved=new Set(["bravoshop.online","www.bravoshop.online","app.bravoshop.online","admin.bravoshop.online","api.bravoshop.online","internal.bravoshop.online"]);
-
+async function seoData(path){
+ const r=await fetch(api+"/api/public"+path,{headers:{accept:"application/json"},signal:AbortSignal.timeout(10000)});
+ if(r.status===404)return null;
+ if(!r.ok)throw new Error("SEO source HTTP "+r.status);
+ return r.json();
+}
+const hostQuery=host=>"?host="+encodeURIComponent(host);
+const failSeo=(res,error)=>{console.error(JSON.stringify({level:"error",error_code:"SITEMAP_FAILED",message:error.message}));res.status(503).type("text/plain").send("Sitemap temporalmente no disponible")};
+const sendXml=(res,body)=>res.type("application/xml").set("Cache-Control","public, max-age=600").send(body);
 app.get("/__version",(_req,res)=>res.set("Cache-Control","no-store").json({ok:true,commit:process.env.RAILWAY_GIT_COMMIT_SHA||null}));
 
-app.get("/robots.txt",(req,res)=>{
- const host=publicHost(req);
- if(!host||reserved.has(host)){
-  res.type("text/plain").send("User-agent: *\nDisallow: /\n");
-  return;
- }
- res.type("text/plain").set("Cache-Control","public, max-age=3600").send(`User-agent: *\nAllow: /\nDisallow: /?checkout=\nSitemap: https://${host}/sitemap.xml\n`);
-});
-
+app.get("/robots.txt",(req,res)=>res.type("text/plain").set("Cache-Control","public, max-age=3600").send(robotsText(publicHost(req))));
 app.get("/sitemap.xml",async(req,res)=>{
- const host=publicHost(req);
- if(!host||reserved.has(host))return res.status(404).end();
+ const host=publicHost(req),kind=siteKind(host);
+ if(kind==="private")return res.status(404).end();
+ if(kind==="marketing")return sendXml(res,marketingSitemap());
  try{
-  const [storeRes,productsRes,categoriesRes]=await Promise.all([
-   fetch(`${api}/api/public/store?host=${encodeURIComponent(host)}`,{headers:{accept:"application/json"}}),
-   fetch(`${api}/api/public/products?host=${encodeURIComponent(host)}`,{headers:{accept:"application/json"}}),
-   fetch(`${api}/api/public/categories?host=${encodeURIComponent(host)}`,{headers:{accept:"application/json"}})
-  ]);
-  if(!storeRes.ok)return res.status(404).end();
-  const products=productsRes.ok?(await productsRes.json()).products||[]:[];
-  const categories=categoriesRes.ok?(await categoriesRes.json()).categories||[]:[];
-  const urls=[`https://${host}/`,
-   ...categories.filter(x=>x.slug).map(x=>`https://${host}/categoria/${encodeURIComponent(x.slug)}`),
-   ...products.filter(x=>x.slug).map(x=>`https://${host}/products/${encodeURIComponent(x.slug)}`),
-   `https://${host}/envios`,`https://${host}/devoluciones`,`https://${host}/privacidad`,`https://${host}/aviso-legal`
-  ];
-  const body=`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${[...new Set(urls)].map(url=>`  <url><loc>${escXml(url)}</loc></url>`).join("\n")}\n</urlset>\n`;
-  res.type("application/xml").set("Cache-Control","public, max-age=1800").send(body);
- }catch(error){
-  console.error(JSON.stringify({level:"error",error_code:"SITEMAP_FAILED",message:error.message}));
-  res.status(503).type("text/plain").send("Sitemap temporalmente no disponible");
- }
+  const data=await seoData("/seo/count"+hostQuery(host));
+  if(!data)return res.status(404).end();
+  const body=storefrontSitemapIndex(host,Number(data.total));
+  if(!body)return res.status(503).end();
+  sendXml(res,body);
+ }catch(error){failSeo(res,error)}
 });
-
+app.get("/sitemap-pages.xml",async(req,res)=>{
+ const host=publicHost(req);if(siteKind(host)!=="store")return res.status(404).end();
+ try{
+  const data=await seoData("/seo/pages"+hostQuery(host));
+  if(!data)return res.status(404).end();
+  sendXml(res,storefrontPagesSitemap(host,data));
+ }catch(error){failSeo(res,error)}
+});
+app.get("/sitemap-products-:page.xml",async(req,res)=>{
+ const host=publicHost(req);
+ const page=Number(req.params.page);
+ if(siteKind(host)!=="store"||!/^(0|[1-9][0-9]*)$/.test(req.params.page)||!Number.isSafeInteger(page)||page>499)return res.status(404).end();
+ try{
+  const data=await seoData("/seo/products"+hostQuery(host)+"&offset="+page*SITEMAP_CHUNK_SIZE);
+  if(!data||!Array.isArray(data.products)||data.products.length===0)return res.status(404).end();
+  sendXml(res,storefrontProductsSitemap(host,data.products));
+ }catch(error){failSeo(res,error)}
+});
 app.use(express.static(dist,{immutable:true,maxAge:"1y",index:false}));
 app.use((_req,res)=>res.sendFile(resolve(dist,"index.html")));
 const port=Number(process.env.PORT||3000);

@@ -137,6 +137,25 @@ publicRouter.get("/blog/posts/:slug",requirePublicStore,async(req,res)=>{
  if(!rows.length)return res.status(404).json({error:"Artículo no encontrado"});
  res.json({post:rows[0]});
 });
+// Search engines only receive published, tenant-scoped resources. Preview tokens
+// cannot access these routes, which are intentionally outside preview read grants.
+publicRouter.get("/seo/count",requirePublicStore,async(req,res)=>{
+ const result=await sql`select count(*)::int as total from products where store_id=${req.publicStore.id}::uuid and status='active'`;
+ res.set("Cache-Control","public, max-age=600").json({total:result[0]?.total||0});
+});
+publicRouter.get("/seo/products",requirePublicStore,async(req,res)=>{
+ const offset=Number(req.query.offset);
+ if(!Number.isSafeInteger(offset)||offset<0||offset>500000||offset%1000!==0)return res.status(400).json({error:"Página inválida"});
+ const rows=await sql`select slug from products where store_id=${req.publicStore.id}::uuid and status='active' and slug is not null order by slug,id limit 1000 offset ${offset}`;
+ res.set("Cache-Control","public, max-age=600").json({products:rows});
+});
+publicRouter.get("/seo/pages",requirePublicStore,async(req,res)=>{
+ const [categories,posts]=await Promise.all([
+  sql`select slug from categories where store_id=${req.publicStore.id}::uuid and active=true order by slug`,
+  publicFeatureEnabled(req.publicStore.id,"blog").then(enabled=>enabled?sql`select slug from store_blog_posts where store_id=${req.publicStore.id}::uuid and status='published' order by slug`:[])
+ ]);
+ res.set("Cache-Control","public, max-age=600").json({categories,posts});
+});
 publicRouter.get("/products",requirePublicStore,async(req,res)=>{
  const limit=Math.min(100,Math.max(1,Number.parseInt(String(req.query.limit||"48"),10)||48));
  const offset=Math.min(100000,Math.max(0,Number.parseInt(String(req.query.offset||"0"),10)||0));

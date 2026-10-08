@@ -32,3 +32,35 @@ test("production DNS failures give actionable merchant CNAME and Railway target 
   assert.ok(code.includes(name),name);
  assert.ok(code.includes('if(requireStorefrontDns)throw new Error("Merchant storefront DNS failed'));
 });
+
+test("SEO allows public BravoShop marketing while keeping admin and API private",async()=>{
+ const{robotsText,siteKind,marketingSitemap,storefrontSitemapIndex,storefrontPagesSitemap,storefrontProductsSitemap}=await import("../server/seo/sitemap.js");
+ assert.equal(siteKind("bravoshop.online"),"marketing");
+ assert.match(robotsText("bravoshop.online"),/Allow: \/\n/);
+ assert.match(robotsText("bravoshop.online"),/Sitemap: https:\/\/bravoshop.online\/sitemap.xml/);
+ for(const host of ["app.bravoshop.online","admin.bravoshop.online","api.bravoshop.online"])assert.match(robotsText(host),/Disallow: \/\n/);
+ assert.ok(marketingSitemap().includes("https://bravoshop.online/tiendas"));
+ const host="shop.bravoshop.online";
+ const index=storefrontSitemapIndex(host,2201);
+ for(const i of [0,1,2])assert.ok(index.includes("sitemap-products-"+i+".xml"));
+ assert.ok(!index.includes("sitemap-products-3.xml"));
+ const page=storefrontPagesSitemap(host,{categories:[{slug:"moda"}],posts:[{slug:"novedades"}]});
+ assert.ok(page.includes("/categoria/moda"));
+ assert.ok(page.includes("/blog/novedades"));
+ assert.ok(!page.includes("/products/"));
+ const products=storefrontProductsSitemap(host,[{slug:"bolso-azul"},{slug:"<script>"},{slug:"bolso-azul"}]);
+ assert.equal(products.split("/products/bolso-azul").length-1,1);
+ assert.ok(!products.includes("<script>"));
+ assert.equal(storefrontSitemapIndex(host,500001),null);
+});
+test("SEO catalog endpoints paginate active products and respect tenant publication guards",async()=>{
+ const api=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const web=await readFile(new URL("../server/static.js",import.meta.url),"utf8");
+ assert.ok(api.includes('publicRouter.get("/seo/count",requirePublicStore'));
+ assert.ok(api.includes('publicRouter.get("/seo/products",requirePublicStore'));
+ assert.ok(api.includes('publicRouter.get("/seo/pages",requirePublicStore'));
+ assert.ok(api.includes("status='active'"));
+ assert.ok(api.includes("status='published'"));
+ assert.ok(web.includes("sitemap-products-:page.xml"));
+ assert.ok(web.includes('storefrontSitemapIndex(host,Number(data.total))'));
+});
