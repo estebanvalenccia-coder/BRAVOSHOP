@@ -57,3 +57,16 @@ test("merchant dashboard hides publication and product creation for read-only ro
  assert.ok(source.includes('disabled={!availableSections.includes(x.go)}'));
  assert.ok(source.includes('.filter(([,key])=>availableSections.includes(key))'));
 });
+
+test("design studio keeps React hooks unconditional and shows real photographic templates",async()=>{
+ const source=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ const start=source.indexOf("function StoreSettings("),end=source.indexOf("function ",start+20);
+ const body=source.slice(start,end>start?end:source.length);
+ const loading=body.indexOf('if(!full)return <article className="panel">');
+ const previewHook=body.indexOf('useEffect(()=>{if(mode!=="design"||!full)return;');
+ assert.ok(loading>0&&previewHook>0&&previewHook<loading,"preview hook must precede conditional render");
+ assert.ok(body.includes('"https://app.bravoshop.online");send()'));
+ assert.ok(body.includes('src={TEMPLATE_IMAGE_URLS[t.id]}'));
+ assert.ok(body.includes("Guardar diseño"));
+ assert.ok(!body.includes("Guardar y publicar"));
+});
