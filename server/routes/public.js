@@ -45,25 +45,28 @@ async function resolveStore(hostInput){
 	return rows[0]||null;
 }
 async function requirePublicStore(req,res,next){
-	if(req.method==="POST"&&req.path==="/checkout")await sql`select bravoshop_release_expired_inventory_reservations()`;
-	const selection=selectPublicStoreHost({
-		requestedHost:req.query.host||req.body?.host,
-		origin:req.get("origin"),
-		requestHost:req.get("host")
-	});
-	if(selection.conflict)return res.status(400).json({error:"La tienda solicitada no coincide con el origen"});
-	const store=selection.host?await resolveStore(selection.host):null;
-	if(!store)return res.status(404).json({error:"Tienda no encontrada"});
-	const billingState=await sql`select bravoshop_refresh_store_billing(${store.id}::uuid) as status`;
-	store.status=billingState[0]?.status||store.status;
-	if(!["active","trial"].includes(store.status))return res.status(423).json({error:"Tienda no disponible"});
-	const published=store.settings?.published===true;
-	const previewToken=String(req.query.preview_token||req.body?.preview_token||"");
-	const previewAllowed=!published&&req.method==="GET"&&previewToken&&previewToken===String(store.settings?.preview_token||"");
-	if(!published&&!previewAllowed)return res.status(423).json({error:"Esta tienda todavía no está publicada"});
-	req.previewStore=Boolean(previewAllowed);
-	req.publicStore=store;
-	next();
+ if(req.method==="POST"&&req.path==="/checkout")await sql`select bravoshop_release_expired_inventory_reservations()`;
+ const previewToken=typeof req.query.preview_token==="string"?req.query.preview_token:"";
+ const platformPreview=req.method==="GET"&&req.get("origin")==="https://app.bravoshop.online"&&previewToken.length>0;
+ const selection=selectPublicStoreHost({
+  requestedHost:req.query.host||req.body?.host,
+  origin:req.get("origin"),
+  requestHost:req.get("host"),
+  allowPlatformPreview:platformPreview
+ });
+ if(selection.conflict)return res.status(400).json({error:"La tienda solicitada no coincide con el origen"});
+ const store=selection.host?await resolveStore(selection.host):null;
+ if(!store)return res.status(404).json({error:"Tienda no encontrada"});
+ // A preview token is a read-only capability: it never activates payments or publication.
+ const tokenMatches=req.method==="GET"&&previewToken.length>=32&&previewToken===String(store.settings?.preview_token||"");
+ if(platformPreview&&!tokenMatches)return res.status(403).json({error:"Vista previa no autorizada"});
+ const billingState=await sql`select bravoshop_refresh_store_billing(${store.id}::uuid) as status`;
+ store.status=billingState[0]?.status||store.status;
+ if(!["active","trial"].includes(store.status)&&!tokenMatches)return res.status(423).json({error:"Tienda no disponible"});
+ if(store.settings?.published!==true&&!tokenMatches)return res.status(423).json({error:"Esta tienda todavía no está publicada"});
+ req.previewStore=Boolean(tokenMatches);
+ req.publicStore=store;
+ next();
 }
 publicRouter.get("/store",requirePublicStore,async(req,res)=>{
  const[features,payments,controls,shipping]=await Promise.all([
@@ -78,7 +81,7 @@ publicRouter.get("/store",requirePublicStore,async(req,res)=>{
  const notificationsReady=Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM);
  const shippingReady=req.publicStore.sector==="services"||Number(shipping[0]?.value||0)>0;
  const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
- const checkoutReady=Boolean(checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady);
+ const checkoutReady=Boolean(!req.previewStore&&checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady);
  res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,theme:req.publicStore.theme||{},settings:publicSettings(settings),features,commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady}}});
 });
 publicRouter.post("/newsletter/subscribe",newsletterLimiter,requirePublicStore,async(req,res)=>{
