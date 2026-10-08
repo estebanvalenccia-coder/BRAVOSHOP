@@ -170,7 +170,7 @@ test("premium templates can be explored during Premium onboarding but cannot pub
  assert.ok(app.includes('requestedTemplate==="premium-organic"?"premium":""'));
  assert.ok(server.includes('premium_plan:premiumReady'));
  assert.ok(server.includes('await canUsePremiumTemplate(req.storeId)'));
- assert.ok(home.includes('const premiumReady=!premiumTemplate||'));
+ assert.ok(home.includes('const premiumReady=!premiumTemplate||(effective?.features||[]).includes("premium_templates")'));
  assert.ok(home.includes('&&billingReady&&premiumReady'));
 });
 
