@@ -122,3 +122,13 @@ test("Stripe subscription discounts allow zero-due checkout without a card",asyn
  assert.ok(route.includes("allow_promotion_codes:true"));
  assert.ok(admin.includes('!/^[A-Z0-9][A-Z0-9-]{3,63}$/.test(code)'));
 });
+
+test("deactivated Stripe promotions cannot accidentally be reactivated by syncing",async()=>{
+ const backend=await readFile(new URL("../server/routes/admin.js",import.meta.url),"utf8");
+ const ui=await readFile(new URL("../src/platform/admin/SuperAdmin.jsx",import.meta.url),"utf8");
+ assert.ok(backend.includes('adminRouter.post("/promotions/:id/deactivate"'));
+ assert.ok(backend.includes("stripe.promotionCodes.update(promotionId,{active:false})"));
+ assert.ok(backend.includes("row.metadata?.stripe_promotion_code_id&&row.active===false"));
+ assert.ok(ui.includes("deactivatePlatformPromotion(p.id)"));
+ assert.ok(ui.includes("Esta acción no se puede deshacer."));
+});

@@ -44,6 +44,7 @@ function normalizePlatformPromotion(input={}){
 }
 async function syncPromotionToStripe(row){
  if(!process.env.STRIPE_SECRET_KEY)throw Object.assign(new Error("Stripe Billing no está configurado"),{statusCode:503});
+ if(row.metadata?.stripe_promotion_code_id&&row.active===false)throw Object.assign(new Error("Un código desactivado en Stripe no puede reactivarse: crea uno nuevo"),{statusCode:409});
  const p=normalizePlatformPromotion(row),Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
  const opts={name:"BravoShop "+p.code,duration:p.kind==="complimentary"?"forever":p.kind==="free_months"?"repeating":"once",metadata:{bravoshop_promotion_id:String(row.id),bravoshop_code:p.code}};
  if(p.kind==="percent")opts.percent_off=p.value;
@@ -86,6 +87,21 @@ adminRouter.post("/promotions/:id/sync",async(req,res)=>{
  if(!rows.length)return res.status(404).json({error:"Promoción no encontrada"});
  try{const promotion=await syncPromotionToStripe(rows[0]);await audit(req,"promotion.synced","promotion",rows[0].id,{code:promotion.code});res.json({promotion})}
  catch(e){res.status(e.statusCode||502).json({error:"No se pudo activar el código en Stripe: "+e.message})}
+});
+adminRouter.post("/promotions/:id/deactivate",async(req,res)=>{
+ const rows=await sql`select * from promotions where id=${req.params.id}::uuid limit 1`;
+ if(!rows.length)return res.status(404).json({error:"Promoción no encontrada"});
+ const p=rows[0];
+ if(!p.active)return res.json({promotion:p});
+ const promotionId=p.metadata?.stripe_promotion_code_id;
+ if(promotionId){
+  if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Stripe no configurado"});
+  const Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+  try{await stripe.promotionCodes.update(promotionId,{active:false})}catch(e){return res.status(502).json({error:"No se ha desactivado en Stripe: "+e.message})}
+ }
+ const updated=await sql`update promotions set active=false where id=${p.id}::uuid returning *`;
+ await audit(req,"promotion.deactivated","promotion",p.id,{code:p.code,stripe_promotion_code_id:promotionId||null});
+ res.json({promotion:updated[0]});
 });
 adminRouter.get("/feature-flags",async(_req,res)=>{const rows=await sql`select * from platform_feature_flags order by key`;res.json({flags:rows})});
 adminRouter.put("/feature-flags/:key",async(req,res)=>{const{enabled,rollout_percent=0,config={}}=req.body||{};const rows=await sql`insert into platform_feature_flags(key,enabled,rollout_percent,config,updated_at) values(${req.params.key},${Boolean(enabled)},${Math.max(0,Math.min(100,Number(rollout_percent)))},${JSON.stringify(config)}::jsonb,now()) on conflict(key) do update set enabled=excluded.enabled,rollout_percent=excluded.rollout_percent,config=excluded.config,updated_at=now() returning *`;await audit(req,"feature_flag.updated","feature_flag",req.params.key,rows[0]);res.json({flag:rows[0]})});
