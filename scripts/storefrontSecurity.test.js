@@ -263,3 +263,20 @@ test("GET requests avoid unnecessary JSON content-type preflights while mutation
  assert.ok(api.includes('credentials:"omit"'));
  assert.ok(api.includes('credentials:"include"'));
 });
+
+test("merchant-supplied tracking URLs must be HTTPS and never render executable hyperlinks",async()=>{
+ const {safeCheckoutTrackingUrl}=await import("../src/platform/storefront/security.js");
+ const {isValidTrackingUrl}=await import("../server/security/trackingUrl.js");
+ for(const value of ["javascript:alert(1)","data:text/html,x","http://carrier.example/123","//carrier.example/123","https://user:secret@carrier.example/123"]){
+  assert.equal(isValidTrackingUrl(value),false,value);
+  assert.equal(safeCheckoutTrackingUrl(value),"",value);
+ }
+ assert.equal(isValidTrackingUrl("https://carrier.example/track/42"),true);
+ assert.equal(safeCheckoutTrackingUrl("https://carrier.example/track/42"),"https://carrier.example/track/42");
+ assert.equal(isValidTrackingUrl(null),true);
+ assert.equal(safeCheckoutTrackingUrl(null),"");
+ const commerce=await readFile(new URL("../server/routes/commerce.js",import.meta.url),"utf8");
+ const frontend=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ assert.ok(commerce.includes('if(!isValidTrackingUrl(p.tracking_url))return res.status(400)'));
+ assert.ok(frontend.includes('href={safeCheckoutTrackingUrl(checkout.tracking_url)}'));
+});

@@ -39,3 +39,13 @@ export function previewParentOrigin({studio,referrer}){
 export function isAllowedPreviewMessage(event,parent,expectedOrigin){
  return Boolean(expectedOrigin&&event?.source===parent&&event?.origin===expectedOrigin);
 }
+
+// Tracking links are untrusted merchant content visible to the paying customer.
+export function safeCheckoutTrackingUrl(value){
+ if(typeof value!=="string"||value.length>2048)return "";
+ try{
+  const url=new URL(value.trim());
+  if(url.protocol!=="https:"||url.username||url.password||!url.hostname)return "";
+  return url.href;
+ }catch{return ""}
+}
