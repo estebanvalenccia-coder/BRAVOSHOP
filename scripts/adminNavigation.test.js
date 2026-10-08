@@ -67,7 +67,8 @@ test("design studio keeps React hooks unconditional and shows real photographic 
  assert.ok(loading>0&&previewHook>0&&previewHook<loading,"preview hook must precede conditional render");
  assert.ok(body.includes('"https://app.bravoshop.online");send()'));
  assert.ok(body.includes('src={TEMPLATE_IMAGE_URLS[t.id]}'));
- assert.ok(body.includes("Guardar diseño"));
+ assert.ok(body.includes("Guardar borrador"));
+ assert.ok(body.includes("Publicar diseño"));
  assert.ok(!body.includes("Guardar y publicar"));
 });
 

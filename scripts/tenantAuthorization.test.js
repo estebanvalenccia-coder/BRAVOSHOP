@@ -163,17 +163,20 @@ test("product category replacement validates tenant ownership before atomic muta
 });
 
 test("merchant managers can save the design without altering store identity",async()=>{
- const backend=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const backend=await readFile(new URL("../server/routes/themeDrafts.js",import.meta.url),"utf8");
  const frontend=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
  const service=await readFile(new URL("../src/platform/data/storeService.js",import.meta.url),"utf8");
  assert.equal(hasPermission("manager","design.update"),true);
  assert.equal(hasPermission("manager","store.update"),false);
  assert.equal(hasPermission("viewer","design.update"),false);
- assert.ok(backend.includes('storesRouter.put("/:storeId/theme",requireStore,requirePermission("design.update")'));
- assert.ok(backend.includes('theme.sections.length>80'));
- assert.ok(backend.includes('theme.template==="premium-organic"&&!await canUsePremiumTemplate'));
- assert.ok(service.includes('export async function updateStoreTheme('));
- assert.ok(frontend.includes('if(mode==="design")await updateStoreTheme(store.id,full.theme)'));
+ assert.ok(backend.includes('themeDraftRouter.use(requireAuth,requireStore)'));
+ assert.ok(backend.includes('themeDraftRouter.put("/draft",requirePermission("design.update")'));
+ assert.ok(backend.includes('themeDraftRouter.post("/publish",requirePermission("design.update")'));
+ assert.ok(backend.includes('pf.feature_key=\'premium_templates\''));
+ assert.ok(service.includes('export async function saveStoreThemeDraft('));
+ assert.ok(service.includes('export async function publishStoreThemeDraft('));
+ assert.ok(frontend.includes('saveStoreThemeDraft(store.id,full.theme,draftMeta.version)'));
+ assert.ok(frontend.includes('publishStoreThemeDraft(store.id,draftMeta.version)'));
 });
 
 test("idempotent store creation never returns draft tokens after tenant membership revocation",async()=>{
