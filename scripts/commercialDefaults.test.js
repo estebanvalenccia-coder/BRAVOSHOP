@@ -36,3 +36,14 @@ test("platform billing checkout requires webhook configuration",async()=>{
  const block=source.slice(start,end);
  assert.ok(block.includes("if(!platformBillingConfigured())"));
 });
+
+test("manual superadmin plan assignment is complimentary and excluded from paid MRR",async()=>{
+ const source=await readFile(new URL("../server/routes/admin.js",import.meta.url),"utf8");
+ const start=source.indexOf('adminRouter.put("/stores/:id/plan"');
+ const end=source.indexOf('adminRouter.get("/access-codes"',start);
+ const block=source.slice(start,end);
+ assert.ok(block.includes("'Asignación Super Admin'"));
+ assert.ok(block.includes("provider_subscription_id=null"));
+ assert.ok(block.includes("complimentary:true"));
+ assert.ok(source.includes("s.complimentary_reason is null"));
+});
