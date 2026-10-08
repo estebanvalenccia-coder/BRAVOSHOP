@@ -31,7 +31,7 @@ adminRouter.patch("/plans/:id",async(req,res)=>{
 const PROMOTION_KINDS=new Set(["percent","fixed","free_months","complimentary"]);
 function normalizePlatformPromotion(input={}){
  const code=String(input.code||"").trim().toUpperCase(),kind=String(input.kind||"").trim();
- if(!/^[A-Z0-9][A-Z0-9_-]{3,63}$/.test(code)||!PROMOTION_KINDS.has(kind))throw Object.assign(new Error("Código o tipo de promoción no válido"),{statusCode:400});
+ if(!/^[A-Z0-9][A-Z0-9-]{3,63}$/.test(code)||!PROMOTION_KINDS.has(kind))throw Object.assign(new Error("Código o tipo de promoción no válido"),{statusCode:400});
  const value=Number(kind==="free_months"?(input.free_months??input.value):input.value);
  if(kind==="percent"&&(!Number.isFinite(value)||value<=0||value>100))throw Object.assign(new Error("El descuento debe estar entre 0 y 100%"),{statusCode:400});
  if(kind==="fixed"&&(!Number.isFinite(value)||value<=0||value>9999))throw Object.assign(new Error("El importe en euros no es válido"),{statusCode:400});

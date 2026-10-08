@@ -113,3 +113,12 @@ test("monthly and annual offers preserve real configured prices and billing inte
  assert.ok(app.includes("p.annual_price"));
  assert.ok(app.includes('billingInterval==="year"&&p.annual_price!=null?"year":"month"'));
 });
+
+test("Stripe subscription discounts allow zero-due checkout without a card",async()=>{
+ const backend=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const admin=await readFile(new URL("../server/routes/admin.js",import.meta.url),"utf8");
+ const route=backend.slice(backend.indexOf('storesRouter.post("/:storeId/billing/checkout"'),backend.indexOf('storesRouter.post("/:storeId/billing/cancel"'));
+ assert.ok(route.includes('payment_method_collection:"if_required"'));
+ assert.ok(route.includes("allow_promotion_codes:true"));
+ assert.ok(admin.includes('!/^[A-Z0-9][A-Z0-9-]{3,63}$/.test(code)'));
+});
