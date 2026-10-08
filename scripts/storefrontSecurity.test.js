@@ -159,3 +159,9 @@ test("hidden storefront sections cannot leave dead header anchors",async()=>{
  assert.ok(source.includes('safe.startsWith("#")&&!visibleAnchors.has(safe.slice(1))?"#catalog":safe'));
  assert.ok(source.includes('href={menuUrl(m.url)}'));
 });
+
+test("implemented marketing is not presented as roadmap",async()=>{
+ const source=await readFile(new URL("../src/platform/config/features.js",import.meta.url),"utf8");
+ assert.ok(source.includes('OPERATIVE_FEATURES=[...CORE_FEATURES,"coupons","wishlist","marketing"]'));
+ assert.ok(!source.includes('"blog","marketing"'));
+});
