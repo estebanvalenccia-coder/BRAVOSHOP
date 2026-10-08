@@ -85,3 +85,12 @@ test("Stripe Checkout shows a promotion-code field for new platform subscription
  assert.ok(checkout.includes('mode:"subscription"'));
  assert.ok(checkout.includes("ensurePlanStripePrice"));
 });
+
+test("permanent access codes can activate the merchant plan before opening Stripe",async()=>{
+ const app=await readFile(new URL("../src/platform/App.jsx",import.meta.url),"utf8");
+ const onboarding=await readFile(new URL("../src/platform/onboarding/Onboarding.jsx",import.meta.url),"utf8");
+ assert.ok(app.includes("redeemAccessCode(ready.id,data.access_code)"));
+ assert.ok(app.includes('if(access.grant_type==="plan")'));
+ assert.ok(onboarding.includes("access_code:accessCode.trim()"));
+ assert.ok(onboarding.includes("Código BravoShop (opcional)"));
+});
