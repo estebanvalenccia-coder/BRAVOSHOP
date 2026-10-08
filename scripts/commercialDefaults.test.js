@@ -173,3 +173,31 @@ test("premium templates can be explored during Premium onboarding but cannot pub
  assert.ok(home.includes('const premiumReady=!premiumTemplate||'));
  assert.ok(home.includes('&&billingReady&&premiumReady'));
 });
+
+test("Stripe promotion code connector supports modern and legacy API without double creation",async()=>{
+ const {createCompatiblePromotionCode}=await import("../server/services/stripePromotionCode.js");
+ const calls=[];
+ const modern={promotionCodes:{
+  list:async p=>{calls.push(["list",p]);return{data:[]}},
+  create:async(p,options)=>{calls.push(["create",p,options]);return{id:"promo_modern",active:true}}
+ }};
+ const modernCode=await createCompatiblePromotionCode(modern,{code:"SALE10",couponId:"coupon_abc",recordId:"uuid-1"});
+ assert.equal(modernCode.id,"promo_modern");
+ assert.deepEqual(calls[1][1].promotion,{type:"coupon",coupon:"coupon_abc"});
+ assert.ok(!("coupon" in calls[1][1]));
+ assert.equal(calls[1][2].idempotencyKey,"bravoshop-promotion-code-modern-uuid-1");
+ const legacyCalls=[];const legacy={promotionCodes:{
+  list:async()=>({data:[]}),
+  create:async(p,options)=>{legacyCalls.push({p,options});if(p.promotion)throw Object.assign(new Error("Received unknown parameter: promotion"),{code:"parameter_unknown",param:"promotion"});return{id:"promo_legacy",active:true}}
+ }};
+ const legacyCode=await createCompatiblePromotionCode(legacy,{code:"SALE10",couponId:"coupon_abc",recordId:"uuid-2"});
+ assert.equal(legacyCode.id,"promo_legacy");
+ assert.equal(legacyCalls.length,2);
+ assert.equal(legacyCalls[1].p.coupon,"coupon_abc");
+ assert.equal(legacyCalls[1].options.idempotencyKey,"bravoshop-promotion-code-uuid-2");
+ let createAttempts=0;
+ const existing={promotionCodes:{list:async()=>({data:[{id:"promo_existing",active:true,metadata:{bravoshop_promotion_id:"uuid-3"}}]}),create:async()=>{createAttempts++;throw new Error("Must not create duplicate")}}};
+ const adopted=await createCompatiblePromotionCode(existing,{code:"SALE10",couponId:"coupon_abc",recordId:"uuid-3"});
+ assert.equal(adopted.id,"promo_existing");assert.equal(createAttempts,0);
+ await assert.rejects(createCompatiblePromotionCode({promotionCodes:{list:async()=>({data:[]}),create:async()=>{throw new Error("Permission denied")}}},{code:"SALE10",couponId:"coupon_abc",recordId:"uuid-4"}),/Permission denied/);
+});

@@ -1,4 +1,4 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";import{createCompatiblePromotionCode}from"../services/stripePromotionCode.js";
 export const adminRouter=Router();const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;adminRouter.param("id",(req,res,next,id)=>UUID.test(String(id||""))?next():res.status(404).json({error:"Recurso no encontrado"}));adminRouter.use(requireAuth,requireSuperAdmin);
 async function audit(req,action,resourceType,resourceId,details={}){const storeId=resourceType==="store"?resourceId:null;await sql`insert into audit_log(actor_user_id,actor_type,store_id,action,resource_type,resource_id,request_id,ip,user_agent,details) values(${req.user.id}::uuid,'super_admin',${storeId}::uuid,${action},${resourceType},${resourceId||null},${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},${JSON.stringify(details)}::jsonb)`}
 adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=await Promise.all([sql`select count(*)::int as n from stores where status in ('active','trial')`,sql`select count(*)::int as n from app_users where status='active'`,sql`select count(*)::int as n from orders where created_at>=date_trunc('day',now())`,sql`select coalesce(sum(p.monthly_price),0)::numeric as n from store_subscriptions s join plans p on p.id=s.plan_id where s.status='active' and s.complimentary_reason is null`]);const controls=await sql`select key,enabled,reason,updated_at from platform_controls order by key`;res.json({metrics:{stores:stores[0].n,users:users[0].n,orders_today:orders[0].n,mrr:Number(mrr[0].n)},controls})});
@@ -59,10 +59,7 @@ async function syncPromotionToStripe(row){
  }
  let promotionId=row.metadata?.stripe_promotion_code_id||null;
  if(!promotionId){
-  const params={code:p.code,coupon:couponId,active:true,metadata:{bravoshop_promotion_id:String(row.id)}};
-  if(p.max_uses)params.max_redemptions=p.max_uses;
-  if(p.ends_at)params.expires_at=Math.floor(Date.parse(p.ends_at)/1000);
-  const promotion=await stripe.promotionCodes.create(params,{idempotencyKey:"bravoshop-promotion-code-"+row.id});
+  const promotion=await createCompatiblePromotionCode(stripe,{code:p.code,couponId,recordId:String(row.id),maxRedemptions:p.max_uses,expiresAt:p.ends_at});
   promotionId=promotion.id;
  }
  const saved=await sql`update promotions set active=true,metadata=metadata||${JSON.stringify({stripe_coupon_id:couponId,stripe_promotion_code_id:promotionId})}::jsonb where id=${row.id}::uuid returning *`;
