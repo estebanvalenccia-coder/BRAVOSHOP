@@ -1,3 +1,4 @@
+import { resolve4, resolve6 } from "node:dns/promises";
 const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");
 const MEDIA=(process.env.MEDIA_HEALTH_URL||"https://bravoshop-media-production.up.railway.app").replace(/\/$/,"");
 async function request(path,options={}){
@@ -39,3 +40,19 @@ await expectStatus(
 );
 
 console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,media:mediaHealth.storage,integrations:ready.integrations,commercial_gate:requireLive?"strict":"technical",commit:ready.commit||null,tenant_routing_guards:true}));
+
+// DNS is a separate operational dependency: a healthy Railway service does not
+// imply that newly provisioned merchant subdomains resolve publicly.
+const storefrontHost=process.env.SMOKE_STOREFRONT_HOST||"mi-tienda-3.bravoshop.online";
+const requireStorefrontDns=process.env.REQUIRE_STOREFRONT_DNS==="1";
+let storefrontDns="unverified";
+try {
+ const addresses=await Promise.any([resolve4(storefrontHost),resolve6(storefrontHost)]);
+ if(!addresses.length)throw new Error("No DNS addresses returned");
+ storefrontDns="resolved";
+} catch(error) {
+ storefrontDns="failed";
+ if(requireStorefrontDns)throw new Error("Merchant storefront DNS failed for "+storefrontHost+": "+error.message);
+ console.warn(JSON.stringify({warning:"MERCHANT_STOREFRONT_DNS_UNRESOLVED",hostname:storefrontHost}));
+}
+console.log(JSON.stringify({storefront_hostname:storefrontHost,storefront_dns:storefrontDns,strict_dns:requireStorefrontDns}));
