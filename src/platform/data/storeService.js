@@ -31,6 +31,7 @@ export async function updateTaxSettings(storeId,input){const data=await api(`/ap
 
 export async function connectPaymentAccount(storeId){return api(`/api/stores/${storeId}/payments/connect`,{method:"POST"})}
 export async function syncPaymentAccount(storeId){return api(`/api/stores/${storeId}/payments/sync`,{method:"POST"})}
+export async function openPaymentDashboard(storeId){return api(`/api/stores/${storeId}/payments/dashboard`,{method:"POST"})}
 export async function listStoreTeam(storeId){const data=await api(`/api/stores/${storeId}/members`);return{members:data.members??[],invitations:data.invitations??[]}}
 export async function listStoreMembers(storeId){const data=await listStoreTeam(storeId);return data.members}
 export async function addStoreMember(storeId,input){return api(`/api/stores/${storeId}/members`,{method:"POST",body:input})}
