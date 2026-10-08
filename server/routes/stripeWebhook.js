@@ -5,6 +5,7 @@ import { sql } from "../db/neon.js";
 import { recordAudit } from "../services/auditLog.js";
 import { enqueueOrderNotification } from "../services/notifications.js";
 import { persistPlatformSubscription } from "../services/platformBilling.js";
+import { assertRefundMatchesOrder } from "../services/refundReconciliation.js";
 
 export const stripeWebhookRouter = Router();
 
@@ -208,14 +209,26 @@ async function updateRefundFromStripe(event, refund, req) {
 	if (!refundId) return null;
 
 	const owners = await sql`
-		select r.store_id,r.order_id,r.amount
+		select r.store_id,r.order_id,r.amount,r.provider_refund_id,
+			o.currency,o.payment_provider,o.provider_payment_id as payment_intent_id
 		from order_refunds r
+		join orders o on o.id=r.order_id and o.store_id=r.store_id
 		where r.id=${refundId}::uuid and r.store_id=${storeId}::uuid
 		limit 1
 	`;
 	if (!owners.length) {
 		await recordWebhookIncident(req, event, storeId, "refund_store_mismatch");
 		throw new Error("Stripe refund does not belong to the connected account store");
+	}
+	try {
+		// Before any refund accounting or restock, verify that this is the
+		// correct Refund object for this original merchant payment.
+		assertRefundMatchesOrder(refund,owners[0],{
+			requirePaymentIntent:!owners[0].provider_refund_id
+		});
+	} catch(error) {
+		await recordWebhookIncident(req,event,storeId,error.code||"refund_reconciliation_failed");
+		throw error;
 	}
 	const status = refund.status === "succeeded"
 		? "succeeded"

@@ -1,5 +1,7 @@
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import Stripe from"stripe";import{requireAuth,requireStore}from"../middleware/auth.js";import{requirePermission}from"../middleware/permissions.js";import{enqueueOrderNotification}from"../services/notifications.js";import{isValidTrackingUrl}from"../security/trackingUrl.js";
 import{parseCatalogPrice,parseVariantPrices,parseStockQuantity}from"../services/catalogPricing.js";
+import{requiresCurrencyMinorUnitUpgrade,isValidTwoDecimalStripeAmount}from"../services/paymentCurrency.js";
+import{assertRefundMatchesOrder}from"../services/refundReconciliation.js";
 export const commerceRouter=Router({mergeParams:true});commerceRouter.use(requireAuth,requireStore);
 const SLUG_PATTERN=/^[a-z0-9](?:[a-z0-9-]{0,118}[a-z0-9])?$/;
 
@@ -206,6 +208,11 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 	if(!["paid","partially_refunded"].includes(order.payment_status)||order.payment_provider!=="stripe"||!order.provider_payment_id)return res.status(409).json({error:"El pedido no tiene un pago Stripe reembolsable"});
 	if(!order.provider_account_id)return res.status(409).json({error:"La cuenta Stripe de la tienda no está conectada"});
 	if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Stripe no está configurado"});
+	if(requiresCurrencyMinorUnitUpgrade(order.currency))
+		return res.status(422).json({error:"No se puede iniciar un reembolso en esta moneda hasta que los importes estén adaptados a Stripe"});
+	if(req.body?.amount!=null&&(!parseCatalogPrice(req.body.amount).ok||!isValidTwoDecimalStripeAmount(req.body.amount)))
+		return res.status(400).json({error:"El importe del reembolso debe tener como máximo dos decimales"});
+
 
 	const remainingCents=Math.round(Number(order.total)*100)
 		-Math.round(Number(order.refunded_total||0)*100)
@@ -276,6 +283,20 @@ commerceRouter.post("/orders/:id/refunds",requirePermission("orders.refund"),asy
 		return res.status(502).json({error:"Stripe no pudo confirmar el reembolso",request_id:req.requestId});
 	}
 
+	try{
+		assertRefundMatchesOrder(providerRefund,{
+			amount,currency:order.currency,payment_intent_id:order.provider_payment_id,
+			payment_provider:"stripe",provider_refund_id:null
+		},{requirePaymentIntent:true});
+	}catch(error){
+		// Stripe may already have moved money. Keep the refund in 'processing'
+		// for reconciliation rather than falsely finalizing it or restocking stock.
+		console.error(JSON.stringify({
+			level:"error",request_id:req.requestId,store_id:req.storeId,
+			resource_id:refundId,error_code:error.code||"STRIPE_REFUND_RECONCILIATION_FAILED"
+		}));
+		return res.status(502).json({error:"El reembolso requiere conciliación con Stripe; no se ha marcado como confirmado",request_id:req.requestId});
+	}
 	const status=providerRefund.status==="succeeded"
 		?"succeeded"
 		:providerRefund.status==="failed"||providerRefund.status==="canceled"
