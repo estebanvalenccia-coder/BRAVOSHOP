@@ -44,7 +44,7 @@ console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,sch
 // DNS is a separate operational dependency: a healthy Railway service does not
 // imply that newly provisioned merchant subdomains resolve publicly.
 const storefrontHost=process.env.SMOKE_STOREFRONT_HOST||"mi-tienda-3.bravoshop.online";
-const requireStorefrontDns=process.env.REQUIRE_STOREFRONT_DNS==="1";
+const requireStorefrontDns=process.env.REQUIRE_STOREFRONT_DNS!=="0";
 let storefrontDns="unverified";
 try {
  const addresses=await Promise.any([resolve4(storefrontHost),resolve6(storefrontHost)]);
