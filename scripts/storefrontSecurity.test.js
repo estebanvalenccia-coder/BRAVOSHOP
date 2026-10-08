@@ -220,3 +220,11 @@ test("preview tokens only allow catalog reads, not checkout or recovery endpoint
  assert.ok(source.includes("const tokenMatches=previewReadable&&previewToken.length>=32"));
  assert.ok(source.includes("const platformPreview=previewReadable&&"));
 });
+
+test("merchant preview clearly displays read-only status and excludes draft content from indexing",async()=>{
+ const source=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ assert.ok(source.includes('store.preview?"noindex,nofollow,noarchive":"index,follow"'));
+ assert.ok(source.includes('const canonical=(store.preview?"https://"+host:window.location.origin)'));
+ assert.ok(source.includes('store.preview===true&&<div className="storePreviewBanner"'));
+ assert.ok(source.includes("no se aceptan compras"));
+});
