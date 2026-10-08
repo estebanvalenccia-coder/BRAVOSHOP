@@ -225,3 +225,18 @@ test("active merchant subscription upgrades require explicit confirmation and ne
  assert.ok(ui.includes("Stripe puede calcular prorrateos"));
  assert.ok(ui.includes("confirmChange:activeChange"));
 });
+
+test("repeat SaaS checkout clicks reuse an open matching Stripe session",async()=>{
+ const source=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const start=source.indexOf('storesRouter.post("/:storeId/billing/checkout"');
+ const end=source.indexOf('storesRouter.post("/:storeId/billing/cancel"',start);
+ const route=source.slice(start,end);
+ assert.ok(route.includes('existing?.status==="checkout_pending"'));
+ assert.ok(route.includes('String(existing.plan_id)===String(plan.id)'));
+ assert.ok(route.includes('existing.billing_interval===interval'));
+ assert.ok(route.includes('existing.provider_price_id===priceId'));
+ assert.ok(route.includes('stripe.checkout.sessions.retrieve(existing.provider_checkout_session_id)'));
+ assert.ok(route.includes('pending.status==="open"'));
+ assert.ok(route.includes('pending.client_reference_id===String(req.storeId)'));
+ assert.ok(route.includes('res.json({url:pending.url,reused:true})'));
+});
