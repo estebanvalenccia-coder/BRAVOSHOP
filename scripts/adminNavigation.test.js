@@ -33,3 +33,16 @@ test("merchant admin navigation follows backend tenant permissions, not decorati
  assert.ok(admin.includes("filterMerchantMenu(menu,current.permissions,current.role)"));
  assert.ok(admin.includes("resolveMerchantSection(section,visibleMenu)"));
 });
+
+test("read-only merchant roles never see buttons for Stripe account mutations or subscriptions",async()=>{
+ const source=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ assert.ok(source.includes('canManage={privileges.has("payments.manage")}'));
+ assert.ok(source.includes('canManage={privileges.has("billing.manage")}'));
+ assert.ok(source.includes('privileges.has("billing.manage")&&<AccessCode'));
+ assert.ok(source.includes("function Payments({store,canManage=false})"));
+ assert.ok(source.includes('disabled={linked||!canManage}'));
+ assert.ok(source.includes("{canManage&&!active&&<button"));
+ assert.ok(source.includes("{canManage&&p.provider_account_id&&<button"));
+ assert.ok(source.includes("function PlatformBilling({store,canManage=false})"));
+ assert.ok(source.includes('disabled={!canManage||!data.provider_configured'));
+});
