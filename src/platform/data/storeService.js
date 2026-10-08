@@ -3,6 +3,7 @@ export async function listMyStores(){const data=await api("/api/stores");return 
 export async function createStore(input){const slug=(input.slug||input.name||"tienda").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");const data=await api("/api/stores",{method:"POST",body:{name:input.name,slug,sector:input.sector,theme:input.theme??{primary_color:input.color},settings:input.settings??{},features:input.features??[]},headers:input.creation_key?{"Idempotency-Key":input.creation_key}:{}});return{...data.store,role:"owner"}}
 export async function loadStore(storeId){const data=await api(`/api/stores/${storeId}`);return data.store}
 export async function updateStore(storeId,input){return api(`/api/stores/${storeId}`,{method:"PATCH",body:input})}
+export async function updateStoreTheme(storeId,theme){return api(`/api/stores/${storeId}/theme`,{method:"PUT",body:{theme}})}
 export async function updateStoreFeatures(storeId,features){return api(`/api/stores/${storeId}/features`,{method:"PUT",body:{features}})}
 export async function setStorePublication(storeId,published){return api(`/api/stores/${storeId}/publication`,{method:"POST",body:{published}})}
 

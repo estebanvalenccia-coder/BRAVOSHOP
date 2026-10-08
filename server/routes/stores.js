@@ -109,6 +109,22 @@ storesRouter.get("/:storeId/payments",requireStore,requirePermission("payments.r
 });
 storesRouter.get("/:storeId",requireStore,requirePermission("store.read"),async(req,res)=>{const rows=await sql`select s.*,ss.settings,st.theme from stores s left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where s.id=${req.storeId}::uuid`;if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});const features=await sql`select feature_key,enabled,config from store_features where store_id=${req.storeId}::uuid`;res.json({store:{...rows[0],role:req.membership.role,permissions:req.permissions,features}})});
 storesRouter.patch("/:storeId",requireStore,requirePermission("store.update"),async(req,res)=>{const{name,sector,theme,settings}=req.body||{};if(theme?.template==="premium-organic"&&!await canUsePremiumTemplate(req.storeId)){const existingTheme=await sql`select theme->>'template' as template from store_theme where store_id=${req.storeId}::uuid limit 1`;if(existingTheme[0]?.template!=="premium-organic")return res.status(403).json({error:"La plantilla Premium requiere un plan Premium"});}if(name!==undefined&&(!String(name).trim()||String(name).trim().length>120))return res.status(400).json({error:"Nombre de tienda inválido"});let safeSettings=settings;if(settings!==undefined){safeSettings={...(settings||{})};delete safeSettings.published;delete safeSettings.preview_token}await sql.transaction([...(name!==undefined||sector!==undefined?[sql`update stores set name=coalesce(${name===undefined?null:String(name).trim()},name),sector=coalesce(${sector===undefined?null:sector},sector),updated_at=now() where id=${req.storeId}::uuid`]:[]),...(safeSettings!==undefined?[sql`insert into store_settings(store_id,settings) values(${req.storeId}::uuid,${JSON.stringify(safeSettings||{})}::jsonb) on conflict(store_id) do update set settings=store_settings.settings||excluded.settings`]:[]),...(theme!==undefined?[sql`insert into store_theme(store_id,theme) values(${req.storeId}::uuid,${JSON.stringify(theme||{})}::jsonb) on conflict(store_id) do update set theme=excluded.theme`]:[])]);res.json({ok:true})});
+// Limit visual design changes to the theme: managers cannot modify identity or billing.
+storesRouter.put("/:storeId/theme",requireStore,requirePermission("design.update"),async(req,res)=>{
+ const theme=req.body?.theme;
+ if(!theme||typeof theme!=="object"||Array.isArray(theme))return res.status(400).json({error:"Diseño inválido"});
+ const raw=JSON.stringify(theme);
+ if(raw.length>150000||!Array.isArray(theme.sections)||theme.sections.length>80)
+  return res.status(413).json({error:"El diseño excede los límites permitidos"});
+ if(theme.sections.some(s=>!s||typeof s!=="object"||typeof s.id!=="string"||s.id.length>120||typeof s.type!=="string"||s.type.length>50))
+  return res.status(400).json({error:"Sección de diseño inválida"});
+ if(theme.template==="premium-organic"&&!await canUsePremiumTemplate(req.storeId)){
+  const existing=await sql`select theme->>'template' as template from store_theme where store_id=${req.storeId}::uuid limit 1`;
+  if(existing[0]?.template!=="premium-organic")return res.status(403).json({error:"La plantilla Premium requiere un plan Premium"});
+ }
+ await sql`insert into store_theme(store_id,theme) values(${req.storeId}::uuid,${raw}::jsonb) on conflict(store_id) do update set theme=excluded.theme`;
+ res.json({ok:true});
+});
 storesRouter.put("/:storeId/features",requireStore,requirePermission("store.update"),async(req,res)=>{const features=Array.isArray(req.body?.features)?req.body.features:[];const clean=[...new Set(features)].filter(x=>MERCHANT_FEATURE_KEYS.has(x));const merchantKeys=[...MERCHANT_FEATURE_KEYS];const queries=[sql`update store_features set enabled=false where store_id=${req.storeId}::uuid and feature_key=any(${merchantKeys})`,...clean.map(feature=>sql`insert into store_features(store_id,feature_key,enabled) values(${req.storeId}::uuid,${feature},true) on conflict(store_id,feature_key) do update set enabled=true`)];await sql.transaction(queries);res.json({features:clean})});
 
 storesRouter.post("/:storeId/publication",requireStore,requirePermission("store.update"),async(req,res)=>{

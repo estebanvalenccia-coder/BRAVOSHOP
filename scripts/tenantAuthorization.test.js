@@ -161,3 +161,17 @@ test("product category replacement validates tenant ownership before atomic muta
  assert.ok(block.includes("sql.transaction(["));
  assert.ok(block.indexOf("select id from categories")<block.indexOf("delete from product_categories"));
 });
+
+test("merchant managers can save the design without altering store identity",async()=>{
+ const backend=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const frontend=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ const service=await readFile(new URL("../src/platform/data/storeService.js",import.meta.url),"utf8");
+ assert.equal(hasPermission("manager","design.update"),true);
+ assert.equal(hasPermission("manager","store.update"),false);
+ assert.equal(hasPermission("viewer","design.update"),false);
+ assert.ok(backend.includes('storesRouter.put("/:storeId/theme",requireStore,requirePermission("design.update")'));
+ assert.ok(backend.includes('theme.sections.length>80'));
+ assert.ok(backend.includes('theme.template==="premium-organic"&&!await canUsePremiumTemplate'));
+ assert.ok(service.includes('export async function updateStoreTheme('));
+ assert.ok(frontend.includes('if(mode==="design")await updateStoreTheme(store.id,full.theme)'));
+});
