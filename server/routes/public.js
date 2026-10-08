@@ -14,6 +14,7 @@ function validateCheckoutBody(req,res,next){
 	if(!Array.isArray(items)||items.length<1||items.length>50)return res.status(400).json({error:"Carrito inválido"});
 	const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	if(items.some(item=>!item||typeof item!=="object"||!uuid.test(item.variant_id)||!Number.isSafeInteger(item.quantity)||item.quantity<1||item.quantity>99))return res.status(400).json({error:"Cantidad o variante no válida"});
+ if(new Set(items.map(item=>item.variant_id.toLowerCase())).size!==items.length)return res.status(400).json({error:"El carrito contiene variantes duplicadas"});
 	if(req.body.email!==undefined&&(typeof req.body.email!=="string"||req.body.email.length>254||! /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(req.body.email)))return res.status(400).json({error:"Email no válido"});
 	if(req.body.currency!==undefined&&(typeof req.body.currency!=="string"||! /^[A-Za-z]{3}$/.test(req.body.currency)))return res.status(400).json({error:"Moneda no válida"});
 	if(req.body.discount_code!==undefined&&(typeof req.body.discount_code!=="string"||req.body.discount_code.length>80))return res.status(400).json({error:"Código de descuento no válido"});
