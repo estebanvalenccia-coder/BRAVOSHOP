@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState}from"react";
 import{ArrowLeft,Crown,Search,UserRoundCheck,Users}from"lucide-react";
-import{getCustomer,listCustomers,updateCustomer}from"../data/commerceService.js";
+import{getCustomer,listCustomers,updateCustomer}from"../data/commerceService.js";import{ExportCsvButton}from"./ExportCsvButton.jsx";
 
 const daysSince=value=>value?Math.floor((Date.now()-new Date(value).getTime())/86400000):Infinity;
 function segment(c,avgValue=0){const orders=Number(c.order_count||0),value=Number(c.lifetime_value||0),days=daysSince(c.last_order_at);if(value>0&&value>=Math.max(avgValue*2,150))return"vip";if(orders>=2&&days<=180)return"repeat";if(orders===1&&days<=60)return"new";if(orders>0&&days>180)return"inactive";return"lead"}
@@ -16,7 +16,7 @@ export function CustomersManager({storeId}){
  const open=async id=>{setError("");setNotice("");try{setSelected(await getCustomer(storeId,id))}catch(e){setError(e.message)}};
  const save=async()=>{setSaving(true);setError("");setNotice("");try{const updated=await updateCustomer(storeId,selected.id,{name:selected.name,phone:selected.phone,notes:selected.notes});setSelected({...selected,...updated});setNotice("Cliente actualizado");load()}catch(e){setError(e.message)}finally{setSaving(false)}};
  if(selected)return <CustomerDetail customer={selected} setCustomer={setSelected} onBack={()=>setSelected(null)} onSave={save} saving={saving} error={error} notice={notice} avgValue={avgValue}/>;
- return <section className="crmWorkspace"><div className="pageTitle"><div><small>RELACIONES</small><h1>Clientes</h1><p>Segmenta compradores y conserva contexto útil para atenderlos mejor.</p></div></div>
+ return <section className="crmWorkspace"><div className="pageTitle"><div><small>RELACIONES</small><h1>Clientes</h1><p>Segmenta compradores y conserva contexto útil para atenderlos mejor.</p></div><ExportCsvButton storeId={storeId} kind="customers"/></div>
  <div className="crmMetrics"><Metric label="Clientes" value={metrics.total}/><Metric label="VIP" value={metrics.vip} icon={<Crown size={17}/>}/><Metric label="Recurrentes" value={metrics.repeat} icon={<UserRoundCheck size={17}/>}/><Metric label="Valor acumulado" value={money(metrics.value)}/></div>
  {error&&<div className="errorBox">{error}</div>}<div className="catalogToolbar crmToolbar"><label><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar cliente, email o teléfono…"/></label><select value={filter} onChange={e=>setFilter(e.target.value)}>{Object.entries(segmentLabel).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
  <div className="productTable"><div className="tableHead customerProCols"><span>Cliente</span><span>Segmento</span><span>Pedidos</span><span>Valor</span><span>Último pedido</span></div>{shown.map(c=><button className="productRow customerProCols" key={c.id} onClick={()=>open(c.id)}><div><b>{c.name||"Sin nombre"}</b><small>{c.email||"—"}</small></div><span className={"crmSegment "+c.segment}>{segmentLabel[c.segment]}</span><span>{c.order_count||0}</span><strong>{money(c.lifetime_value)}</strong><span>{c.last_order_at?new Date(c.last_order_at).toLocaleDateString():"—"}</span></button>)}{!shown.length&&<div className="empty"><Users/><p>No hay clientes que coincidan.</p></div>}</div></section>

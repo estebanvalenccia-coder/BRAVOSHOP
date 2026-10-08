@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState}from"react";
 import{ArrowLeft,Box,MapPin,Search,ShoppingBag,Truck,UserRound}from"lucide-react";
-import{listOrders,getOrder,updateFulfillment,requestRefund}from"../data/commerceService.js";
+import{listOrders,getOrder,updateFulfillment,requestRefund}from"../data/commerceService.js";import{ExportCsvButton}from"./ExportCsvButton.jsx";
 
 const fulfillmentLabel={unfulfilled:"Pendiente",preparing:"Preparando",fulfilled:"Enviado",delivered:"Entregado",cancelled:"Cancelado"};
 const paymentLabel={paid:"Pagado",partially_refunded:"Reembolso parcial",refunded:"Reembolsado",pending:"Pendiente",failed:"Fallido"};
@@ -16,7 +16,7 @@ export function OrdersManager({storeId}){
  const shown=useMemo(()=>items.filter(o=>(filter==="all"||o.fulfillment_status===filter)&&(!query||[o.id,o.customer_email,o.customer_name,o.tracking_number].join(" ").toLowerCase().includes(query.toLowerCase()))),[items,query,filter]);
  const metrics=useMemo(()=>({total:items.length,pending:items.filter(x=>["unfulfilled","preparing"].includes(x.fulfillment_status)).length,shipping:items.filter(x=>x.fulfillment_status==="fulfilled").length,delivered:items.filter(x=>x.fulfillment_status==="delivered").length}),[items]);
  if(selected)return <OrderDetail order={selected} setOrder={setSelected} onBack={()=>{setSelected(null);setNotice("");setError("")}} onSave={save} onRefund={doRefund} refund={refund} setRefund={setRefund} busy={busy} error={error} notice={notice}/>;
- return <section className="ordersWorkspace"><div className="pageTitle"><div><small>VENTAS</small><h1>Pedidos</h1><p>Gestiona preparación, entrega, seguimiento y atención postventa.</p></div></div>
+ return <section className="ordersWorkspace"><div className="pageTitle"><div><small>VENTAS</small><h1>Pedidos</h1><p>Gestiona preparación, entrega, seguimiento y atención postventa.</p></div><ExportCsvButton storeId={storeId} kind="orders"/></div>
  <div className="orderMetrics"><Metric label="Pedidos" value={metrics.total}/><Metric label="Por preparar" value={metrics.pending}/><Metric label="En tránsito" value={metrics.shipping}/><Metric label="Entregados" value={metrics.delivered}/></div>
  {error&&<div className="errorBox">{error}</div>}
  <div className="orderToolbar"><label><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Pedido, cliente o seguimiento…"/></label><select value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">Todos los estados</option><option value="unfulfilled">Pendientes</option><option value="preparing">Preparando</option><option value="fulfilled">Enviados</option><option value="delivered">Entregados</option><option value="cancelled">Cancelados</option></select></div>
