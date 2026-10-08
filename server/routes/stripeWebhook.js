@@ -8,21 +8,18 @@ import { persistPlatformSubscription } from "../services/platformBilling.js";
 export const stripeWebhookRouter = Router();
 
 stripeWebhookRouter.post("/", async (req, res) => {
-	if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
-		return res.status(503).json({ error: "Stripe webhook no configurado" });
+	const platformSecret=process.env.STRIPE_WEBHOOK_SECRET,connectSecret=process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+	if (!process.env.STRIPE_SECRET_KEY || !platformSecret || !connectSecret) {
+		return res.status(503).json({ error: "Stripe webhooks no configurados" });
 	}
 
 	const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-	let event;
-	try {
-		event = stripe.webhooks.constructEvent(
-			req.body,
-			req.headers["stripe-signature"],
-			process.env.STRIPE_WEBHOOK_SECRET,
-		);
-	} catch {
-		return res.status(400).send("Webhook signature invalid");
+	let event=null,matched=null;
+	for(const [kind,secret] of [["platform",platformSecret],["connect",connectSecret]]){
+		try{event=stripe.webhooks.constructEvent(req.body,req.headers["stripe-signature"],secret);matched=kind;break}catch{}
 	}
+	if(!event)return res.status(400).send("Webhook signature invalid");
+	if((event.account&&matched!=="connect")||(!event.account&&matched!=="platform"))return res.status(400).send("Webhook source mismatch");
 
 	const claimed = await sql`select bravoshop_claim_stripe_webhook(${event.id},${event.type},${event.account||null}) as state`;
 	const claimState = claimed[0]?.state;
