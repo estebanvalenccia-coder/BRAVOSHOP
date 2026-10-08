@@ -100,7 +100,7 @@ test("super admin promotion codes must exist in Stripe before becoming active",a
  const ui=await readFile(new URL("../src/platform/admin/SuperAdmin.jsx",import.meta.url),"utf8");
  assert.ok(api.includes('const record=rows[0]'));
  assert.ok(api.includes("false,'{}'::jsonb"));
- assert.ok(api.includes('stripe.promotionCodes.create(params'));
+ assert.ok(api.includes('createCompatiblePromotionCode(stripe,'));
  assert.ok(api.includes('adminRouter.post("/promotions/:id/sync"'));
  assert.ok(ui.includes("Sincronizar Stripe"));
  assert.ok(ui.includes("Stripe activo"));
