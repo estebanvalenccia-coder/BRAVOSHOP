@@ -11,6 +11,7 @@ export function requiresCurrencyMinorUnitUpgrade(currency) {
 }
 
 export function isValidTwoDecimalStripeAmount(total) {
+  if(total===null || total===undefined || total==="")return false;
   const value = Number(total);
   const cents = Math.round(value * 100);
   // Stripe generally accepts up to eight minor-unit digits for these currencies.
