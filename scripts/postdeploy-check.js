@@ -16,7 +16,7 @@ const plansPayload=await get("/api/public/plans");
 const commercialPlans=Array.isArray(plansPayload.plans)?plansPayload.plans:[];
 for(const slug of ["basic","premium"]){
  const plan=commercialPlans.find(x=>x.slug===slug);
- if(!plan||!Number.isFinite(Number(plan.monthly_price))||Number(plan.monthly_price)<=0)throw new Error("Commercial plans are missing or unpriced: "+slug);
+ if(!plan||!Number.isFinite(Number(plan.monthly_price))||Number(plan.monthly_price)<=0||!Number.isFinite(Number(plan.annual_price))||Number(plan.annual_price)<=0||!/^[A-Z]{3}$/.test(String(plan.currency||"")))throw new Error("Commercial plans are missing, unpriced or invalid: "+slug);
 }
 const health=await get("/api/health");
 if(health.ok!==true)throw new Error("Health check failed");
