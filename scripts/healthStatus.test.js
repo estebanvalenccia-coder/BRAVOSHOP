@@ -64,3 +64,24 @@ test("SEO catalog endpoints paginate active products and respect tenant publicat
  assert.ok(web.includes("sitemap-products-:page.xml"));
  assert.ok(web.includes('storefrontSitemapIndex(host,Number(data.total))'));
 });
+
+test("storefront crawlers receive escaped product and store SEO metadata",async()=>{
+ const {composeSeo}=await import("../server/seo/meta.js");
+ const html='<html><head><meta name="description" content="Old"/><title>BravoShop</title></head><body><div id="root"></div></body></html>';
+ const store={name:"Atelier & Casa",settings:{seo_title:"Casa & Hogar",seo_description:"Diseño sostenible",currency:"EUR"},theme:{}};
+ const home=composeSeo(html,{host:"shop.bravoshop.online",store,path:"/"});
+ assert.ok(home.includes("Casa &amp; Hogar"));
+ assert.ok(home.includes("og:description"));
+ assert.ok(home.includes('rel="canonical" href="https://shop.bravoshop.online/"'));
+ assert.ok(!home.includes('content="Old"'));
+ const product={name:"Camisa <nueva>",description:"Tejido natural",price:19.95,variants:[{price:19.95,in_stock:true}],media:[]};
+ const page=composeSeo(html,{host:"shop.bravoshop.online",store,product,path:"/products/camisa"});
+ assert.ok(page.includes("Camisa &lt;nueva&gt;"));
+ assert.ok(!page.includes("Camisa <nueva>"));
+ assert.ok(page.includes("schema.org"));
+ assert.ok(page.includes("https://shop.bravoshop.online/products/camisa"));
+ assert.ok(composeSeo(html,{host:"shop.bravoshop.online",store,noindex:true}).includes("noindex,nofollow,noarchive"));
+ const staticSource=await readFile(new URL("../server/static.js",import.meta.url),"utf8");
+ assert.ok(staticSource.includes("cachedSeo"));
+ assert.ok(staticSource.includes("composeSeo(html,{host,store:payload.store"));
+});
