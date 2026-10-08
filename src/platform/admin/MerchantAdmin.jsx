@@ -18,12 +18,12 @@ export function MerchantAdmin({store,onExit,initialSection="home"}){
 	const visibleMenu=filterMerchantMenu(menu,current.permissions,current.role);const activeSection=resolveMerchantSection(section,visibleMenu);const privileges=new Set(Array.isArray(current.permissions)?current.permissions:[]);
 	let content;
 	if(activeSection==="home")content=<HomeView store={current} navigate={setSection} availableSections={visibleMenu.map(x=>x[2])}/>;
-	else if(activeSection==="products")content=<ProductManager storeId={current?.id} storeSlug={current?.slug} currency={current?.settings?.currency||"EUR"}/>;
+	else if(activeSection==="products")content=<ProductManager storeId={current?.id} storeSlug={current?.slug} currency={current?.settings?.currency||"EUR"} readOnly={!privileges.has("products.update")||!privileges.has("products.create")}/>;
 	else if(activeSection==="categories")content=<CategoriesManager store={current}/>;
 	else if(activeSection==="orders")content=<OrdersManager storeId={current?.id}/>;
 	else if(activeSection==="customers")content=<CustomersManager storeId={current?.id}/>;
 	else if(activeSection==="team")content=<TeamManager store={current}/>;
-	else if(activeSection==="inventory")content=<InventoryManager storeId={current?.id} currency={current?.settings?.currency||"EUR"}/>;
+	else if(activeSection==="inventory")content=<InventoryManager storeId={current?.id} currency={current?.settings?.currency||"EUR"} readOnly={!privileges.has("inventory.update")} canConfigureThreshold={privileges.has("store.update")}/>;
 	else if(activeSection==="media")content=<MediaLibrary storeId={current?.id}/>;
 	else if(activeSection==="design")content=<StoreSettings store={current} mode="design" onSaved={setCurrent}/>;
 	else if(activeSection==="payments")content=<Payments store={current} canManage={privileges.has("payments.manage")}/>;

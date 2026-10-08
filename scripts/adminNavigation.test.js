@@ -83,3 +83,22 @@ test("visual design editor supports deterministic undo and unique section ids",a
  assert.ok(editor.includes("patchTheme(applyTemplate(t.id,full.theme||{}))"));
  assert.ok(!editor.includes('setHistory(h=>[...h.slice(-29),before]);setFuture([]);return'));
 });
+
+test("catalog and inventory respect read-only tenant permissions",async()=>{
+ const {filterMerchantMenu}=await import("../src/platform/admin/sectionAccess.js");
+ const {permissionsForRole}=await import("../server/middleware/permissions.js");
+ const menu=[["i","Productos","products"],["i","Categorías","categories"],["i","Medios","media"],["i","Blog","blog"],["i","Inventario","inventory"]];
+ assert.deepEqual(filterMerchantMenu(menu,permissionsForRole("viewer"),"viewer").map(x=>x[2]),["products","inventory"]);
+ assert.deepEqual(filterMerchantMenu(menu,permissionsForRole("staff"),"staff").map(x=>x[2]),["products","inventory"]);
+ assert.equal(filterMerchantMenu(menu,permissionsForRole("manager"),"manager").length,5);
+ const admin=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ const products=await readFile(new URL("../src/platform/catalog/ProductManager.jsx",import.meta.url),"utf8");
+ const stock=await readFile(new URL("../src/platform/admin/InventoryManager.jsx",import.meta.url),"utf8");
+ assert.ok(admin.includes('readOnly={!privileges.has("products.update")||!privileges.has("products.create")}'));
+ assert.ok(admin.includes('canConfigureThreshold={privileges.has("store.update")}'));
+ assert.ok(products.includes('const RowTag=readOnly?"div":"button"'));
+ assert.ok(products.includes("if(editing&&!readOnly)"));
+ assert.ok(stock.includes("if(readOnly)return"));
+ assert.ok(stock.includes("if(!canConfigureThreshold)return"));
+ assert.ok(stock.includes('disabled={readOnly||!dirty'));
+});
