@@ -379,8 +379,16 @@ commerceRouter.get("/discounts",requirePermission("products.read"),async(req,res
 });
 commerceRouter.post("/discounts",requirePermission("products.update"),async(req,res)=>{
  const p=req.body||{},code=String(p.code||"").trim().toUpperCase().replace(/[^A-Z0-9_-]/g,"").slice(0,40),kind=p.kind==="fixed"?"fixed":"percent";
- const value=Number(p.value),minimum=Number(p.minimum_amount||0),usage=p.usage_limit==null||p.usage_limit===""?null:Number(p.usage_limit),starts=p.starts_at||null,ends=p.ends_at||null;
- if(!code||!Number.isFinite(value)||value<=0||(kind==="percent"&&value>100)||!Number.isFinite(minimum)||minimum<0||usage!==null&&(!Number.isInteger(usage)||usage<1)||starts&&Number.isNaN(Date.parse(starts))||ends&&Number.isNaN(Date.parse(ends))||starts&&ends&&Date.parse(ends)<=Date.parse(starts))return res.status(400).json({error:"Descuento no válido"});
+ // A discount must have the same 2-decimal precision as the money it affects.
+ const parsedValue=parseCatalogPrice(p.value),parsedMinimum=parseCatalogPrice(p.minimum_amount??0);
+ const value=parsedValue.value,minimum=parsedMinimum.value;
+ const usage=p.usage_limit==null||p.usage_limit===""?null:parseStockQuantity(p.usage_limit);
+ const starts=p.starts_at||null,ends=p.ends_at||null;
+ if(!code||!parsedValue.ok||value<=0||(kind==="percent"&&value>100)||!parsedMinimum.ok||
+    (p.usage_limit!=null&&p.usage_limit!==""&&(usage===null||usage<1))||
+    starts&&Number.isNaN(Date.parse(starts))||ends&&Number.isNaN(Date.parse(ends))||
+    starts&&ends&&Date.parse(ends)<=Date.parse(starts))
+  return res.status(400).json({error:"Descuento no válido: indica importes con un máximo de dos decimales y límites enteros"});
  try{const rows=await sql`insert into discount_codes(store_id,code,kind,value,minimum_amount,active,starts_at,ends_at,usage_limit) values(${req.storeId}::uuid,${code},${kind},${value},${minimum},${p.active!==false},${starts},${ends},${usage}) returning *`;res.status(201).json({discount:rows[0]})}
  catch(e){if(e.code==="23505")return res.status(409).json({error:"Ese código ya existe"});throw e}
 });
@@ -388,10 +396,18 @@ commerceRouter.patch("/discounts/:id",requirePermission("products.update"),async
  const p=req.body||{};const current=await sql`select * from discount_codes where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid limit 1`;
  if(!current.length)return res.status(404).json({error:"Descuento no encontrado"});
  const old=current[0],code=p.code===undefined?old.code:String(p.code).trim().toUpperCase().replace(/[^A-Z0-9_-]/g,"").slice(0,40),kind=p.kind===undefined?old.kind:String(p.kind);
- const value=p.value===undefined?Number(old.value):Number(p.value),minimum=p.minimum_amount===undefined?Number(old.minimum_amount):Number(p.minimum_amount);
- const usage=p.usage_limit===undefined?old.usage_limit:(p.usage_limit==null||p.usage_limit===""?null:Number(p.usage_limit));
+ const parsedValue=parseCatalogPrice(p.value===undefined?old.value:p.value);
+ const parsedMinimum=parseCatalogPrice(p.minimum_amount===undefined?old.minimum_amount:p.minimum_amount);
+ const value=parsedValue.value,minimum=parsedMinimum.value;
+ const rawUsage=p.usage_limit===undefined?old.usage_limit:p.usage_limit;
+ const usage=rawUsage==null||rawUsage===""?null:parseStockQuantity(rawUsage);
  const starts=p.starts_at===undefined?old.starts_at:(p.starts_at||null),ends=p.ends_at===undefined?old.ends_at:(p.ends_at||null),active=typeof p.active==="boolean"?p.active:Boolean(old.active);
- if(!code||!["percent","fixed"].includes(kind)||!Number.isFinite(value)||value<=0||(kind==="percent"&&value>100)||!Number.isFinite(minimum)||minimum<0||usage!==null&&(!Number.isInteger(Number(usage))||Number(usage)<1)||starts&&Number.isNaN(Date.parse(starts))||ends&&Number.isNaN(Date.parse(ends))||starts&&ends&&Date.parse(ends)<=Date.parse(starts))return res.status(400).json({error:"Descuento no válido"});
+ if(!code||!["percent","fixed"].includes(kind)||!parsedValue.ok||value<=0||
+    (kind==="percent"&&value>100)||!parsedMinimum.ok||
+    (rawUsage!=null&&rawUsage!==""&&(usage===null||usage<1))||
+    starts&&Number.isNaN(Date.parse(starts))||ends&&Number.isNaN(Date.parse(ends))||
+    starts&&ends&&Date.parse(ends)<=Date.parse(starts))
+  return res.status(400).json({error:"Descuento no válido: indica importes con un máximo de dos decimales y límites enteros"});
  try{const rows=await sql`update discount_codes set code=${code},kind=${kind},value=${value},minimum_amount=${minimum},usage_limit=${usage},starts_at=${starts},ends_at=${ends},active=${active},updated_at=now() where id=${req.params.id}::uuid and store_id=${req.storeId}::uuid returning *`;res.json({discount:rows[0]})}
  catch(e){if(e.code==="23505")return res.status(409).json({error:"Ese código ya existe"});throw e}
 });
