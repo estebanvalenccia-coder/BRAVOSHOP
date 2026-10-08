@@ -24,7 +24,7 @@ test("Stripe Connect merchant settings and backend safeguard linked country",asy
  assert.ok(route.includes("connectedAccountStatus(a)"));
  assert.ok(route.includes("onboardingReturnUrl(req.storeId)"));
  assert.ok(route.includes("idempotencyKey:`bravoshop-connect-${req.storeId}`"));
- assert.ok(ui.includes("disabled={linked}"));
+ assert.ok(ui.includes("disabled={linked||!canManage}"));
 });
 test("expired Stripe Connect onboarding links are renewed by the application",async()=>{
  const ui=await readFile(new URL("../src/platform/App.jsx",import.meta.url),"utf8");
