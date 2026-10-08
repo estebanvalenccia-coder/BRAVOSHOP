@@ -35,3 +35,11 @@ test("non-browser callers can explicitly select a public store host",()=>{
   {host:"a.bravoshop.online",conflict:false}
  );
 });
+
+test("merchant preview only selects cross-origin tenant when explicitly enabled",()=>{
+ const preview={requestedHost:"my-shop.bravoshop.online",origin:"https://app.bravoshop.online",requestHost:"api.bravoshop.online"};
+ assert.deepEqual(selectPublicStoreHost(preview),{host:null,conflict:true});
+ assert.deepEqual(selectPublicStoreHost({...preview,allowPlatformPreview:true}),{host:"my-shop.bravoshop.online",conflict:false});
+ assert.deepEqual(selectPublicStoreHost({...preview,origin:"https://other.example",allowPlatformPreview:true}),{host:null,conflict:true});
+ assert.deepEqual(selectPublicStoreHost({...preview,requestedHost:"shop.other.example",allowPlatformPreview:true}),{host:null,conflict:true});
+});
