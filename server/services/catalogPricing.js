@@ -27,3 +27,12 @@ export function parseVariantPrices(input = {}) {
   if (!price.ok || !compare.ok) return null;
   return { price: price.value, compare_at_price: compare.value };
 }
+
+// PostgreSQL inventory quantity uses signed INTEGER, not an unbounded JavaScript number.
+export function parseStockQuantity(input) {
+  if (typeof input !== "string" && typeof input !== "number") return null;
+  const raw = String(input).trim();
+  if (!/^\d{1,10}$/.test(raw)) return null;
+  const amount = Number(raw);
+  return Number.isSafeInteger(amount) && amount >= 0 && amount <= 2_147_483_647 ? amount : null;
+}
