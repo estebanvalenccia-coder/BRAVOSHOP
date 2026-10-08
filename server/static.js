@@ -54,6 +54,6 @@ app.get("/sitemap-products-:page.xml",async(req,res)=>{
  }catch(error){failSeo(res,error)}
 });
 app.use(express.static(dist,{immutable:true,maxAge:"1y",index:false}));
-app.use(async(req,res)=>{const host=publicHost(req);if(siteKind(host)==="store")return res.sendFile(resolve(dist,"index.html"));const html=await readFile(resolve(dist,"index.html"),"utf8");res.type("html").send(composeSeo(html,{host:"bravoshop.online",path:req.path,noindex:siteKind(host)==="private"}))});
+app.use(async(req,res)=>{const host=publicHost(req);const html=await readFile(resolve(dist,"index.html"),"utf8");if(siteKind(host)==="store"){try{const payload=await seoData("/store"+hostQuery(host));if(!payload?.store)return res.type("html").send(composeSeo(html,{host,path:req.path,noindex:true}));const match=/^\/products\/([a-z0-9-]+)\/?$/.exec(req.path);const details=match?await seoData("/products/"+encodeURIComponent(match[1])+hostQuery(host)):null;return res.set("Cache-Control","no-store").type("html").send(composeSeo(html,{host,store:payload.store,product:details?.product||null,path:req.path,noindex:Boolean(match&&!details?.product)}))}catch(error){console.error("BravoShop storefront meta lookup failed",error.message);return res.type("html").send(composeSeo(html,{host,path:req.path,noindex:true}))}}res.type("html").send(composeSeo(html,{host:"bravoshop.online",path:req.path,noindex:siteKind(host)==="private"}))});
 const port=Number(process.env.PORT||3000);
 app.listen(port,()=>console.log(`BravoShop web listening on ${port}`));
