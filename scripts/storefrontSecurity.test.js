@@ -300,3 +300,16 @@ test("versioned design drafts require role-scoped authorization and prevent lost
  assert.ok(routes.includes('themeDraftRouter.post("/revisions/:revisionId/restore"'));
  assert.ok(app.includes('app.use("/api/stores/:storeId/theme",themeDraftRouter)'));
 });
+
+test("merchant visual editor saves drafts without publishing and restores previous versions",async()=>{
+ const source=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ assert.ok(source.includes('getStoreThemeDraft(store.id)'));
+ assert.ok(source.includes('saveStoreThemeDraft(store.id,full.theme,draftMeta.version)'));
+ assert.ok(source.includes('publishStoreThemeDraft(store.id,draftMeta.version)'));
+ assert.ok(source.includes('restoreStoreThemeRevision(store.id,version.id,draftMeta.version)'));
+ assert.ok(source.includes("La tienda publicada no ha cambiado"));
+ assert.ok(source.includes('disabled={busy||dirty||!draftMeta.version||draftMeta.version===draftMeta.published_version}'));
+ assert.ok(source.includes("Versiones publicadas"));
+ const settings=source.slice(source.indexOf("function StoreSettings("),source.indexOf("function LegalCompliance("));
+ assert.ok(!settings.includes('await updateStoreTheme(store.id,full.theme)'));
+});

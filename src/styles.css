@@ -318,3 +318,6 @@ body{background:#f7f4ed;color:#17221c}
 
 /* Design Studio template previews should show the same imagery as real storefront themes. */
 .templateThumb{padding:0;display:block;overflow:hidden;position:relative;isolation:isolate}.templateThumb img{display:block;width:100%;height:100%;object-fit:cover;object-position:center}.templateThumb i{display:none!important}
+
+/* Draft publication is intentionally separate from storefront visibility. */
+.designDraftStatus{display:flex;gap:9px;flex-wrap:wrap;align-items:center;background:#eef4ef;border:1px solid #c4d9c9;border-radius:12px;padding:12px 18px;margin:12px 0;color:#214b34}.designDraftStatus span{font-size:12px}.designRevisionPanel{margin:8px 0 18px;padding:10px;border:1px solid #dae1dc;border-radius:10px}.designRevisionPanel summary{cursor:pointer;font-weight:700}.designRevisionRow{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #e8ebe9;font-size:12px}.designRevisionRow button{border:1px solid #cdd8d0;background:#fff;color:#315b42;padding:6px 9px;border-radius:7px;cursor:pointer}
