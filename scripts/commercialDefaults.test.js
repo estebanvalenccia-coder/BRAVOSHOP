@@ -27,3 +27,12 @@ test("plan access redemption refreshes store billing state immediately",async()=
  assert.ok(block.includes("bravoshop_refresh_store_billing"));
  assert.ok(block.includes("store_status:storeStatus"));
 });
+
+test("platform billing checkout requires webhook configuration",async()=>{
+ const source=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ assert.ok(source.includes("const platformBillingConfigured=()=>Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_WEBHOOK_SECRET)"));
+ const start=source.indexOf('storesRouter.post("/:storeId/billing/checkout"');
+ const end=source.indexOf('storesRouter.post("/:storeId/billing/cancel"',start);
+ const block=source.slice(start,end);
+ assert.ok(block.includes("if(!platformBillingConfigured())"));
+});

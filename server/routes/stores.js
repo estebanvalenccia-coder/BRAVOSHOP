@@ -2,6 +2,7 @@ import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"
 export const storesRouter=Router();storesRouter.use(requireAuth);
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const AI_FEATURE_KEYS=new Set(["ai_assistant","ai_images","image_analysis"]);const FEATURE_KEYS=new Set(["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist","gift_cards","reservations","subscriptions","pos","blog","marketing","automations","b2b"]);const MERCHANT_FEATURE_KEYS=new Set(["catalog","cart","checkout","orders","inventory","customers","coupons","wishlist"]);
+const platformBillingConfigured=()=>Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_WEBHOOK_SECRET);
 const RESERVED=new Set(["www","api","admin","app","support","status","mail","cdn","assets","static","dashboard","billing","auth","login","register","help","ftp","pop","smtp","autoconfig","store","stores","shop","checkout","webhook","webhooks","docs","developer","developers","dev","staging","test","internal","root","security","contact","notifications","imap","pop3","ns1","ns2","mx","email","media","images","files","uploads","download","downloads","public","private","system","platform"]);
 
 async function canUsePremiumTemplate(storeId){
@@ -169,10 +170,10 @@ async function ensureBillingCustomer(stripe,storeId,currentCustomerId){
 storesRouter.get("/:storeId/billing",requireStore,requirePermission("billing.read"),async(req,res)=>{
  const plans=await sql`select id,name,slug,monthly_price,annual_price,currency,trial_days,metadata from plans where status='active' and is_public=true order by coalesce(monthly_price,999999),name`;
  const current=await sql`select ss.*,p.name as plan_name,p.slug as plan_slug,p.monthly_price,p.annual_price,p.currency from store_subscriptions ss left join plans p on p.id=ss.plan_id where ss.store_id=${req.storeId}::uuid limit 1`;
- res.json({plans,current:current[0]||null,provider_configured:Boolean(process.env.STRIPE_SECRET_KEY)});
+ res.json({plans,current:current[0]||null,provider_configured:platformBillingConfigured()});
 });
 storesRouter.post("/:storeId/billing/checkout",requireStore,requirePermission("billing.manage"),async(req,res)=>{
- if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"La facturación de BravoShop todavía no está configurada"});
+ if(!platformBillingConfigured())return res.status(503).json({error:"La facturación de BravoShop todavía no está completamente configurada"});
  const slug=String(req.body?.plan||"").trim().toLowerCase(),interval=req.body?.interval==="year"?"year":"month";
  const plans=await sql`select * from plans where slug=${slug} and status='active' and is_public=true limit 1`;if(!plans.length)return res.status(404).json({error:"Plan no disponible"});
  const plan=plans[0],listed=interval==="year"?plan.annual_price:plan.monthly_price;if(listed==null||Number(listed)<=0)return res.status(409).json({error:"Este plan todavía no tiene precio para esa modalidad"});
