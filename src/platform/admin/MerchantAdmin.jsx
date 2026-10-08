@@ -20,8 +20,8 @@ export function MerchantAdmin({store,onExit,initialSection="home"}){
 	if(activeSection==="home")content=<HomeView store={current} navigate={setSection} availableSections={visibleMenu.map(x=>x[2])}/>;
 	else if(activeSection==="products")content=<ProductManager storeId={current?.id} storeSlug={current?.slug} currency={current?.settings?.currency||"EUR"} readOnly={!privileges.has("products.update")||!privileges.has("products.create")}/>;
 	else if(activeSection==="categories")content=<CategoriesManager store={current}/>;
-	else if(activeSection==="orders")content=<OrdersManager storeId={current?.id}/>;
-	else if(activeSection==="customers")content=<CustomersManager storeId={current?.id}/>;
+	else if(activeSection==="orders")content=<OrdersManager storeId={current?.id} canFulfill={privileges.has("orders.update")&&privileges.has("orders.fulfill")} canRefund={privileges.has("orders.refund")}/>;
+	else if(activeSection==="customers")content=<CustomersManager storeId={current?.id} canEdit={privileges.has("customers.update")}/>;
 	else if(activeSection==="team")content=<TeamManager store={current}/>;
 	else if(activeSection==="inventory")content=<InventoryManager storeId={current?.id} currency={current?.settings?.currency||"EUR"} readOnly={!privileges.has("inventory.update")} canConfigureThreshold={privileges.has("store.update")}/>;
 	else if(activeSection==="media")content=<MediaLibrary storeId={current?.id}/>;

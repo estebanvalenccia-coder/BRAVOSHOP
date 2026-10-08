@@ -102,3 +102,18 @@ test("catalog and inventory respect read-only tenant permissions",async()=>{
  assert.ok(stock.includes("if(!canConfigureThreshold)return"));
  assert.ok(stock.includes('disabled={readOnly||!dirty'));
 });
+
+test("order fulfillment, refunds and customer editing are hidden unless roles are granted",async()=>{
+ const admin=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ const orders=await readFile(new URL("../src/platform/admin/OrdersManager.jsx",import.meta.url),"utf8");
+ const customers=await readFile(new URL("../src/platform/admin/CustomersManager.jsx",import.meta.url),"utf8");
+ assert.ok(admin.includes('canFulfill={privileges.has("orders.update")&&privileges.has("orders.fulfill")}'));
+ assert.ok(admin.includes('canRefund={privileges.has("orders.refund")}'));
+ assert.ok(admin.includes('canEdit={privileges.has("customers.update")}'));
+ assert.ok(orders.includes('const doRefund=async()=>{if(!canRefund)return;'));
+ assert.ok(orders.includes('const save=async()=>{if(!canFulfill)return;'));
+ assert.ok(orders.includes('{canFulfill&&<button disabled={busy}'));
+ assert.ok(orders.includes('{canRefund&&(["paid","partially_refunded"]'));
+ assert.ok(customers.includes('const save=async()=>{if(!canEdit)return;'));
+ assert.ok(customers.includes('{canEdit&&<button disabled={saving}'));
+});
