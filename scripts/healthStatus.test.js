@@ -25,3 +25,10 @@ test("live storefront readiness verifies HTTPS and real compiled SPA shell",asyn
  const deployment=await readFile(new URL("./postdeploy-check.js",import.meta.url),"utf8");
  assert.ok(deployment.includes('await checkStorefrontHttps("/products/bravoshop-synthetic-link-probe")'));
 });
+
+test("production DNS failures give actionable merchant CNAME and Railway target diagnostics",async()=>{
+ const code=await readFile(new URL("./postdeploy-check.js",import.meta.url),"utf8");
+ for(const name of ["resolveCname(storefrontHost)","resolve4(target)","resolveNs(\"bravoshop.online\")","authoritative_nameservers","merchant_cname","railway_target_ipv4"])
+  assert.ok(code.includes(name),name);
+ assert.ok(code.includes('if(requireStorefrontDns)throw new Error("Merchant storefront DNS failed'));
+});
