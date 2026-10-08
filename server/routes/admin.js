@@ -48,7 +48,8 @@ adminRouter.get("/health",async(_req,res)=>{
  try{
   const db=await sql`select now() as now`;
   const tables=await sql`select count(*)::int as n from information_schema.tables where table_schema='public'`;
-  res.json({ok:true,api:"online",database:"online",database_time:db[0].now,table_count:tables[0].n,latency_ms:Date.now()-started,integrations});
+  const incidents=await sql`select id,source,event_type,service_name,deployment_id,environment_name,status,summary,received_at from platform_incidents order by received_at desc limit 25`;
+  res.json({ok:true,api:"online",database:"online",database_time:db[0].now,table_count:tables[0].n,latency_ms:Date.now()-started,integrations,incidents});
  }catch(e){
   res.status(503).json({ok:false,api:"online",database:"unavailable",latency_ms:Date.now()-started,integrations});
  }
