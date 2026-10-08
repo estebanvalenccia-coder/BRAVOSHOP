@@ -361,11 +361,83 @@ publicRouter.get("/recovery/:token",checkoutLimiter,requirePublicStore,async(req
  if(!items.length)return res.status(410).json({error:"Los artículos de este carrito ya no están disponibles"});
  res.json({items:items.map(x=>({variant_id:x.variant_id,title:x.product_name+(x.variant_title&&x.variant_title!=="Default"?" · "+x.variant_title:""),price:Number(x.price),quantity:Math.max(1,Math.min(99,Number(x.quantity)||1))}))});
 });
-publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{const rows=await sql`select c.id,c.store_id,c.status,c.currency,c.total,s.status as store_status,pa.provider,pa.status as account_status,pa.charges_enabled,pa.provider_account_id from checkout_sessions c join stores s on s.id=c.store_id left join store_payment_accounts pa on pa.store_id=c.store_id where c.token=${req.params.token}::uuid and c.expires_at>now() limit 1`;if(!rows.length)return res.status(404).json({error:"Checkout no encontrado o caducado"});const c=rows[0];const billingState=await sql`select bravoshop_refresh_store_billing(${c.store_id}::uuid) as status`;c.store_status=billingState[0]?.status||c.store_status;if(!await publicFeatureEnabled(c.store_id,"checkout"))return res.status(503).json({error:"La tienda ha desactivado temporalmente el checkout"});if(c.status==="completed")return res.status(409).json({error:"Checkout ya pagado"});if(!["active","trial"].includes(c.store_status))return res.status(423).json({error:"Tienda no disponible"});if(c.provider!=="stripe"||!c.provider_account_id||!c.charges_enabled)return res.status(503).json({error:"La tienda todavía no tiene pagos reales habilitados"});if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Proveedor de pagos pendiente de configuración"});await sql`select bravoshop_release_expired_inventory_reservations()`;const reservation=await sql`select bravoshop_reserve_checkout_inventory(${c.id}::uuid) as reserved`;if(!reservation[0]?.reserved)return res.status(409).json({error:"Stock insuficiente o checkout caducado"});const claim=await sql`select bravoshop_claim_checkout_payment(${c.id}::uuid) as claimed`;if(!claim[0]?.claimed)return res.status(409).json({error:"El pago ya se está preparando; inténtalo de nuevo en unos segundos"});const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);let intent;try{intent=await stripe.paymentIntents.create({amount:Math.round(Number(c.total)*100),currency:String(c.currency).toLowerCase(),automatic_payment_methods:{enabled:true},metadata:{bravoshop_checkout_id:String(c.id),bravoshop_store_id:String(c.store_id)}},{stripeAccount:c.provider_account_id,idempotencyKey:"bravoshop-checkout-"+c.id});const finished=await sql`select bravoshop_finish_checkout_payment_claim(${c.id}::uuid,${intent.id}) as finished`;if(!finished[0]?.finished)return res.status(409).json({error:"El checkout cambió mientras se preparaba el pago"})}catch(error){await sql`select bravoshop_release_checkout_payment_claim(${c.id}::uuid)`;throw error}res.json({provider:"stripe",client_secret:intent.client_secret,status:intent.status})});
+publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
+ const rows=await sql`
+  select c.id,c.store_id,c.status,c.currency,c.total,
+   s.status as store_status,pa.provider,pa.status as account_status,
+   pa.charges_enabled,pa.provider_account_id
+  from checkout_sessions c
+  join stores s on s.id=c.store_id
+  left join store_payment_accounts pa on pa.store_id=c.store_id
+  where c.token=${req.params.token}::uuid and (c.expires_at>now() or c.status='completed')
+  limit 1`;
+ if(!rows.length)return res.status(404).json({error:"Checkout no encontrado o caducado"});
+ const c=rows[0];
+ // A retry of a completed free order must not create a second order or charge.
+ if(c.status==="completed"){
+  const prior=await sql`select o.id from checkout_sessions c
+   join orders o on o.id=c.completed_order_id and o.store_id=c.store_id
+   where c.id=${c.id}::uuid and o.payment_provider='free'
+     and o.payment_status='paid' and o.total=0 limit 1`;
+  if(prior.length){await enqueueOrderNotification({storeId:c.store_id,orderId:prior[0].id,type:"order.confirmed"});return res.json({provider:"free",status:"completed",order_id:prior[0].id})}
+  return res.status(409).json({error:"Checkout ya pagado"});
+ }
+ const billingState=await sql`select bravoshop_refresh_store_billing(${c.store_id}::uuid) as status`;
+ c.store_status=billingState[0]?.status||c.store_status;
+ if(!await publicFeatureEnabled(c.store_id,"checkout"))
+  return res.status(503).json({error:"La tienda ha desactivado temporalmente el checkout"});
+ if(!["active","trial"].includes(c.store_status))
+  return res.status(423).json({error:"Tienda no disponible"});
+ if(c.provider!=="stripe"||!c.provider_account_id||!c.charges_enabled)
+  return res.status(503).json({error:"La tienda todavía no tiene pagos reales habilitados"});
+ if(!process.env.STRIPE_SECRET_KEY)
+  return res.status(503).json({error:"Proveedor de pagos pendiente de configuración"});
+ await sql`select bravoshop_release_expired_inventory_reservations()`;
+ const reservation=await sql`select bravoshop_reserve_checkout_inventory(${c.id}::uuid) as reserved`;
+ if(!reservation[0]?.reserved)
+  return res.status(409).json({error:"Stock insuficiente o checkout caducado"});
+
+ // A truly zero-total order needs neither PaymentIntent nor Stripe.js. The database
+ // function handles idempotency, tenant ownership, stock and order creation atomically.
+ if(Number(c.total)===0){
+  let result;
+  try{
+   result=await sql`select bravoshop_complete_free_checkout(${c.id}::uuid,${c.store_id}::uuid) as order_id`;
+  }catch(error){
+   if(error.code==="P0001")return res.status(409).json({error:"No se pudo reservar el stock del pedido gratuito"});
+   throw error;
+  }
+  const orderId=result[0]?.order_id;
+  if(!orderId)return res.status(409).json({error:"El pedido ha cambiado; comprueba su estado"});
+  await enqueueOrderNotification({storeId:c.store_id,orderId,type:"order.confirmed"});
+  return res.json({provider:"free",status:"completed",order_id:orderId});
+ }
+
+ const claim=await sql`select bravoshop_claim_checkout_payment(${c.id}::uuid) as claimed`;
+ if(!claim[0]?.claimed)
+  return res.status(409).json({error:"El pago ya se está preparando; inténtalo de nuevo en unos segundos"});
+ const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+ let intent;
+ try{
+  intent=await stripe.paymentIntents.create({
+   amount:Math.round(Number(c.total)*100),
+   currency:String(c.currency).toLowerCase(),
+   automatic_payment_methods:{enabled:true},
+   metadata:{bravoshop_checkout_id:String(c.id),bravoshop_store_id:String(c.store_id)}
+  },{stripeAccount:c.provider_account_id,idempotencyKey:"bravoshop-checkout-"+c.id});
+  const finished=await sql`select bravoshop_finish_checkout_payment_claim(${c.id}::uuid,${intent.id}) as finished`;
+  if(!finished[0]?.finished)return res.status(409).json({error:"El checkout cambió mientras se preparaba el pago"});
+ }catch(error){
+  await sql`select bravoshop_release_checkout_payment_claim(${c.id}::uuid)`;
+  throw error;
+ }
+ res.json({provider:"stripe",client_secret:intent.client_secret,status:intent.status});
+});
+
 publicRouter.get("/checkout/:token",checkoutLimiter,async(req,res)=>{
 	const rows=await sql`
 		select c.status,c.currency,c.subtotal,c.shipping_total,c.shipping_rate_id,c.shipping_rate_name,c.tax_total,c.discount_total,c.total,c.expires_at,
-			s.name as store_name,s.slug as store_slug,o.order_number,o.fulfillment_status,o.payment_status,
+			s.name as store_name,s.slug as store_slug,o.order_number,o.fulfillment_status,o.payment_status,o.payment_provider,
 			o.shipping_method,o.tracking_number,o.tracking_url,o.carrier,o.shipped_at,o.delivered_at
 		from checkout_sessions c
 		join stores s on s.id=c.store_id

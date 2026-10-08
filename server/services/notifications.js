@@ -41,7 +41,7 @@ export async function enqueueOrderNotification({storeId,orderId,type,refundId=nu
 function renderEmail(row){
  const p=row.payload||{};const store=esc(p.store_name||"Tu tienda");const order=esc(p.order_number||"");
  let title="",lead="",details="";
- if(row.type==="order.confirmed"){title="Pedido confirmado";lead="Hemos recibido tu pago correctamente.";details=`<p><strong>Total:</strong> ${esc(money(p.total,p.currency))}</p>`}
+ if(row.type==="order.confirmed"){title="Pedido confirmado";lead=Number(p.total)===0?"Tu pedido gratuito está confirmado. No se ha realizado ningún cargo.":"Hemos recibido tu pago correctamente.";details=`<p><strong>Total:</strong> ${esc(money(p.total,p.currency))}</p>`}
  if(row.type==="order.shipped"){title="Tu pedido está en camino";lead="El vendedor ha marcado tu pedido como enviado.";details=`${p.shipping_method?`<p><strong>Envío:</strong> ${esc(p.shipping_method)}</p>`:""}${p.tracking_number?`<p><strong>Seguimiento:</strong> ${esc(p.tracking_number)}</p>`:""}${p.tracking_url?`<p><a href="${esc(p.tracking_url)}">Consultar seguimiento</a></p>`:""}`}
  if(row.type==="order.delivered"){title="Pedido entregado";lead="El pedido figura como entregado.";details=""}
  if(row.type==="refund.succeeded"){title="Reembolso confirmado";lead="Tu reembolso ha sido procesado correctamente.";details=p.refund_amount!=null?`<p><strong>Importe:</strong> ${esc(money(p.refund_amount,p.currency))}</p>`:""}
