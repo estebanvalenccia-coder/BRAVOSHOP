@@ -3,19 +3,19 @@ import{Home,Package,ShoppingBag,Users,Boxes,Palette,Ticket,Brain,BarChart3,Setti
 import{ProductManager}from"../catalog/ProductManager.jsx";import{listCategories,createCategory,updateCategory,deleteCategory}from"../data/catalogService.js";
 import{OrdersManager}from"./OrdersManager.jsx";
 import{CustomersManager}from"./CustomersManager.jsx";
-import{InventoryManager}from"./InventoryManager.jsx";
+import{InventoryManager}from"./InventoryManager.jsx";import{BlogManager}from"./BlogManager.jsx";
 import{TeamManager}from"./TeamManager.jsx";
 import{getDashboard,getAnalytics}from"../data/adminService.js";
 import{loadStore,updateStore,updateStoreFeatures,setStorePublication,getPaymentAccount,updatePaymentPreferences,redeemAccessCode,getEntitlements,getEffectiveFeatures,getShipping,createShippingZone,createShippingRate,updateShippingZone,deleteShippingZone,updateShippingRate,deleteShippingRate,getTaxSettings,updateTaxSettings,connectPaymentAccount,syncPaymentAccount,openPaymentDashboard,listDomains,addDomain,verifyDomain,syncDomain,setPrimaryDomain,removeDomain,listDiscounts,createDiscount,updateDiscount,toggleDiscount,deleteDiscount,listNewsletterSubscribers,unsubscribeNewsletterSubscriber,listAbandonedCheckouts,listMarketingCampaigns,createMarketingCampaign,deleteMarketingCampaign,sendMarketingCampaign,getBilling,startBillingCheckout,cancelBilling,resumeBilling,openBillingPortal}from"../data/storeService.js";
 import{OPERATIVE_FEATURES,ROADMAP_FEATURES}from"../config/features.js";
 import{MediaLibrary}from"../media/MediaLibrary.jsx";
 import{STORE_TEMPLATES,normalizeTheme,ADDABLE_SECTIONS,applyTemplate}from"../config/storeTemplates.js";
-const menu=[[Home,"Inicio","home"],[Package,"Productos","products"],[Package,"Categorías","categories"],[ShoppingBag,"Pedidos","orders"],[Users,"Clientes","customers"],[Users,"Equipo","team"],[Boxes,"Inventario","inventory"],[Palette,"Diseño","design"],[Package,"Multimedia","media"],[Ticket,"Marketing","marketing"],[BarChart3,"Analítica","analytics"],[Globe2,"Dominios","domains"],[CreditCard,"Pagos","payments"],[Ticket,"Plan BravoShop","billing"],[Globe2,"Envíos e impuestos","shipping"],[ShieldCheck,"Legal y cumplimiento","legal"],[Settings,"Configuración","settings"]];
+const menu=[[Home,"Inicio","home"],[Package,"Productos","products"],[Package,"Categorías","categories"],[ShoppingBag,"Pedidos","orders"],[Users,"Clientes","customers"],[Users,"Equipo","team"],[Boxes,"Inventario","inventory"],[Palette,"Diseño","design"],[Package,"Multimedia","media"],[Ticket,"Marketing","marketing"],[Ticket,"Blog","blog"],[BarChart3,"Analítica","analytics"],[Globe2,"Dominios","domains"],[CreditCard,"Pagos","payments"],[Ticket,"Plan BravoShop","billing"],[Globe2,"Envíos e impuestos","shipping"],[ShieldCheck,"Legal y cumplimiento","legal"],[Settings,"Configuración","settings"]];
 export function MerchantAdmin({store,onExit,initialSection="home"}){
 	const[section,setSection]=useState(initialSection);
 	const[current,setCurrent]=useState(store);
 	useEffect(()=>{let alive=true;if(store?.id)loadStore(store.id).then(fresh=>{if(alive)setCurrent(prev=>({...prev,...fresh,role:fresh?.role||prev?.role||store?.role}))}).catch(()=>{});return()=>{alive=false}},[store?.id]);
-	const visibleMenu=menu.filter(([, ,key])=>key!=="team"||current.role==="owner"||current.role==="admin");
+	const visibleMenu=menu.filter(([, ,key])=>key==="blog"?["owner","admin","manager"].includes(current.role):key!=="team"||current.role==="owner"||current.role==="admin");
 	let content;
 	if(section==="home")content=<HomeView store={current} navigate={setSection}/>;
 	else if(section==="products")content=<ProductManager storeId={current?.id} storeSlug={current?.slug} currency={current?.settings?.currency||"EUR"}/>;
@@ -31,7 +31,7 @@ export function MerchantAdmin({store,onExit,initialSection="home"}){
 	else if(section==="shipping")content=<ShippingTaxes store={current}/>;
 	else if(section==="legal")content=<LegalCompliance store={current}/>;
 	else if(section==="settings")content=<StoreSettings store={current} mode="settings" onSaved={setCurrent}/>;
-	else if(section==="marketing")content=<MarketingView store={current}/>;
+	else if(section==="marketing")content=<MarketingView store={current}/>;else if(section==="blog")content=<BlogManager store={current}/>;
 	else if(section==="ai")content=<AiStudio store={current} onMedia={()=>setSection("media")}/>;
 	else if(section==="analytics")content=<AnalyticsView store={current}/>;
 	else if(section==="domains")content=<DomainsManager store={current}/>;
