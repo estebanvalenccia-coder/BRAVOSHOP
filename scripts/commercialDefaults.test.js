@@ -159,3 +159,17 @@ test("published stores open the public URL, while previews remain separate and p
  assert.ok(source.includes('!o.published&&!publicable&&<div className="launchRequirements"'));
  assert.ok(source.includes('["billing","products","design"].includes(x.go)'));
 });
+
+test("premium templates can be explored during Premium onboarding but cannot publish without entitlement",async()=>{
+ const wizard=await readFile(new URL("../src/platform/onboarding/Onboarding.jsx",import.meta.url),"utf8");
+ const server=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const app=await readFile(new URL("../src/platform/App.jsx",import.meta.url),"utf8");
+ const home=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ assert.ok(wizard.includes('const premiumPreview=initialPlan==="premium"'));
+ assert.ok(wizard.includes('premiumPreview||t.tier!=="premium"'));
+ assert.ok(app.includes('requestedTemplate==="premium-organic"?"premium":""'));
+ assert.ok(server.includes('premium_plan:premiumReady'));
+ assert.ok(server.includes('await canUsePremiumTemplate(req.storeId)'));
+ assert.ok(home.includes('const premiumReady=!premiumTemplate||'));
+ assert.ok(home.includes('&&billingReady&&premiumReady'));
+});

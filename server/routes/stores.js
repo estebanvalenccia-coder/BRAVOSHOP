@@ -42,7 +42,7 @@ storesRouter.post("/",storeCreationLimiter,async(req,res)=>{
  const cleanFeatures=[...new Set(Array.isArray(features)?features:[])].filter(x=>MERCHANT_FEATURE_KEYS.has(x));
  const country=/^[A-Z]{2}$/.test(String(settings?.country||"").toUpperCase())?String(settings.country).toUpperCase():null;
  const currency=/^[A-Z]{3}$/.test(String(settings?.currency||"").toUpperCase())?String(settings.currency).toUpperCase():"EUR";
- if(theme?.template==="premium-organic")return res.status(403).json({error:"La plantilla Premium requiere un plan Premium"});
+ // Premium themes may be drafted before payment; publication verifies entitlement.
  const initialSettings={...(settings||{}),published:false,preview_token:randomUUID()};
  const basePlans=await sql`select id,trial_days from plans where slug='basic' and status='active' limit 1`;
  if(!basePlans.length)return res.status(503).json({error:"El plan Basic de BravoShop no está configurado"});
@@ -119,7 +119,8 @@ storesRouter.post("/:storeId/publication",requireStore,requirePermission("store.
  if(publish){
   const billing=await sql`select bravoshop_refresh_store_billing(${req.storeId}::uuid) as status`;
   const products=await sql`select count(*)::int as n from products where store_id=${req.storeId}::uuid and status='active'`;
-  const checks={billing:["active","trial"].includes(billing[0]?.status),catalog:products[0].n>0,design:Boolean(current.theme?.template)};
+  const premiumReady=current.theme?.template!=="premium-organic"||await canUsePremiumTemplate(req.storeId);
+  const checks={billing:["active","trial"].includes(billing[0]?.status),catalog:products[0].n>0,design:Boolean(current.theme?.template),premium_plan:premiumReady};
   const missing=Object.entries(checks).filter(([,ok])=>!ok).map(([key])=>key);
   if(missing.length)return res.status(409).json({error:"La tienda todavía no está lista para publicarse",missing});
  }
