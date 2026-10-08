@@ -279,3 +279,9 @@ body{background:#f7f4ed;color:#17221c}
 
 .realTemplate.premium-organic .templateMini{background-image:url(https://images.unsplash.com/photo-1416879595882-3373a0480b5b)}
 .realTemplate .templateMini:after{content:'Vista del diseño';position:absolute;left:25px;top:28px;padding:6px 12px;border-radius:99px;background:#ffffffe6;color:#183328;font-size:11px;font-weight:800}
+
+/* Showcase screenshots use the same actual photography as new store designs. */
+.publicTemplateCard .phero{color:white;text-shadow:0 2px 15px #0008;background-size:cover;background-position:center}
+.publicTemplateCard.editorial-fashion .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1441986300917-64674bd600d8)}
+.publicTemplateCard.market-fresh .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1542838132-92c53300491e)}
+.publicTemplateCard.beauty-luxe .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1596462502278-27bfdc403348)}
