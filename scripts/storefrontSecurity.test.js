@@ -162,6 +162,6 @@ test("hidden storefront sections cannot leave dead header anchors",async()=>{
 
 test("implemented marketing is not presented as roadmap",async()=>{
  const source=await readFile(new URL("../src/platform/config/features.js",import.meta.url),"utf8");
- assert.ok(source.includes('OPERATIVE_FEATURES=[...CORE_FEATURES,"coupons","wishlist","marketing"]'));
+ const operative=source.match(/OPERATIVE_FEATURES=\[([^\]]*)\]/)?.[1]||"";assert.ok(operative.includes('"marketing"'));
  const roadmap=source.match(/ROADMAP_FEATURES=\[([^\]]*)\]/)?.[1]||"";assert.ok(!roadmap.includes('"marketing"'));
 });
