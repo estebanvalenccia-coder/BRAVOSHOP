@@ -50,7 +50,8 @@ adminRouter.get("/health",async(_req,res)=>{
   const db=await sql`select now() as now`;
   const tables=await sql`select count(*)::int as n from information_schema.tables where table_schema='public'`;
   const incidents=await sql`select id,source,event_type,service_name,deployment_id,environment_name,status,summary,received_at from platform_incidents order by received_at desc limit 25`;
-  res.json({ok:true,api:"online",database:"online",database_time:db[0].now,table_count:tables[0].n,latency_ms:Date.now()-started,integrations,incidents});
+  const accounts=await sql`select count(*)::int as total,count(*) filter(where status='active' and charges_enabled=true and payouts_enabled=true)::int as active,count(*) filter(where status='onboarding')::int as onboarding,count(*) filter(where status='restricted')::int as restricted from store_payment_accounts where provider='stripe' and provider_account_id is not null`;
+  res.json({ok:true,api:"online",database:"online",database_time:db[0].now,table_count:tables[0].n,latency_ms:Date.now()-started,integrations,incidents,connect_accounts:accounts[0]});
  }catch(e){
   res.status(503).json({ok:false,api:"online",database:"unavailable",latency_ms:Date.now()-started,integrations});
  }
