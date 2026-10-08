@@ -285,3 +285,7 @@ body{background:#f7f4ed;color:#17221c}
 .publicTemplateCard.editorial-fashion .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1441986300917-64674bd600d8)}
 .publicTemplateCard.market-fresh .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1542838132-92c53300491e)}
 .publicTemplateCard.beauty-luxe .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1596462502278-27bfdc403348)}
+
+.publicTemplateCard.tech-grid .phero{background-image:linear-gradient(90deg,#000a,#0001),url(https://images.unsplash.com/photo-1498049794561-7780e7231661)}
+.publicTemplateCard.interior-catalog .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1600210492486-724fe5c67fb0)}
+.publicTemplateCard.playful-pets .phero{background-image:linear-gradient(90deg,#0009,#0001),url(https://images.unsplash.com/photo-1583511655857-d19b40a7a54e)}
