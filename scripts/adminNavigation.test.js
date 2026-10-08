@@ -117,3 +117,16 @@ test("order fulfillment, refunds and customer editing are hidden unless roles ar
  assert.ok(customers.includes('const save=async()=>{if(!canEdit)return;'));
  assert.ok(customers.includes('{canEdit&&<button disabled={saving}'));
 });
+
+test("managers view own domains but cannot alter merchant DNS without domains.manage",async()=>{
+ const {hasPermission}=await import("../server/middleware/permissions.js");
+ assert.equal(hasPermission("manager","domains.read"),true);
+ assert.equal(hasPermission("manager","domains.manage"),false);
+ const source=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ assert.ok(source.includes('canManage={privileges.has("domains.manage")}'));
+ assert.ok(source.includes("function DomainsManager({store,canManage=false})"));
+ assert.ok(source.includes("if(!canManage||!hostname.trim())return"));
+ assert.ok(source.includes("if(!canManage||!window.confirm("));
+ assert.ok(source.includes("{canManage&&d.infrastructure_status==="));
+ assert.ok(source.includes("{canManage&&<button className=\"ghost danger\""));
+});
