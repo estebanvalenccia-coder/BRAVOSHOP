@@ -1,6 +1,8 @@
 import"dotenv/config";
 import express from"express";
 import{resolve}from"node:path";
+import{readFile}from"node:fs/promises";
+import{composeSeo}from"./seo/meta.js";
 import{robotsText,siteKind,marketingSitemap,storefrontSitemapIndex,storefrontPagesSitemap,storefrontProductsSitemap,SITEMAP_CHUNK_SIZE}from"./seo/sitemap.js";
 
 const app=express();
@@ -52,6 +54,6 @@ app.get("/sitemap-products-:page.xml",async(req,res)=>{
  }catch(error){failSeo(res,error)}
 });
 app.use(express.static(dist,{immutable:true,maxAge:"1y",index:false}));
-app.use((_req,res)=>res.sendFile(resolve(dist,"index.html")));
+app.use(async(req,res)=>{const host=publicHost(req);if(siteKind(host)==="store")return res.sendFile(resolve(dist,"index.html"));const html=await readFile(resolve(dist,"index.html"),"utf8");res.type("html").send(composeSeo(html,{host:"bravoshop.online",path:req.path,noindex:siteKind(host)==="private"}))});
 const port=Number(process.env.PORT||3000);
 app.listen(port,()=>console.log(`BravoShop web listening on ${port}`));
