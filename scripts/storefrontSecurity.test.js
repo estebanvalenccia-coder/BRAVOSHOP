@@ -228,3 +228,11 @@ test("merchant preview clearly displays read-only status and excludes draft cont
  assert.ok(source.includes('store.preview===true&&<div className="storePreviewBanner"'));
  assert.ok(source.includes("no se aceptan compras"));
 });
+
+test("public checkout validates unique variants before reserving inventory",async()=>{
+ const source=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const body=source.slice(source.indexOf("function validateCheckoutBody"),source.indexOf("const reservedSubdomains="));
+ assert.ok(body.includes("new Set(items.map(item=>item.variant_id.toLowerCase())).size!==items.length"));
+ assert.ok(body.includes("El carrito contiene variantes duplicadas"));
+ assert.ok(source.indexOf("function validateCheckoutBody")<source.indexOf('publicRouter.post("/checkout"'));
+});
