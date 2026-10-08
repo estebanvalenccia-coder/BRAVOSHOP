@@ -47,3 +47,10 @@ test("manual superadmin plan assignment is complimentary and excluded from paid 
  assert.ok(block.includes("complimentary:true"));
  assert.ok(source.includes("s.complimentary_reason is null"));
 });
+
+test("core commercial plans cannot be hidden from the public offer",async()=>{
+ const source=await readFile(new URL("../server/routes/admin.js",import.meta.url),"utf8");
+ assert.ok(source.includes('const publicPlan=["basic","premium"].includes(old.slug)?true:'));
+ const ui=await readFile(new URL("../src/platform/admin/SuperAdmin.jsx",import.meta.url),"utf8");
+ assert.ok(ui.includes("Público obligatorio"));
+});
