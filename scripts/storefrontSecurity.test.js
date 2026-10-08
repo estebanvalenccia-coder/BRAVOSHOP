@@ -280,3 +280,23 @@ test("merchant-supplied tracking URLs must be HTTPS and never render executable 
  assert.ok(commerce.includes('if(!isValidTrackingUrl(p.tracking_url))return res.status(400)'));
  assert.ok(frontend.includes('href={safeCheckoutTrackingUrl(checkout.tracking_url)}'));
 });
+
+test("versioned design drafts require role-scoped authorization and prevent lost updates",async()=>{
+ const {validateVisualTheme,validDraftVersion}=await import("../server/services/themeDraftValidation.js");
+ assert.equal(validateVisualTheme({template:"editorial-fashion",sections:[{id:"hero",type:"hero"}]}),null);
+ assert.equal(validateVisualTheme({sections:Array.from({length:81},(_,i)=>({id:String(i),type:"banner"}))}).status,413);
+ assert.equal(validateVisualTheme({sections:[{id:"hero"}]}).status,400);
+ assert.equal(validDraftVersion(0),true);assert.equal(validDraftVersion(-1),false);
+ const schema=await readFile(new URL("../database/migrations/0068_versioned_theme_drafts.sql",import.meta.url),"utf8");
+ const routes=await readFile(new URL("../server/routes/themeDrafts.js",import.meta.url),"utf8");
+ const app=await readFile(new URL("../server/index.js",import.meta.url),"utf8");
+ assert.ok(schema.includes("for update"));
+ assert.ok(schema.includes("unique(store_id,draft_version)"));
+ assert.ok(routes.includes('themeDraftRouter.use(requireAuth,requireStore)'));
+ assert.ok(routes.includes('requirePermission("design.update")'));
+ assert.ok(routes.includes("where store_theme_drafts.version="));
+ assert.ok(routes.includes("or exists(select 1 from store_theme_drafts"));
+ assert.ok(routes.includes('bravoshop_publish_theme_draft('));
+ assert.ok(routes.includes('themeDraftRouter.post("/revisions/:revisionId/restore"'));
+ assert.ok(app.includes('app.use("/api/stores/:storeId/theme",themeDraftRouter)'));
+});

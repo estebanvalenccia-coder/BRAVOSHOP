@@ -65,3 +65,9 @@ export async function listMarketingCampaigns(storeId){const data=await api(`/api
 export async function createMarketingCampaign(storeId,input){const data=await api(`/api/stores/${storeId}/campaigns`,{method:"POST",body:input});return data.campaign}
 export async function deleteMarketingCampaign(storeId,id){return api(`/api/stores/${storeId}/campaigns/${id}`,{method:"DELETE"})}
 export async function sendMarketingCampaign(storeId,id){return api(`/api/stores/${storeId}/campaigns/${id}/send`,{method:"POST",body:{}})}
+
+export async function getStoreThemeDraft(id){return api(`/api/stores/${id}/theme/draft`)}
+export async function saveStoreThemeDraft(id,theme,version){return api(`/api/stores/${id}/theme/draft`,{method:"PUT",body:{theme,expected_version:version}})}
+export async function publishStoreThemeDraft(id,version){return api(`/api/stores/${id}/theme/publish`,{method:"POST",body:{expected_version:version}})}
+export async function getStoreThemeRevisions(id){const data=await api(`/api/stores/${id}/theme/revisions`);return data.revisions||[]}
+export async function restoreStoreThemeRevision(id,revision,version){return api(`/api/stores/${id}/theme/revisions/${revision}/restore`,{method:"POST",body:{expected_version:version}})}

@@ -22,7 +22,7 @@ themeDraftRouter.put("/draft",requirePermission("design.update"),async(req,res)=
  if(!validDraftVersion(expected))return res.status(400).json({error:"Versión de borrador inválida"});
  const rows=await sql`
  insert into store_theme_drafts(store_id,theme,version,updated_by)
- select ${req.storeId}::uuid,${JSON.stringify(theme)}::jsonb,1,${req.user.id}::uuid where ${expected}=0
+ select ${req.storeId}::uuid,${JSON.stringify(theme)}::jsonb,1,${req.user.id}::uuid where ${expected}=0 or exists(select 1 from store_theme_drafts where store_id=${req.storeId}::uuid)
  on conflict(store_id) do update set theme=excluded.theme,
  version=store_theme_drafts.version+1,updated_by=excluded.updated_by,updated_at=now()
  where store_theme_drafts.version=${expected}
@@ -67,7 +67,7 @@ themeDraftRouter.post("/revisions/:revisionId/restore",requirePermission("design
  if(!previous.length)return res.status(404).json({error:"Versión no encontrada"});
  const saved=await sql`
  insert into store_theme_drafts(store_id,theme,version,updated_by)
- select ${req.storeId}::uuid,${JSON.stringify(previous[0].theme)}::jsonb,1,${req.user.id}::uuid where ${expected}=0
+ select ${req.storeId}::uuid,${JSON.stringify(previous[0].theme)}::jsonb,1,${req.user.id}::uuid where ${expected}=0 or exists(select 1 from store_theme_drafts where store_id=${req.storeId}::uuid)
  on conflict(store_id) do update set theme=excluded.theme,
  version=store_theme_drafts.version+1,updated_by=excluded.updated_by,updated_at=now()
  where store_theme_drafts.version=${expected}
