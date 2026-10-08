@@ -29,3 +29,5 @@ export async function listPlatformTemplates(){const data=await api("/api/admin/t
 
 export async function listPlatformPaymentAccounts(q=""){const data=await api("/api/admin/payment-accounts"+(q?"?q="+encodeURIComponent(q):""));return data.payment_accounts??[]}
 export async function listPlatformRefunds(){const data=await api("/api/admin/refunds");return data.refunds??[]}
+
+export async function syncPlatformPromotion(id){const data=await api("/api/admin/promotions/"+encodeURIComponent(id)+"/sync",{method:"POST",body:{}});return data.promotion}

@@ -94,3 +94,14 @@ test("permanent access codes can activate the merchant plan before opening Strip
  assert.ok(onboarding.includes("access_code:accessCode.trim()"));
  assert.ok(onboarding.includes("Código BravoShop (opcional)"));
 });
+
+test("super admin promotion codes must exist in Stripe before becoming active",async()=>{
+ const api=await readFile(new URL("../server/routes/admin.js",import.meta.url),"utf8");
+ const ui=await readFile(new URL("../src/platform/admin/SuperAdmin.jsx",import.meta.url),"utf8");
+ assert.ok(api.includes('const record=rows[0]'));
+ assert.ok(api.includes("false,'{}'::jsonb"));
+ assert.ok(api.includes('stripe.promotionCodes.create(params'));
+ assert.ok(api.includes('adminRouter.post("/promotions/:id/sync"'));
+ assert.ok(ui.includes("Sincronizar Stripe"));
+ assert.ok(ui.includes("Stripe activo"));
+});

@@ -28,8 +28,65 @@ adminRouter.patch("/plans/:id",async(req,res)=>{
  const publicPlan=["basic","premium"].includes(old.slug)?true:(p.is_public===undefined?Boolean(old.is_public):Boolean(p.is_public));const rows=await sql`update plans set name=${name},status=${status},monthly_price=${monthly},annual_price=${annual},currency=${currency},trial_days=${trial},is_public=${publicPlan},provider_monthly_price_id=case when ${monthlyChanged} then null else provider_monthly_price_id end,provider_annual_price_id=case when ${annualChanged} then null else provider_annual_price_id end where id=${req.params.id}::uuid returning *`;
  await audit(req,"plan.updated","plan",req.params.id,p);res.json({plan:rows[0]});
 });
+const PROMOTION_KINDS=new Set(["percent","fixed","free_months","complimentary"]);
+function normalizePlatformPromotion(input={}){
+ const code=String(input.code||"").trim().toUpperCase(),kind=String(input.kind||"").trim();
+ if(!/^[A-Z0-9][A-Z0-9_-]{3,63}$/.test(code)||!PROMOTION_KINDS.has(kind))throw Object.assign(new Error("Código o tipo de promoción no válido"),{statusCode:400});
+ const value=Number(kind==="free_months"?(input.free_months??input.value):input.value);
+ if(kind==="percent"&&(!Number.isFinite(value)||value<=0||value>100))throw Object.assign(new Error("El descuento debe estar entre 0 y 100%"),{statusCode:400});
+ if(kind==="fixed"&&(!Number.isFinite(value)||value<=0||value>9999))throw Object.assign(new Error("El importe en euros no es válido"),{statusCode:400});
+ if(kind==="free_months"&&(!Number.isInteger(value)||value<1||value>12))throw Object.assign(new Error("Los meses gratis deben estar entre 1 y 12"),{statusCode:400});
+ const maxUses=input.max_uses==null||input.max_uses===""?null:Number(input.max_uses);
+ if(maxUses!==null&&(!Number.isSafeInteger(maxUses)||maxUses<1||maxUses>1000000))throw Object.assign(new Error("Límite de usos no válido"),{statusCode:400});
+ const ends=input.ends_at?Date.parse(input.ends_at):null;
+ if(ends!==null&&(!Number.isFinite(ends)||ends<=Date.now()))throw Object.assign(new Error("La fecha de caducidad debe ser futura"),{statusCode:400});
+ return {code,kind,value:kind==="complimentary"?100:value,free_months:kind==="free_months"?value:null,max_uses:maxUses,ends_at:ends?new Date(ends).toISOString():null};
+}
+async function syncPromotionToStripe(row){
+ if(!process.env.STRIPE_SECRET_KEY)throw Object.assign(new Error("Stripe Billing no está configurado"),{statusCode:503});
+ const p=normalizePlatformPromotion(row),Stripe=(await import("stripe")).default,stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+ const opts={name:"BravoShop "+p.code,duration:p.kind==="complimentary"?"forever":p.kind==="free_months"?"repeating":"once",metadata:{bravoshop_promotion_id:String(row.id),bravoshop_code:p.code}};
+ if(p.kind==="percent")opts.percent_off=p.value;
+ else if(p.kind==="fixed"){opts.amount_off=Math.round(p.value*100);opts.currency="eur"}
+ else opts.percent_off=100;
+ if(p.kind==="free_months")opts.duration_in_months=p.free_months;
+ let couponId=row.metadata?.stripe_coupon_id||null;
+ if(!couponId){
+  const coupon=await stripe.coupons.create(opts,{idempotencyKey:"bravoshop-coupon-"+row.id});
+  couponId=coupon.id;
+  await sql`update promotions set metadata=metadata||${JSON.stringify({stripe_coupon_id:couponId})}::jsonb where id=${row.id}::uuid`;
+ }
+ let promotionId=row.metadata?.stripe_promotion_code_id||null;
+ if(!promotionId){
+  const params={code:p.code,coupon:couponId,active:true,metadata:{bravoshop_promotion_id:String(row.id)}};
+  if(p.max_uses)params.max_redemptions=p.max_uses;
+  if(p.ends_at)params.expires_at=Math.floor(Date.parse(p.ends_at)/1000);
+  const promotion=await stripe.promotionCodes.create(params,{idempotencyKey:"bravoshop-promotion-code-"+row.id});
+  promotionId=promotion.id;
+ }
+ const saved=await sql`update promotions set active=true,metadata=metadata||${JSON.stringify({stripe_coupon_id:couponId,stripe_promotion_code_id:promotionId})}::jsonb where id=${row.id}::uuid returning *`;
+ return saved[0];
+}
 adminRouter.get("/promotions",async(_req,res)=>{const rows=await sql`select * from promotions order by starts_at desc nulls last,code`;res.json({promotions:rows})});
-adminRouter.post("/promotions",async(req,res)=>{const p=req.body||{};if(!p.code||!p.kind)return res.status(400).json({error:"Código y tipo requeridos"});const rows=await sql`insert into promotions(id,code,kind,value,free_months,starts_at,ends_at,max_uses,active,metadata) values(${randomUUID()}::uuid,${String(p.code).toUpperCase()},${p.kind},${p.value??null},${p.free_months??null},${p.starts_at||null}::timestamptz,${p.ends_at||null}::timestamptz,${p.max_uses??null},${p.active!==false},${JSON.stringify(p.metadata||{})}::jsonb) returning *`;await audit(req,"promotion.created","promotion",rows[0].id,{code:rows[0].code});res.status(201).json({promotion:rows[0]})});
+adminRouter.post("/promotions",async(req,res)=>{
+ let p;try{p=normalizePlatformPromotion(req.body)}catch(e){return res.status(e.statusCode||400).json({error:e.message})}
+ if(!process.env.STRIPE_SECRET_KEY)return res.status(503).json({error:"Configura Stripe Billing antes de crear promociones"});
+ const already=await sql`select 1 from promotions where upper(code)=${p.code} limit 1`;
+ if(already.length)return res.status(409).json({error:"Ese código ya existe"});
+ const rows=await sql`insert into promotions(id,code,kind,value,free_months,ends_at,max_uses,active,metadata) values(${randomUUID()}::uuid,${p.code},${p.kind},${p.value},${p.free_months},${p.ends_at}::timestamptz,${p.max_uses},false,'{}'::jsonb) returning *`;
+ const record=rows[0];
+ try{
+  const promotion=await syncPromotionToStripe(record);
+  await audit(req,"promotion.created","promotion",record.id,{code:record.code,stripe_promotion_code_id:promotion.metadata.stripe_promotion_code_id});
+  res.status(201).json({promotion});
+ }catch(e){res.status(502).json({error:"Promoción guardada como pendiente: Stripe no la ha activado. "+e.message,code:record.code,promotion_id:record.id})}
+});
+adminRouter.post("/promotions/:id/sync",async(req,res)=>{
+ const rows=await sql`select * from promotions where id=${req.params.id}::uuid limit 1`;
+ if(!rows.length)return res.status(404).json({error:"Promoción no encontrada"});
+ try{const promotion=await syncPromotionToStripe(rows[0]);await audit(req,"promotion.synced","promotion",rows[0].id,{code:promotion.code});res.json({promotion})}
+ catch(e){res.status(e.statusCode||502).json({error:"No se pudo activar el código en Stripe: "+e.message})}
+});
 adminRouter.get("/feature-flags",async(_req,res)=>{const rows=await sql`select * from platform_feature_flags order by key`;res.json({flags:rows})});
 adminRouter.put("/feature-flags/:key",async(req,res)=>{const{enabled,rollout_percent=0,config={}}=req.body||{};const rows=await sql`insert into platform_feature_flags(key,enabled,rollout_percent,config,updated_at) values(${req.params.key},${Boolean(enabled)},${Math.max(0,Math.min(100,Number(rollout_percent)))},${JSON.stringify(config)}::jsonb,now()) on conflict(key) do update set enabled=excluded.enabled,rollout_percent=excluded.rollout_percent,config=excluded.config,updated_at=now() returning *`;await audit(req,"feature_flag.updated","feature_flag",req.params.key,rows[0]);res.json({flag:rows[0]})});
 adminRouter.get("/health",async(_req,res)=>{
