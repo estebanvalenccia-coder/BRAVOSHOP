@@ -236,3 +236,13 @@ test("public checkout validates unique variants before reserving inventory",asyn
  assert.ok(body.includes("El carrito contiene variantes duplicadas"));
  assert.ok(source.indexOf("function validateCheckoutBody")<source.indexOf('publicRouter.post("/checkout"'));
 });
+
+test("guest checkout requires a valid normalized email for transactional updates",async()=>{
+ const server=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
+ const ui=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
+ const validate=server.slice(server.indexOf("function validateCheckoutBody"),server.indexOf("const reservedSubdomains="));
+ assert.ok(validate.includes('if(typeof req.body.email!=="string")'));
+ assert.ok(validate.includes("req.body.email=req.body.email.trim().toLowerCase()"));
+ assert.ok(validate.includes("El email de contacto es obligatorio"));
+ assert.ok(ui.includes("email.trim())&&address.name"));
+});
