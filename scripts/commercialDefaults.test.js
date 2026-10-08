@@ -210,3 +210,18 @@ test("merchant stores hub uses actual store hero or photographic template art",a
  assert.ok(app.includes("TEMPLATE_IMAGE_URLS[store?.theme?.template]"));
  assert.ok(app.includes('className="storeHubCoverImage"'));
 });
+
+test("active merchant subscription upgrades require explicit confirmation and never charge on a mere plan preview",async()=>{
+ const backend=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const client=await readFile(new URL("../src/platform/data/storeService.js",import.meta.url),"utf8");
+ const ui=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
+ const route=backend.slice(backend.indexOf('storesRouter.post("/:storeId/billing/checkout"'),backend.indexOf('storesRouter.post("/:storeId/billing/cancel"'));
+ assert.ok(route.includes("req.body?.confirm_change!==true"));
+ assert.ok(route.includes("BILLING_CHANGE_CONFIRMATION_REQUIRED"));
+ assert.ok(route.includes("item.price?.id===priceId&&!sub.cancel_at_period_end"));
+ assert.ok(route.indexOf("confirm_change!==true")<route.indexOf("stripe.subscriptions.update(sub.id"));
+ assert.ok(client.includes("confirm_change:confirmChange"));
+ assert.ok(ui.includes('activeChange&&!window.confirm('));
+ assert.ok(ui.includes("Stripe puede calcular prorrateos"));
+ assert.ok(ui.includes("confirmChange:activeChange"));
+});

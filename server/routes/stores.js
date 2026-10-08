@@ -207,6 +207,8 @@ storesRouter.post("/:storeId/billing/checkout",requireStore,requirePermission("b
   }
   if(["active","trialing"].includes(String(sub.status))){
    const item=sub.items?.data?.[0];if(!item)return res.status(409).json({error:"La suscripción actual no tiene una línea modificable"});
+   if(item.price?.id===priceId&&!sub.cancel_at_period_end)return res.json({updated:false,unchanged:true,status:sub.status});
+   if(req.body?.confirm_change!==true)return res.status(409).json({error:"Confirma el cambio de plan y los posibles prorrateos antes de continuar",code:"BILLING_CHANGE_CONFIRMATION_REQUIRED"});
    const updated=await stripe.subscriptions.update(sub.id,{items:[{id:item.id,price:priceId}],proration_behavior:"create_prorations",cancel_at_period_end:false,metadata:{...sub.metadata,bravoshop_billing_store_id:String(req.storeId),bravoshop_plan_id:String(plan.id),bravoshop_plan_slug:plan.slug,bravoshop_interval:interval}});
    await persistPlatformSubscription(updated,{storeId:req.storeId,planId:plan.id});
    return res.json({updated:true,status:updated.status});

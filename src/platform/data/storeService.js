@@ -10,7 +10,7 @@ export async function getPaymentAccount(storeId){const data=await api(`/api/stor
 export async function updatePaymentPreferences(storeId,input){return api(`/api/stores/${storeId}/payments/preferences`,{method:"PUT",body:input})}
 
 export async function getBilling(storeId){return api(`/api/stores/${storeId}/billing`)}
-export async function startBillingCheckout(storeId,plan,interval){return api(`/api/stores/${storeId}/billing/checkout`,{method:"POST",body:{plan,interval}})}
+export async function startBillingCheckout(storeId,plan,interval,{confirmChange=false}={}){return api(`/api/stores/${storeId}/billing/checkout`,{method:"POST",body:{plan,interval,confirm_change:confirmChange}})}
 export async function cancelBilling(storeId){return api(`/api/stores/${storeId}/billing/cancel`,{method:"POST",body:{}})}
 export async function resumeBilling(storeId){return api(`/api/stores/${storeId}/billing/resume`,{method:"POST",body:{}})}
 export async function openBillingPortal(storeId){return api(`/api/stores/${storeId}/billing/portal`,{method:"POST",body:{}})}
