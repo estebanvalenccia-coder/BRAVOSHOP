@@ -61,9 +61,10 @@ frontendsRouter.patch("/:id",needId,async(req,res)=>{
  res.set("Cache-Control","private, no-store").json({template:rows[0]});
 });
 frontendsRouter.post("/:id/release",needId,async(req,res)=>{
- const notes=String(req.body?.notes||"").trim().slice(0,500);
- const rows=await sql.query("with updated as (update platform_frontend_templates set version=version+1,draft_revision=draft_revision+1,updated_at=now() where id=$1::uuid returning id,version,draft_theme) insert into platform_frontend_versions(template_id,version,theme,notes,published_by) select id,version,draft_theme,$2,$3::uuid from updated returning template_id,version,theme,notes,published_at",[req.params.id,notes,req.user.id]);
- if(!rows.length)return bad(res,"Plantilla no encontrada",404);
+ const notes=String(req.body?.notes||"").trim().slice(0,500),expected=Number(req.body?.expectedRevision);
+ if(!Number.isSafeInteger(expected)||expected<1)return bad(res,"Falta la revisión del borrador");
+ const rows=await sql.query("with updated as (update platform_frontend_templates set version=version+1,draft_revision=draft_revision+1,updated_at=now() where id=$1::uuid and draft_revision=$4 returning id,version,draft_theme) insert into platform_frontend_versions(template_id,version,theme,notes,published_by) select id,version,draft_theme,$2,$3::uuid from updated returning template_id,version,theme,notes,published_at",[req.params.id,notes,req.user.id,expected]);
+ if(!rows.length)return bad(res,"El borrador cambió desde otra sesión. Vuelve a abrir la plantilla antes de publicar.",409);
  await audit(req,"frontend.release.created","frontend_template",req.params.id,{version:rows[0].version});
  res.status(201).json({release:rows[0]});
 });
