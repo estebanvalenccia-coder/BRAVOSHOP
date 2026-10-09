@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";
 import{Plus,Upload,ArrowUp,ArrowDown,Trash2,Copy,Eye,Save,Send,Store,FileArchive,ExternalLink}from"lucide-react";
 import{STORE_TEMPLATES,applyTemplate,ADDABLE_SECTIONS}from"../config/storeTemplates.js";
-import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,createPlatformStore,inspectFrontendArchive,importFrontendArchive,listFrontendAssets,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
+import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,previewFrontendBatch,createPlatformStore,inspectFrontendArchive,importFrontendArchive,listFrontendAssets,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
 
 const blank=(template="premium-organic")=>({name:"Nueva plantilla",sector:"general",description:"",theme:applyTemplate(template)});
 const label={hero:"Portada",benefits:"Ventajas",categories:"Categorías",products:"Productos",story:"Historia",newsletter:"Newsletter",banner:"Banner",text:"Texto",imageText:"Imagen y texto"};
@@ -72,7 +72,7 @@ export function FrontendsStudio(){
  return <div className="frontendStudio">
   <header><div><small>BRAVOSHOP CONTROL · DISEÑO MULTITIENDA</small><h1>Centro de Frontends</h1><p className="adminLead">Crea plantillas, edita secciones, importa referencias ZIP y actualiza tiendas sin perder personalizaciones.</p></div></header>
   <div className="designTopActions" style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18}}>
-   {[[ "gallery","Galería"],["editor","Editor"],["import","Importar ZIP"],["stores","Tiendas"],["deploy","Versiones y actualizaciones"]].map(([id,text])=><button key={id} className={tab===id?"active":"ghost"} onClick={()=>setTab(id)}>{text}</button>)}
+   {[[ "gallery","Galería"],["editor","Editor"],["import","Importar ZIP"],["stores","Tiendas"],["deploy","Versiones y actualizaciones"],["batch","Actualización múltiple"]].map(([id,text])=><button key={id} className={tab===id?"active":"ghost"} onClick={()=>setTab(id)}>{text}</button>)}
   </div>
   {error&&<div className="errorBox" role="alert">{error}</div>}
   {notice&&<article className="panel" role="status" style={{padding:12,marginBottom:16}}>{notice}</article>}
@@ -154,6 +154,7 @@ export function FrontendsStudio(){
    {editingId&&chosenVersion&&<p>Se utilizará la última versión publicada de <b>{selected?.name}</b>. Para crearla con la plantilla base en su lugar, selecciona otra desde la galería.</p>}
    <button disabled={busy||!newStore.name||!newStore.slug||!newStore.ownerEmail} onClick={createStore}><Store size={15}/> Crear tienda</button>
   </article>}
+  {tab==="batch"&&<BatchRollout templates={templates} stores={stores} onRefresh={refresh}/>} 
   {tab==="deploy"&&<article className="panel"><h2>Versiones y actualizaciones</h2><p>Instala las nuevas versiones solo en las tiendas seleccionadas. Las secciones y propiedades personalizadas se protegen durante la actualización.</p>
    <label>Plantilla<select value={editingId||""} onChange={e=>{const t=templates.find(x=>x.id===e.target.value);if(t)choose(t).then(()=>setTab("deploy"));else setEditingId(null)}}><option value="">Selecciona una plantilla</option>{templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
    <label>Versión<select value={chosenVersion} onChange={e=>{setChosenVersion(e.target.value);setPreview(null)}}><option value="">Selecciona una versión</option>{versions.map(v=><option key={v.version} value={v.version}>v{v.version} · {v.notes||"Sin notas"}</option>)}</select></label>
@@ -166,4 +167,82 @@ export function FrontendsStudio(){
    {versions.length>0&&<><hr/><h3>Historial de versiones</h3>{versions.map(v=><div className="health" key={v.version}><b>v{v.version}</b><span>{v.notes||"Sin notas"}</span><small>{new Date(v.published_at).toLocaleDateString()}</small></div>)}</>}
   </article>}
  </div>
+}
+
+function BatchRollout({templates,stores,onRefresh}){
+ const[templateId,setTemplateId]=useState("");
+ const[version,setVersion]=useState("");
+ const[versions,setVersions]=useState([]);
+ const[filter,setFilter]=useState("");
+ const[selected,setSelected]=useState([]);
+ const[replaceExisting,setReplaceExisting]=useState(false);
+ const[preview,setPreview]=useState(null);
+ const[results,setResults]=useState(null);
+ const[error,setError]=useState("");
+ const[busy,setBusy]=useState(false);
+ useEffect(()=>{
+  let active=true;
+  setVersions([]);setVersion("");setPreview(null);setResults(null);
+  if(templateId)listFrontendVersions(templateId).then(data=>{if(active)setVersions(data.versions||[])}).catch(e=>{if(active)setError(e.message)});
+  return()=>{active=false};
+ },[templateId]);
+ const filtered=stores.filter(s=>(s.name+" "+s.slug+" "+(s.sector||"")).toLowerCase().includes(filter.toLowerCase()));
+ const invalidate=()=>{setPreview(null);setResults(null)};
+ const toggle=id=>{setSelected(prev=>{if(prev.includes(id))return prev.filter(x=>x!==id);if(prev.length>=25)return prev;return [...prev,id]});invalidate()};
+ const chooseVisible=()=>{setSelected(filtered.slice(0,25).map(s=>s.id));invalidate()};
+ const dryRun=async()=>{
+  if(!templateId||!version||!selected.length)return;
+  setBusy(true);setError("");setPreview(null);setResults(null);
+  try{
+   const result=await previewFrontendBatch(templateId,{version:Number(version),storeIds:selected,replaceExisting});
+   setPreview({...result,templateId,version,storeIds:[...selected],replaceExisting});
+  }catch(e){setError(e.message)}finally{setBusy(false)}
+ };
+ const samePlan=preview&&preview.templateId===templateId&&preview.version===version&&preview.replaceExisting===replaceExisting&&JSON.stringify(preview.storeIds)===JSON.stringify(selected);
+ const apply=async()=>{
+  if(!samePlan||!preview.allReady||!window.confirm("Aplicar la versión v"+version+" a "+selected.length+" tiendas? Cada tienda se actualizará por separado y las incidencias quedarán registradas."))return;
+  setBusy(true);setError("");
+  try{
+   const result=await deployFrontend(templateId,{version:Number(version),storeIds:selected,replaceExisting});
+   setResults(result.results||[]);
+   setPreview(null);
+   await onRefresh();
+  }catch(e){setError(e.message)}finally{setBusy(false)}
+ };
+ const success=results?.filter(r=>r.ok).length||0;
+ return <article className="panel">
+  <h2>Actualización de varias tiendas</h2>
+  <p>Selecciona hasta 25 tiendas por lote. Primero simula los cambios en cada comercio y después confirma. Los borradores de comerciantes se respetan; un conflicto no detiene la actualización de las demás tiendas.</p>
+  {error&&<div className="errorBox">{error}</div>}
+  <label>Plantilla<select value={templateId} onChange={e=>{setTemplateId(e.target.value);setSelected([]);setError("");invalidate()}}><option value="">Selecciona una plantilla</option>{templates.filter(t=>t.version>0).map(t=><option key={t.id} value={t.id}>{t.name} (v{t.version})</option>)}</select></label>
+  <label>Versión publicada<select value={version} disabled={!templateId} onChange={e=>{setVersion(e.target.value);invalidate()}}><option value="">Selecciona una versión</option>{versions.map(v=><option key={v.version} value={v.version}>v{v.version} · {v.notes||"Sin notas"}{v.version===versions[0]?.version?" (última)":""}</option>)}</select></label>
+  <label><input type="checkbox" checked={replaceExisting} onChange={e=>{setReplaceExisting(e.target.checked);invalidate()}}/> Autorizar sustitución inicial o cambio de plantilla</label>
+  <p>Sin esta autorización, solo se actualizan las tiendas que ya usan esta misma plantilla. Ningún comercio se selecciona automáticamente.</p>
+  <hr/>
+  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+   <h3>Comercios seleccionados: {selected.length}/25</h3>
+   <button className="ghost" disabled={busy} onClick={chooseVisible}>Seleccionar primeros 25 visibles</button>
+   <button className="ghost" disabled={busy} onClick={()=>{setSelected([]);invalidate()}}>Limpiar selección</button>
+  </div>
+  <label>Filtrar por tienda, subdominio o sector<input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Buscar tiendas"/></label>
+  <div style={{maxHeight:300,overflow:"auto",border:"1px solid #ddd",borderRadius:8,padding:12}}>
+   {filtered.map(s=><label key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0"}}>
+    <input type="checkbox" disabled={busy||(!selected.includes(s.id)&&selected.length>=25)} checked={selected.includes(s.id)} onChange={()=>toggle(s.id)}/>
+    <span><strong>{s.name}</strong><small style={{display:"block"}}>{s.slug} · {s.sector||"general"} · {s.status} · {s.deployed_version?"v"+s.deployed_version:"sin plantilla central"}</small></span>
+   </label>)}
+  </div>
+  <button disabled={busy||!templateId||!version||!selected.length} onClick={dryRun}>{busy?"Comprobando…":"Simular "+selected.length+" tiendas"}</button>
+  {preview&&samePlan&&<div className="panel" style={{marginTop:16,padding:14}}>
+   <h3>Resultado de la simulación · v{version}</h3>
+   <p>{preview.results.filter(x=>x.ok).length} preparadas · {preview.results.filter(x=>!x.ok).length} con incidencias. No se ha modificado ninguna tienda.</p>
+   {preview.results.map(item=><div key={item.storeId} className="health"><div style={{flex:1}}><b>{item.store||stores.find(s=>s.id===item.storeId)?.name||item.storeId}</b><small>{item.ok?((item.protectedFields?.length||0)+" personalizaciones protegidas"):item.error}</small></div><span>{item.alreadyApplied?"Ya actualizada":item.ok?"Lista":"Revisar"}</span></div>)}
+   <button disabled={busy||!preview.allReady} onClick={apply}>Confirmar actualización de {selected.length} tiendas</button>
+   {!preview.allReady&&<p>Corrige las incidencias o selecciona solo las tiendas válidas y vuelve a simular.</p>}
+  </div>}
+  {results&&<div className="panel" style={{marginTop:16,padding:14}} role="status">
+   <h3>Resultado real de la publicación</h3>
+   <p>{success} actualizadas de {results.length}. {results.length-success} necesitan revisión. Las operaciones pueden haberse aplicado parcialmente.</p>
+   {results.map(item=><div className="health" key={item.storeId}><b>{stores.find(s=>s.id===item.storeId)?.name||item.storeId}</b><span>{item.alreadyApplied?"Sin cambios: ya tenía esta versión":item.ok?"Aplicada":item.error}</span></div>)}
+  </div>}
+ </article>;
 }
