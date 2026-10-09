@@ -172,7 +172,7 @@ export function FrontendsStudio(){
      </div>)}</>}
     {editingId&&<><hr/><h3>Crear actualización</h3>{asSnapshot(draft)!==cleanSnapshot&&<p role="status"><strong>Hay cambios sin guardar.</strong> Guarda el borrador antes de publicar.</p>}<p>El borrador guardado se convierte en una versión inmutable. No cambia ninguna tienda hasta que la instales.</p><label>Notas de versión<input value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} placeholder="Mejoras de portada y navegación"/></label><button disabled={busy||asSnapshot(draft)!==cleanSnapshot} onClick={release}><Send size={15}/> Publicar versión nueva</button></>}
    </article>
-   <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme} selectedSectionId={selectedSectionId} onSelectSection={setSelectedSectionId}/>
+   <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme} selectedSectionId={selectedSectionId} onSelectSection={setSelectedSectionId} onInlineTextChange={(sectionId,field,value)=>{setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>section.id===sectionId?{...section,content:{...section.content,[field]:value}}:section)}}))}}/>
     {activeSection&&<div className="sectionCard" style={{padding:14,marginBottom:16,border:"2px solid #2b8a60"}} role="region" aria-label="Editor de la sección seleccionada">
      <h3>Edición de {activeSection.label}</h3>
      <p>Has seleccionado esta sección desde el escaparate. Los cambios se muestran antes de guardar o publicar.</p>

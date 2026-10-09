@@ -1,17 +1,19 @@
 import React,{useEffect,useRef,useState}from"react";
 import{getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
 import{Monitor,Tablet,Smartphone,RefreshCcw}from"lucide-react";
+import{normalizeInlineText}from"../storefront/previewInlineEditing.js";
 
 const PREVIEW_ORIGIN="https://app.bravoshop.online";
 const DEVICES=[{key:"desktop",name:"Ordenador",width:"100%",icon:Monitor},{key:"tablet",name:"Tablet",width:"768px",icon:Tablet},{key:"mobile",name:"Móvil",width:"390px",icon:Smartphone}];
 
-export function LiveStorefrontPreview({stores,theme,onSelectSection,selectedSectionId}){
+export function LiveStorefrontPreview({stores,theme,onSelectSection,onInlineTextChange,selectedSectionId}){
  const[storeId,setStoreId]=useState(""),[device,setDevice]=useState("desktop");
  const[url,setUrl]=useState(""),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const frameRef=useRef(null),mounted=useRef(0);
- const themeIds=useRef(new Set()),onSelection=useRef(null);
+ const themeIds=useRef(new Set()),onSelection=useRef(null),onInlineChange=useRef(null);
  themeIds.current=new Set((theme?.sections||[]).map(s=>s.id));
  onSelection.current=onSelectSection;
+ onInlineChange.current=onInlineTextChange;
  const selected=stores.find(x=>x.id===storeId);
  async function loadLink(id){
   const request=++mounted.current;
@@ -33,6 +35,15 @@ export function LiveStorefrontPreview({stores,theme,onSelectSection,selectedSect
  useEffect(()=>{
   function receive(event){
    if(event.origin!==PREVIEW_ORIGIN||event.source!==frameRef.current?.contentWindow)return;
+   if(event.data?.type==="BRAVOSHOP_PREVIEW_INLINE_TEXT_UPDATED"){
+    const {sectionId,field,value}=event.data;
+    if(typeof sectionId!=="string"||!themeIds.current.has(sectionId)||!["title","text"].includes(field)||typeof value!=="string")return;
+    const limited=normalizeInlineText(value,field==="title"?200:2000);
+    if(!limited)return;
+    onSelection.current?.(sectionId);
+    onInlineChange.current?.(sectionId,field,limited);
+    return;
+   }
    if(event.data?.type==="BRAVOSHOP_PREVIEW_SECTION_SELECTED"){
     const sectionId=event.data.sectionId;
     if(typeof sectionId==="string"&&themeIds.current.has(sectionId))onSelection.current?.(sectionId);
@@ -55,7 +66,7 @@ export function LiveStorefrontPreview({stores,theme,onSelectSection,selectedSect
  const active=DEVICES.find(d=>d.key===device)||DEVICES[0];
  return <section aria-label="Vista previa real del escaparate" style={{border:"1px solid #ddd",borderRadius:12,padding:12,margin:"8px 0 16px"}}>
   <h3>Escaparate real en tiempo de edición</h3>
-  <p>Elige una tienda y haz clic sobre una sección del escaparate para seleccionarla y editarla. La tienda real no cambia hasta que publiques.</p>
+  <p>Elige una tienda. Haz un clic en una sección para seleccionarla o doble clic sobre su título o descripción para escribir directamente. Los cambios quedan en el borrador, sin publicar.</p>
   <label>Tienda de prueba<select value={storeId} disabled={busy} onChange={e=>{setStoreId(e.target.value);loadLink(e.target.value)}}>
    <option value="">Selecciona una tienda...</option>
    {stores.map(s=><option key={s.id} value={s.id}>{s.name} · {s.slug}</option>)}
