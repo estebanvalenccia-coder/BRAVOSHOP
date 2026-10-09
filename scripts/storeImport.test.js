@@ -172,3 +172,15 @@ test("category assignments are written only for importing tenant and inside the 
  assert.ok(flow.includes("await sql.transaction(queries)"));
  assert.ok(flow.includes("categories_linked:"));
 });
+
+test("missing CSV prices never become free products; explicit zero remains valid",()=>{
+ const missing=[
+  "Handle,Title,Variant SKU,Variant Price\\nmissing,Sin precio,MISS-1,",
+  "Type,SKU,Name,Regular price,Stock\\nsimple,WP-1,Sin precio,,4",
+  "ID,Type,SKU,Name,Parent,Regular price,Stock\\n123,variable,PARENT,Sin precio,, ,\\n124,variation,CHILD,Hijo,id:123,,2"
+ ];
+ for(const csv of missing)assert.throws(()=>parseStoreCatalogCsv(csv),/sin precio/,csv);
+ const free=parseStoreCatalogCsv("Handle,Title,Variant SKU,Variant Price\\nfree,Producto gratis,FREE-1,0.00");
+ assert.equal(free.products[0].variants[0].price,"0.00");
+ assert.equal(validateImportedProducts(free).ok,true);
+});
