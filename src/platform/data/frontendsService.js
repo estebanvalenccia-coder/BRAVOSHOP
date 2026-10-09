@@ -30,3 +30,5 @@ export async function importFrontendArchive(file){
 export async function listFrontendAssets(id){const data=await api("/api/admin/frontends/"+id+"/assets");return data.assets??[]}
 
 export async function previewFrontendBatch(id,input){return api("/api/admin/frontends/"+id+"/batch-preview",{method:"POST",body:input})}
+
+export async function restoreFrontendDraft(id,version,expectedUpdatedAt){return api("/api/admin/frontends/"+id+"/restore-draft",{method:"POST",body:{version,expectedUpdatedAt}})}
