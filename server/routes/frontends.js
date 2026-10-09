@@ -7,6 +7,7 @@ import{sanitizeTheme,mergeMerchantTheme}from"../frontends/themeMerge.js";
 import{inspectFrontendZip}from"../frontends/zipPreview.js";
 import{prepareFrontendZip}from"../frontends/zipImport.js";
 import{validateRolloutInput}from"../frontends/rolloutValidation.js";
+import{validRollbackTarget,validRollbackConfirmation}from"../frontends/rollbackGuard.js";
 import{createUploadIntent,verifyObject,removeObject,mediaReady}from"../services/mediaSigner.js";
 import{getTemplate,templateSections}from"../../src/platform/config/storeTemplates.js";
 
@@ -157,6 +158,52 @@ frontendsRouter.post("/:id/deploy",needId,async(req,res)=>{
 });
 // ZIP assets are uploaded only on this explicit action; inspection is read-only.
 // Each template has its own media namespace (never a merchant store namespace).
+// A rollback is limited to an earlier immutable release of the same central
+// template. Merchant drafts and merchant customizations remain protected.
+async function rollbackPlan(templateId,storeId,version){
+ const active=await sql.query("select version from store_frontend_deployments where store_id=$1::uuid and template_id=$2::uuid",[storeId,templateId]);
+ if(!active.length)return {error:"La tienda no utiliza esta plantilla central",status:409};
+ const fromVersion=Number(active[0].version);
+ if(!validRollbackTarget({installedTemplateId:templateId,requestedTemplateId:templateId,installedVersion:fromVersion,targetVersion:version}))return {error:"Selecciona una versión anterior a la instalada",status:400};
+ const result=await planDeployment(templateId,version,storeId,false);
+ if(result.error)return result;
+ return {...result,fromVersion,toVersion:version};
+}
+frontendsRouter.post("/:id/stores/:storeId/rollback-preview",needId,async(req,res)=>{
+ const storeId=req.params.storeId,version=Number(req.body?.version);
+ if(!validId(storeId)||!Number.isSafeInteger(version)||version<1)return bad(res,"Tienda o versión inválida");
+ const plan=await rollbackPlan(req.params.id,storeId,version);
+ if(plan.error)return bad(res,plan.error,plan.status);
+ res.set("Cache-Control","private, no-store").json({preview:{store:plan.store,fromVersion:plan.fromVersion,toVersion:plan.toVersion,protectedFields:plan.protectedFields}});
+});
+frontendsRouter.post("/:id/stores/:storeId/rollback",needId,async(req,res)=>{
+ const storeId=req.params.storeId,version=Number(req.body?.version),expected=Number(req.body?.expectedCurrentVersion);
+ if(!validId(storeId)||!validRollbackConfirmation({expectedCurrentVersion:expected,targetVersion:version}))
+  return bad(res,"La versión anterior y la actual son obligatorias");
+ const plan=await rollbackPlan(req.params.id,storeId,version);
+ if(plan.error)return bad(res,plan.error,plan.status);
+ if(plan.fromVersion!==expected)return bad(res,"La tienda cambió de versión. Vuelve a simular la restauración.",409);
+ const baselineRows=await sql.query("select theme from platform_frontend_versions where template_id=$1::uuid and version=$2",[req.params.id,version]);
+ if(!baselineRows.length)return bad(res,"Versión anterior no encontrada",404);
+ const rows=await sql.query("select bravoshop_admin_rollback_frontend($1::uuid,$2::uuid,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::uuid,$9::jsonb) as applied_version",[
+  storeId,req.params.id,expected,version,JSON.stringify(plan.current),JSON.stringify(plan.theme),
+  JSON.stringify(baselineRows[0].theme),req.user.id,JSON.stringify(plan.protectedFields)
+ ]);
+ const applied=Number(rows[0]?.applied_version);
+ if(applied===-2)return bad(res,"La tienda cambió mientras restaurabas. Vuelve a simular.",409);
+ if(applied===-3)return bad(res,"Solo puedes restaurar una versión anterior de la misma plantilla",409);
+ if(applied===0)return bad(res,"El comerciante tiene un borrador pendiente. No se ha modificado su tienda.",409);
+ if(applied===-1)return bad(res,"El diseño de la tienda cambió. Vuelve a simular.",409);
+ if(!(applied>0))return bad(res,"No se pudo restaurar la versión",503);
+ try{await audit(req,"frontend.store.rollback","store",storeId,{template_id:req.params.id,from_version:expected,to_version:version,protected_fields:plan.protectedFields})}
+ catch(error){console.error("Rollback audit log failed",{storeId,error:error.message})}
+ res.set("Cache-Control","private, no-store").json({storeId,restoredVersion:version,previousVersion:expected,protectedFields:plan.protectedFields});
+});
+frontendsRouter.get("/:id/stores/:storeId/rollback-history",needId,async(req,res)=>{
+ if(!validId(req.params.storeId))return bad(res,"Tienda inválida");
+ const rows=await sql.query("select from_version,to_version,protected_fields,performed_at from store_frontend_rollbacks where store_id=$1::uuid and template_id=$2::uuid order by performed_at desc limit 30",[req.params.storeId,req.params.id]);
+ res.set("Cache-Control","private, no-store").json({history:rows});
+});
 frontendsRouter.post("/zip/import",raw({type:["application/zip","application/octet-stream"],limit:"8mb"}),async(req,res)=>{
  if(!Buffer.isBuffer(req.body))return bad(res,"Envía un archivo ZIP válido");
  let inspection,images;

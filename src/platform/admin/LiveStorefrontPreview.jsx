@@ -5,10 +5,13 @@ import{Monitor,Tablet,Smartphone,RefreshCcw}from"lucide-react";
 const PREVIEW_ORIGIN="https://app.bravoshop.online";
 const DEVICES=[{key:"desktop",name:"Ordenador",width:"100%",icon:Monitor},{key:"tablet",name:"Tablet",width:"768px",icon:Tablet},{key:"mobile",name:"Móvil",width:"390px",icon:Smartphone}];
 
-export function LiveStorefrontPreview({stores,theme}){
+export function LiveStorefrontPreview({stores,theme,onSelectSection,selectedSectionId}){
  const[storeId,setStoreId]=useState(""),[device,setDevice]=useState("desktop");
  const[url,setUrl]=useState(""),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const frameRef=useRef(null),mounted=useRef(0);
+ const themeIds=useRef(new Set()),onSelection=useRef(null);
+ themeIds.current=new Set((theme?.sections||[]).map(s=>s.id));
+ onSelection.current=onSelectSection;
  const selected=stores.find(x=>x.id===storeId);
  async function loadLink(id){
   const request=++mounted.current;
@@ -30,6 +33,11 @@ export function LiveStorefrontPreview({stores,theme}){
  useEffect(()=>{
   function receive(event){
    if(event.origin!==PREVIEW_ORIGIN||event.source!==frameRef.current?.contentWindow)return;
+   if(event.data?.type==="BRAVOSHOP_PREVIEW_SECTION_SELECTED"){
+    const sectionId=event.data.sectionId;
+    if(typeof sectionId==="string"&&themeIds.current.has(sectionId))onSelection.current?.(sectionId);
+    return;
+   }
    if(event.data?.type!=="BRAVOSHOP_PREVIEW_READY")return;
    setReady(true);
   }
@@ -38,13 +46,16 @@ export function LiveStorefrontPreview({stores,theme}){
  },[]);
  useEffect(()=>{
   if(!ready||!url)return;
-  frameRef.current?.contentWindow?.postMessage({type:"BRAVOSHOP_THEME_PREVIEW",theme},PREVIEW_ORIGIN);
+  const frame=frameRef.current?.contentWindow;
+  frame?.postMessage({type:"BRAVOSHOP_THEME_PREVIEW",theme},PREVIEW_ORIGIN);
+  frame?.postMessage({type:"BRAVOSHOP_PREVIEW_EDIT_MODE",enabled:true},PREVIEW_ORIGIN);
  },[ready,url,theme]);
- const sendCurrent=()=>{if(url&&frameRef.current?.contentWindow)frameRef.current.contentWindow.postMessage({type:"BRAVOSHOP_THEME_PREVIEW",theme},PREVIEW_ORIGIN)};
+ useEffect(()=>{if(!ready||!url)return;frameRef.current?.contentWindow?.postMessage({type:"BRAVOSHOP_PREVIEW_FOCUS_SECTION",sectionId:selectedSectionId||""},PREVIEW_ORIGIN)},[ready,url,selectedSectionId]);
+ const sendCurrent=()=>{if(ready&&url&&frameRef.current?.contentWindow){frameRef.current.contentWindow.postMessage({type:"BRAVOSHOP_THEME_PREVIEW",theme},PREVIEW_ORIGIN);frameRef.current.contentWindow.postMessage({type:"BRAVOSHOP_PREVIEW_EDIT_MODE",enabled:true},PREVIEW_ORIGIN)}};
  const active=DEVICES.find(d=>d.key===device)||DEVICES[0];
  return <section aria-label="Vista previa real del escaparate" style={{border:"1px solid #ddd",borderRadius:12,padding:12,margin:"8px 0 16px"}}>
   <h3>Escaparate real en tiempo de edición</h3>
-  <p>Elige una tienda para ver sus productos reales con este diseño temporal. No guarda ni publica cambios.</p>
+  <p>Elige una tienda y haz clic sobre una sección del escaparate para seleccionarla y editarla. La tienda real no cambia hasta que publiques.</p>
   <label>Tienda de prueba<select value={storeId} disabled={busy} onChange={e=>{setStoreId(e.target.value);loadLink(e.target.value)}}>
    <option value="">Selecciona una tienda...</option>
    {stores.map(s=><option key={s.id} value={s.id}>{s.name} · {s.slug}</option>)}
