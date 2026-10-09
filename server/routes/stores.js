@@ -1,5 +1,6 @@
 import{connectedAccountStatus,onboardingReturnUrl,stripeConnectSetupError}from"../services/stripeConnect.js";
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth,requireStore}from"../middleware/auth.js";import{codeRedemptionLimiter,storeCreationLimiter}from"../middleware/rateLimit.js";import{requirePermission}from"../middleware/permissions.js";import{persistPlatformSubscription}from"../services/platformBilling.js";
+import{validateImportedProducts}from"../services/catalogImport.js";
 export const storesRouter=Router();storesRouter.use(requireAuth);
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const CREATION_KEY=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -101,6 +102,49 @@ storesRouter.delete("/:storeId",requireStore,async(req,res)=>{
    .json({code:result.reason||"STORE_RETIREMENT_BLOCKED",error:messages[result.reason]||"No se puede eliminar la tienda todavía"});
  }
  res.json({ok:true,retired:true,note:"La tienda ya no es pública ni aparece en tu panel. La información comercial y fiscal se conserva para su revisión legal."});
+});
+
+// Import only catalogue data from an authorized merchant CSV export.
+// Does not transfer order/payment credentials, historic buyers or live status.
+storesRouter.post("/:storeId/import/products",requireStore,requirePermission("products.create"),async(req,res)=>{
+ const checked=validateImportedProducts(req.body);
+ if(!checked.ok)return res.status(400).json({error:checked.error});
+ const slugs=checked.products.map(p=>p.slug);
+ const skus=checked.products.flatMap(p=>p.variants.map(v=>v.sku?.toLowerCase()).filter(Boolean));
+ const duplicates=await sql`select slug from products where store_id=${req.storeId}::uuid and slug=any(${slugs}) limit 1`;
+ if(duplicates.length)return res.status(409).json({error:"Ya existe un producto con el slug "+duplicates[0].slug+". Revisa los duplicados antes de importar."});
+ if(skus.length){
+  const duplicateSku=await sql`select sku from product_variants where store_id=${req.storeId}::uuid and lower(sku)=any(${skus}) limit 1`;
+  if(duplicateSku.length)return res.status(409).json({error:"Ya existe la referencia SKU "+duplicateSku[0].sku+". No se sobrescribe inventario existente."});
+ }
+ const queries=[];
+ for(const product of checked.products){
+  const pid=randomUUID();
+  const productPrice=product.variants[0].price;
+  queries.push(sql`insert into products(id,store_id,name,slug,description,price,status,product_type,vendor,metadata,seo)
+   values(${pid}::uuid,${req.storeId}::uuid,${product.name},${product.slug},
+   ${product.description},${productPrice},'draft',null,${product.vendor||null},
+   ${JSON.stringify({import_source:checked.source})}::jsonb,'{}'::jsonb)`);
+  for(const variant of product.variants){
+   const vid=randomUUID();
+   queries.push(sql`insert into product_variants(id,store_id,product_id,title,sku,price,active,options)
+    values(${vid}::uuid,${req.storeId}::uuid,${pid}::uuid,${variant.title},${variant.sku},
+    ${variant.price},true,'{}'::jsonb)`);
+   queries.push(sql`insert into inventory_levels(variant_id,quantity,reserved,track_inventory,allow_backorder)
+    values(${vid}::uuid,${variant.quantity},0,${variant.track_inventory},false)`);
+   if(variant.track_inventory&&variant.quantity>0)
+    queries.push(sql`insert into inventory_movements(store_id,variant_id,type,quantity_delta,reserved_delta,reference_type,reference_id,actor_user_id)
+     values(${req.storeId}::uuid,${vid}::uuid,'manual',${variant.quantity},0,'import',${pid},${req.user.id}::uuid)`);
+  }
+ }
+ try{
+  await sql.transaction(queries);
+ }catch(error){
+  if(error.code==="23505"||error.code==="23503")
+   return res.status(409).json({error:"Hay un producto o SKU duplicado, o ha cambiado el catálogo durante la importación. No se ha importado parcialmente este lote."});
+  throw error;
+ }
+ res.status(201).json({ok:true,products_created:checked.products.length,variants_created:checked.totalVariants,status:"draft"});
 });
 storesRouter.put("/:storeId/payments/preferences",requireStore,requirePermission("payments.manage"),async(req,res)=>{const country=String(req.body?.country||"").trim().toUpperCase();const currency=String(req.body?.default_currency||"").trim().toUpperCase();if(!/^[A-Z]{2}$/.test(country)||!/^[A-Z]{3}$/.test(currency))return res.status(400).json({error:"País o divisa inválidos"});const linked=await sql`select provider_account_id,country,default_currency from store_payment_accounts where store_id=${req.storeId}::uuid`;if(linked[0]?.provider_account_id&&(linked[0].country!==country||linked[0].default_currency!==currency))return res.status(409).json({code:"STRIPE_ACCOUNT_IDENTITY_LOCKED",error:"La cuenta Stripe ya está vinculada. El país y la divisa se gestionan desde Stripe Express y no pueden cambiarse aquí."});await sql`insert into store_payment_accounts(store_id,provider,status,country,default_currency) values(${req.storeId}::uuid,'stripe','not_connected',${country},${currency}) on conflict(store_id) do update set country=excluded.country,default_currency=excluded.default_currency,updated_at=now()`;res.json({ok:true,country,default_currency:currency})});
 storesRouter.post("/:storeId/payments/connect",requireStore,requirePermission("payments.manage"),async(req,res)=>{
