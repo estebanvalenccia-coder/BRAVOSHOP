@@ -12,7 +12,7 @@ const label={hero:"Portada",benefits:"Ventajas",categories:"Categorías",product
 export function FrontendsStudio(){
  const[tab,setTab]=useState("gallery"),[templates,setTemplates]=useState([]),[stores,setStores]=useState([]);
  const[editingId,setEditingId]=useState(null),[draft,setDraft]=useState(blank()),[versions,setVersions]=useState([]);
- const[savedRevision,setSavedRevision]=useState(null),[draggingSection,setDraggingSection]=useState(""),[cleanSnapshot,setCleanSnapshot]=useState("");
+ const[savedRevision,setSavedRevision]=useState(null),[draggingSection,setDraggingSection]=useState(""),[cleanSnapshot,setCleanSnapshot]=useState(""),[selectedSectionId,setSelectedSectionId]=useState("");
  const[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const[inspection,setInspection]=useState(null),[archive,setArchive]=useState(null),[templateAssets,setTemplateAssets]=useState([]),[assetSection,setAssetSection]=useState("hero"),[releaseNotes,setReleaseNotes]=useState("");
  const[target,setTarget]=useState(""),[replaceExisting,setReplaceExisting]=useState(false),[preview,setPreview]=useState(null),[chosenVersion,setChosenVersion]=useState("");
@@ -22,11 +22,11 @@ export function FrontendsStudio(){
  async function refresh(){const data=await loadFrontendStudio();setTemplates(data.templates||[]);setStores(data.stores||[]);return data}
  useEffect(()=>{refresh().catch(fail)},[]);
  async function choose(item){
-  setEditingId(item.id);setSavedRevision(item.draft_revision??null);setCleanSnapshot(asSnapshot({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme}));setAssetSection(item.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme});
+  setSelectedSectionId("");setEditingId(item.id);setSavedRevision(item.draft_revision??null);setCleanSnapshot(asSnapshot({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme}));setAssetSection(item.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme});
   setChosenVersion(String(item.version||""));setPreview(null);setTarget("");setReplaceExisting(false);setTab("editor");
   try{const [versionsData,assets]=await Promise.all([listFrontendVersions(item.id),listFrontendAssets(item.id)]);setVersions(versionsData.versions||[]);setTemplateAssets(assets)}catch(e){fail(e)}
  }
- function start(template){setEditingId(null);setSavedRevision(null);setCleanSnapshot("");setAssetSection("hero");setTemplateAssets([]);setDraft(blank(template));setVersions([]);setChosenVersion("");setPreview(null);setTab("editor");flash("Plantilla nueva. Guarda el borrador para empezar a versionarla.")}
+ function start(template){setSelectedSectionId("");setEditingId(null);setSavedRevision(null);setCleanSnapshot("");setAssetSection("hero");setTemplateAssets([]);setDraft(blank(template));setVersions([]);setChosenVersion("");setPreview(null);setTab("editor");flash("Plantilla nueva. Guarda el borrador para empezar a versionarla.")}
  const patch=changes=>setDraft(d=>({...d,...changes}));
  const patchTheme=changes=>setDraft(d=>({...d,theme:{...d.theme,...changes}}));
  const patchSection=(id,changes)=>patchTheme({sections:(draft.theme.sections||[]).map(s=>s.id===id?{...s,...changes}:s)});
@@ -61,9 +61,9 @@ export function FrontendsStudio(){
   if(!archive||!inspection)return fail(new Error("Analiza primero el ZIP"));
   if(!window.confirm("Crear una plantilla nueva y guardar "+(inspection.assets?.length||0)+" imágenes detectadas en BravoShop? No afectará a las tiendas existentes."))return;
   setBusy(true);
-  try{const result=await importFrontendArchive(archive);setEditingId(result.template.id);setSavedRevision(result.template.draft_revision??null);setCleanSnapshot(asSnapshot({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme}));setAssetSection(result.template.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme});setChosenVersion("");setVersions([]);setTemplateAssets(await listFrontendAssets(result.template.id));setTarget("");setPreview(null);setTab("editor");await refresh();flash("Plantilla importada con "+result.assets.length+" imágenes almacenadas. Revisa el diseño y publica una versión cuando quieras.")}catch(e){fail(e)}finally{setBusy(false)}
+  try{const result=await importFrontendArchive(archive);setSelectedSectionId("");setEditingId(result.template.id);setSavedRevision(result.template.draft_revision??null);setCleanSnapshot(asSnapshot({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme}));setAssetSection(result.template.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme});setChosenVersion("");setVersions([]);setTemplateAssets(await listFrontendAssets(result.template.id));setTarget("");setPreview(null);setTab("editor");await refresh();flash("Plantilla importada con "+result.assets.length+" imágenes almacenadas. Revisa el diseño y publica una versión cuando quieras.")}catch(e){fail(e)}finally{setBusy(false)}
  }
- function useInspection(){setEditingId(null);setSavedRevision(null);setCleanSnapshot("");setAssetSection(inspection?.theme?.sections?.[0]?.id||"hero");setTemplateAssets([]);setVersions([]);setChosenVersion("");setPreview(null);setDraft({name:inspection.name,sector:inspection.sector,description:"Importado desde ZIP ("+inspection.kind+"). Requiere revisión visual.",theme:inspection.theme});setTab("editor");flash("Borrador preparado. Revisa el diseño y guárdalo.") }
+ function useInspection(){setSelectedSectionId("");setEditingId(null);setSavedRevision(null);setCleanSnapshot("");setAssetSection(inspection?.theme?.sections?.[0]?.id||"hero");setTemplateAssets([]);setVersions([]);setChosenVersion("");setPreview(null);setDraft({name:inspection.name,sector:inspection.sector,description:"Importado desde ZIP ("+inspection.kind+"). Requiere revisión visual.",theme:inspection.theme});setTab("editor");flash("Borrador preparado. Revisa el diseño y guárdalo.") }
  async function showPreview(){
   if(!editingId||!chosenVersion||!target)return fail(new Error("Elige una versión y una tienda"));
   setBusy(true);try{const r=await previewFrontendDeployment(editingId,{version:Number(chosenVersion),storeId:target,replaceExisting});setPreview({id:editingId,version:chosenVersion,storeId:target,replaceExisting,...r.preview});flash("Simulación completada. Revisa los campos protegidos antes de publicar.")}catch(e){setPreview(null);fail(e)}finally{setBusy(false)}
@@ -84,7 +84,7 @@ export function FrontendsStudio(){
    else window.location.assign(data.url);
   }catch(e){if(tab)tab.close();fail(e)}
  }
- const selected=templates.find(t=>t.id===editingId),theme=draft.theme||{},targetStore=stores.find(s=>s.id===target);
+ const selected=templates.find(t=>t.id===editingId),theme=draft.theme||{},targetStore=stores.find(s=>s.id===target),activeSection=(theme.sections||[]).find(x=>x.id===selectedSectionId);
  return <div className="frontendStudio">
   <header><div><small>BRAVOSHOP CONTROL · DISEÑO MULTITIENDA</small><h1>Centro de Frontends</h1><p className="adminLead">Crea plantillas, edita secciones, importa referencias ZIP y actualiza tiendas sin perder personalizaciones.</p></div></header>
   <div className="designTopActions" style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18}}>
@@ -117,7 +117,7 @@ export function FrontendsStudio(){
     <label>Columnas de producto<select value={theme.product_columns||3} onChange={e=>patchTheme({product_columns:Number(e.target.value)})}><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
     <h3>Secciones de la portada</h3><p>Arrastra el icono de seis puntos para cambiar el orden; las flechas funcionan también con teclado.</p>
     {(theme.sections||[]).map((section,i)=><div className="sectionCard" key={section.id} style={{marginBottom:10,padding:10,outline:draggingSection===section.id?"2px dashed #777":undefined}} onDragOver={e=>{if(draggingSection){e.preventDefault();e.dataTransfer.dropEffect="move"}}} onDrop={e=>{if(!draggingSection)return;e.preventDefault();const originalIndex=theme.sections.findIndex(x=>x.id===draggingSection);if(originalIndex<0){setDraggingSection("");return}const rect=e.currentTarget.getBoundingClientRect();let target=i+(e.clientY>rect.top+rect.height/2?1:0);if(originalIndex<target)target--;patchTheme({sections:moveSectionToIndex(theme.sections,draggingSection,target)});setDraggingSection("")}}>
-      <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}><button type="button" draggable title="Arrastrar para reordenar" onDragStart={e=>{setDraggingSection(section.id);e.dataTransfer.setData("text/plain",section.id);e.dataTransfer.effectAllowed="move"}} onDragEnd={()=>setDraggingSection("")} style={{cursor:"grab"}}><GripVertical size={16}/></button><b style={{flex:1}}>{section.label}</b>
+      <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}><button type="button" draggable title="Arrastrar para reordenar" onDragStart={e=>{setDraggingSection(section.id);e.dataTransfer.setData("text/plain",section.id);e.dataTransfer.effectAllowed="move"}} onDragEnd={()=>setDraggingSection("")} style={{cursor:"grab"}}><GripVertical size={16}/></button><button type="button" className="ghost" style={{flex:1,textAlign:"left"}} onClick={()=>setSelectedSectionId(section.id)}>{section.label}</button>
        <button title="Mover arriba" disabled={i===0} onClick={()=>moveSection(i,-1)}><ArrowUp size={15}/></button>
        <button title="Mover abajo" disabled={i===theme.sections.length-1} onClick={()=>moveSection(i,1)}><ArrowDown size={15}/></button>
        <button title="Mostrar u ocultar" onClick={()=>patchSection(section.id,{visible:!section.visible})}><Eye size={15}/>{section.visible?"Visible":"Oculta"}</button>
@@ -145,7 +145,20 @@ export function FrontendsStudio(){
      </div>)}</>}
     {editingId&&<><hr/><h3>Crear actualización</h3>{asSnapshot(draft)!==cleanSnapshot&&<p role="status"><strong>Hay cambios sin guardar.</strong> Guarda el borrador antes de publicar.</p>}<p>El borrador guardado se convierte en una versión inmutable. No cambia ninguna tienda hasta que la instales.</p><label>Notas de versión<input value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} placeholder="Mejoras de portada y navegación"/></label><button disabled={busy||asSnapshot(draft)!==cleanSnapshot} onClick={release}><Send size={15}/> Publicar versión nueva</button></>}
    </article>
-   <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme}/>
+   <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme} selectedSectionId={selectedSectionId} onSelectSection={setSelectedSectionId}/>
+    {activeSection&&<div className="sectionCard" style={{padding:14,marginBottom:16,border:"2px solid #2b8a60"}} role="region" aria-label="Editor de la sección seleccionada">
+     <h3>Edición de {activeSection.label}</h3>
+     <p>Has seleccionado esta sección desde el escaparate. Los cambios se muestran antes de guardar o publicar.</p>
+     <label>Título<input value={activeSection.content?.title||""} onChange={e=>patchContent(activeSection.id,"title",e.target.value)}/></label>
+     <label>Descripción<textarea rows={3} value={activeSection.content?.text||""} onChange={e=>patchContent(activeSection.id,"text",e.target.value)}/></label>
+     <label>Botón<input value={activeSection.content?.button||""} onChange={e=>patchContent(activeSection.id,"button",e.target.value)}/></label>
+     <label>Destino del botón<input value={activeSection.content?.button_url||""} onChange={e=>patchContent(activeSection.id,"button_url",e.target.value)}/></label>
+     <label>Imagen<input value={activeSection.content?.image||""} onChange={e=>patchContent(activeSection.id,"image",e.target.value)}/></label>
+     <div style={{display:"flex",gap:10,alignItems:"center"}}>
+      <button className="ghost" type="button" onClick={()=>patchSection(activeSection.id,{visible:false})}>Ocultar sección</button>
+      <button className="ghost" type="button" onClick={()=>setSelectedSectionId("")}>Deseleccionar</button>
+     </div>
+    </div>}
     {editingId&&templateAssets.length>0&&<div className="sectionCard" style={{padding:12,marginBottom:16}}>
       <h3>Fotografías importadas ({templateAssets.length})</h3>
       <p>Selecciona una sección del diseño y aplica una imagen almacenada. No hace falta volver a subirla.</p>
