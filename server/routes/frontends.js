@@ -106,6 +106,22 @@ frontendsRouter.post("/zip/inspect",raw({type:["application/zip","application/oc
  if(!Buffer.isBuffer(req.body))return bad(res,"Envía un archivo ZIP válido");
  try{return res.json({inspection:inspectFrontendZip(req.body)})}catch(e){return bad(res,e.message)}
 });
+frontendsRouter.post("/stores/:storeId/preview-link",async(req,res)=>{
+ const id=req.params.storeId;
+ if(!validId(id))return bad(res,"Tienda inválida");
+ const store=await sql.query("select slug from stores where id=$1::uuid",[id]);
+ if(!store.length)return bad(res,"Tienda no encontrada",404);
+ const candidate=randomUUID();
+ const tokenRows=await sql.query("insert into store_settings(store_id,settings) values($1::uuid,jsonb_build_object('published',false,'preview_token',$2::text)) on conflict(store_id) do update set settings=case when length(coalesce(store_settings.settings->>'preview_token',''))>=32 then store_settings.settings else jsonb_set(coalesce(store_settings.settings,'{}'::jsonb),'{preview_token}',to_jsonb($2::text),true) end returning settings->>'preview_token' as preview_token",[id,candidate]);
+ const token=tokenRows[0]?.preview_token;
+ if(typeof token!=="string"||token.length<32)return bad(res,"No se pudo habilitar la vista previa",503);
+ const url=new URL("https://app.bravoshop.online/preview");
+ url.searchParams.set("host",store[0].slug+".bravoshop.online");
+ url.searchParams.set("studio","1");
+ url.searchParams.set("preview_token",token);
+ await audit(req,"frontend.preview.opened","store",id);
+ res.set("Cache-Control","private, no-store").json({url:url.toString()});
+});
 frontendsRouter.post("/stores/create",async(req,res)=>{
  const name=String(req.body?.name||"").trim().slice(0,120),slug=String(req.body?.slug||"").trim().toLowerCase();
  const ownerEmail=String(req.body?.ownerEmail||"").trim().toLowerCase();
