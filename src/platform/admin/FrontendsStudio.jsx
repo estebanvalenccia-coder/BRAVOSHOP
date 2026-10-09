@@ -155,6 +155,7 @@ export function FrontendsStudio(){
       <label>Título<input value={section.content?.title||""} onChange={e=>patchContent(section.id,"title",e.target.value)}/></label>
       <label>Texto<textarea rows={2} value={section.content?.text||""} onChange={e=>patchContent(section.id,"text",e.target.value)}/></label>
       <label>Imagen URL<input value={section.content?.image||""} onChange={e=>patchContent(section.id,"image",e.target.value)} placeholder="https://..."/></label>
+      {section.type==="hero"&&<label>Altura de portada: {section.content?.hero_height||440} px<input type="range" min="300" max="900" step="10" value={section.content?.hero_height||440} onChange={e=>patchContent(section.id,"hero_height",Number(e.target.value))}/></label>}
       {section.content?.image&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8}}>
        <label>Posición horizontal: {section.content.image_position_x??50}%<input type="range" min="0" max="100" value={section.content.image_position_x??50} onChange={e=>patchContent(section.id,"image_position_x",Number(e.target.value))}/></label>
        <label>Posición vertical: {section.content.image_position_y??50}%<input type="range" min="0" max="100" value={section.content.image_position_y??50} onChange={e=>patchContent(section.id,"image_position_y",Number(e.target.value))}/></label>
@@ -172,7 +173,7 @@ export function FrontendsStudio(){
      </div>)}</>}
     {editingId&&<><hr/><h3>Crear actualización</h3>{asSnapshot(draft)!==cleanSnapshot&&<p role="status"><strong>Hay cambios sin guardar.</strong> Guarda el borrador antes de publicar.</p>}<p>El borrador guardado se convierte en una versión inmutable. No cambia ninguna tienda hasta que la instales.</p><label>Notas de versión<input value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} placeholder="Mejoras de portada y navegación"/></label><button disabled={busy||asSnapshot(draft)!==cleanSnapshot} onClick={release}><Send size={15}/> Publicar versión nueva</button></>}
    </article>
-   <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme} selectedSectionId={selectedSectionId} onSelectSection={setSelectedSectionId} onInlineTextChange={(sectionId,field,value)=>{setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>section.id===sectionId?{...section,content:{...section.content,[field]:value}}:section)}}))}}/>
+   <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme} selectedSectionId={selectedSectionId} onSelectSection={setSelectedSectionId} onInlineTextChange={(sectionId,field,value)=>{setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>section.id===sectionId?{...section,content:{...section.content,[field]:value}}:section)}}))}} onSectionResize={(sectionId,height)=>{setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>section.id===sectionId?{...section,content:{...section.content,hero_height:height}}:section)}}))}}/>
     {activeSection&&<div className="sectionCard" style={{padding:14,marginBottom:16,border:"2px solid #2b8a60"}} role="region" aria-label="Editor de la sección seleccionada">
      <h3>Edición de {activeSection.label}</h3>
      <p>Has seleccionado esta sección desde el escaparate. Los cambios se muestran antes de guardar o publicar.</p>
@@ -181,6 +182,7 @@ export function FrontendsStudio(){
      <label>Botón<input value={activeSection.content?.button||""} onChange={e=>patchContent(activeSection.id,"button",e.target.value)}/></label>
      <label>Destino del botón<input value={activeSection.content?.button_url||""} onChange={e=>patchContent(activeSection.id,"button_url",e.target.value)}/></label>
      <label>Imagen<input value={activeSection.content?.image||""} onChange={e=>patchContent(activeSection.id,"image",e.target.value)}/></label>
+     {activeSection.type==="hero"&&<label>Altura de portada: {activeSection.content?.hero_height||440} px<input type="range" min="300" max="900" step="10" value={activeSection.content?.hero_height||440} onChange={e=>patchContent(activeSection.id,"hero_height",Number(e.target.value))}/></label>}
      <div style={{display:"flex",gap:10,alignItems:"center"}}>
       <button className="ghost" type="button" onClick={()=>patchSection(activeSection.id,{visible:false})}>Ocultar sección</button>
       <button className="ghost" type="button" onClick={()=>setSelectedSectionId("")}>Deseleccionar</button>
