@@ -19,7 +19,7 @@ async function canUsePremiumTemplate(storeId){
   limit 1`;
  return rows.length>0;
 }
-storesRouter.get("/",async(req,res)=>{await sql`select bravoshop_expire_billing_access(200)`;const rows=await sql`select s.*,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme,(select count(*)::int from products p where p.store_id=s.id and p.status='active') as published_products from stores s join store_members sm on sm.store_id=s.id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where sm.user_id=${req.user.id}::uuid and sm.status='active' order by s.created_at desc`;res.json({stores:rows})});
+storesRouter.get("/",async(req,res)=>{await sql`select bravoshop_expire_billing_access(200)`;const rows=await sql`select s.*,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme,(select count(*)::int from products p where p.store_id=s.id and p.status='active') as published_products from stores s join store_members sm on sm.store_id=s.id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where sm.user_id=${req.user.id}::uuid and sm.status='active' and s.status<>'scheduled_for_deletion' order by s.created_at desc`;res.json({stores:rows})});
 storesRouter.post("/",storeCreationLimiter,async(req,res)=>{
  const{name,slug,sector,theme={},settings={},features=[]}=req.body||{};
  const keyHeader=req.get("Idempotency-Key")||"";
@@ -76,6 +76,31 @@ storesRouter.post("/",storeCreationLimiter,async(req,res)=>{
   }
  }
  return res.status(409).json({error:"No se pudo reservar un subdominio disponible"});
+});
+
+// Retire a store from the merchant's account without cascading away legally
+// relevant orders, invoices, payments, refunds or customer history.
+storesRouter.delete("/:storeId",requireStore,async(req,res)=>{
+ if(req.membership?.role!=="owner")return res.status(403).json({error:"Solo el propietario puede eliminar esta tienda"});
+ const confirmSlug=req.body?.confirm_slug;
+ if(typeof confirmSlug!=="string"||confirmSlug!==req.store.slug)
+  return res.status(400).json({error:"Escribe exactamente el subdominio de la tienda para confirmar"});
+ const rows=await sql`select bravoshop_retire_store(${req.storeId}::uuid,${req.user.id}::uuid,${confirmSlug}) as result`;
+ const result=rows[0]?.result||{};
+ if(!result.ok){
+  const messages={
+   not_found:"Tienda no encontrada",
+   owner_required:"Solo el propietario puede eliminar la tienda",
+   confirmation_mismatch:"La confirmación no coincide con el subdominio",
+   billing_active:"Cancela la suscripción de Stripe y espera a que termine el periodo contratado",
+   refunds_pending:"Hay reembolsos pendientes; resuélvelos antes de eliminar la tienda",
+   orders_pending:"Hay pedidos sin entregar o importes de reembolso reservados",
+   payments_pending:"Hay pagos Stripe en curso; resuélvelos antes de eliminar la tienda"
+  };
+  return res.status(result.reason==="not_found"?404:result.reason==="owner_required"?403:409)
+   .json({code:result.reason||"STORE_RETIREMENT_BLOCKED",error:messages[result.reason]||"No se puede eliminar la tienda todavía"});
+ }
+ res.json({ok:true,retired:true,note:"La tienda ya no es pública ni aparece en tu panel. La información comercial y fiscal se conserva para su revisión legal."});
 });
 storesRouter.put("/:storeId/payments/preferences",requireStore,requirePermission("payments.manage"),async(req,res)=>{const country=String(req.body?.country||"").trim().toUpperCase();const currency=String(req.body?.default_currency||"").trim().toUpperCase();if(!/^[A-Z]{2}$/.test(country)||!/^[A-Z]{3}$/.test(currency))return res.status(400).json({error:"País o divisa inválidos"});const linked=await sql`select provider_account_id,country,default_currency from store_payment_accounts where store_id=${req.storeId}::uuid`;if(linked[0]?.provider_account_id&&(linked[0].country!==country||linked[0].default_currency!==currency))return res.status(409).json({code:"STRIPE_ACCOUNT_IDENTITY_LOCKED",error:"La cuenta Stripe ya está vinculada. El país y la divisa se gestionan desde Stripe Express y no pueden cambiarse aquí."});await sql`insert into store_payment_accounts(store_id,provider,status,country,default_currency) values(${req.storeId}::uuid,'stripe','not_connected',${country},${currency}) on conflict(store_id) do update set country=excluded.country,default_currency=excluded.default_currency,updated_at=now()`;res.json({ok:true,country,default_currency:currency})});
 storesRouter.post("/:storeId/payments/connect",requireStore,requirePermission("payments.manage"),async(req,res)=>{
