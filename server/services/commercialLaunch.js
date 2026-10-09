@@ -42,5 +42,5 @@ export function evaluatePilotStore(row,platform={}){
 export function commercialPilotSummary(stores,{paidOrders=0,storesTotal=0,activeProducts=0,connectedStripe=0}={}){
  const ready=stores.filter(x=>x.ready).length;
  return {storesTotal,activeProducts,connectedStripe,paidOrders,readyInSample:ready,checkedStores:stores.length,
-  paymentsVerified:paidOrders>0,commercialLaunchValidated:ready>0&&paidOrders>0};
+  stripeOrdersRecorded:paidOrders>0,requiresManualCheckoutAndRefundProof:true};
 }
