@@ -9,6 +9,13 @@ import{getTemplate,templateSections}from"../../src/platform/config/storeTemplate
 
 export const frontendsRouter=Router();
 frontendsRouter.use(requireAuth,requireSuperAdmin);
+frontendsRouter.use((req,res,next)=>{
+ const origin=req.get("origin");
+ const local=process.env.NODE_ENV!=="production"&&["http://localhost:5173","http://127.0.0.1:5173"].includes(origin);
+ if(origin&&origin!=="https://admin.bravoshop.online"&&!local)return res.status(403).json({error:"Origen no autorizado para BravoShop Control"});
+ if(!["GET","HEAD","OPTIONS"].includes(req.method)&&!origin)return res.status(403).json({error:"Origen requerido para cambios administrativos"});
+ next();
+});
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const RESERVED=new Set(["admin","app","api","www","support","status","shop","store","stores","checkout","billing","auth","platform","root","system","internal"]);
@@ -61,9 +68,10 @@ frontendsRouter.get("/:id/versions",needId,async(req,res)=>{
 async function planDeployment(id,version,storeId,replace){
  const versionRows=await sql.query("select theme from platform_frontend_versions where template_id=$1::uuid and version=$2",[id,version]);
  if(!versionRows.length)return {error:"Versión no encontrada",status:404};
- const rows=await sql.query("select s.id,s.name,st.theme,d.template_id,d.baseline_theme from stores s join store_theme st on st.store_id=s.id left join store_frontend_deployments d on d.store_id=s.id where s.id=$1::uuid",[storeId]);
+ const rows=await sql.query("select s.id,s.name,st.theme,d.template_id,d.baseline_theme,td.version as draft_version,td.published_version from stores s join store_theme st on st.store_id=s.id left join store_frontend_deployments d on d.store_id=s.id left join store_theme_drafts td on td.store_id=s.id where s.id=$1::uuid",[storeId]);
  if(!rows.length)return {error:"Tienda no encontrada",status:404};
  const old=rows[0];
+ if(old.draft_version>old.published_version)return {error:"El comerciante tiene un borrador sin publicar. Espera a que lo publique o descarte.",status:409};
  if((!old.template_id||old.template_id!==id)&&!replace)return {error:"La primera instalación requiere confirmar la sustitución del diseño",status:409};
  const current=old.theme||{},base=old.template_id===id?old.baseline_theme:null;
  const proposed=base?mergeMerchantTheme(base,current,versionRows[0].theme):{theme:versionRows[0].theme,protectedFields:[]};
@@ -83,9 +91,12 @@ frontendsRouter.post("/:id/deploy",needId,async(req,res)=>{
  for(const storeId of storeIds){
   const plan=await planDeployment(req.params.id,version,storeId,req.body?.replaceExisting===true);
   if(plan.error){results.push({storeId,ok:false,error:plan.error});continue}
-  // Optimistic compare-and-swap: never overwrite edits saved by a merchant during deployment.
-  const applied=await sql.query("with changed as (update store_theme set theme=$1::jsonb where store_id=$2::uuid and theme=$3::jsonb returning store_id) insert into store_frontend_deployments(store_id,template_id,version,baseline_theme) select store_id,$4::uuid,$5,$6::jsonb from changed on conflict(store_id) do update set template_id=excluded.template_id,version=excluded.version,baseline_theme=excluded.baseline_theme,updated_at=now() returning store_id",[JSON.stringify(plan.theme),storeId,JSON.stringify(plan.current),req.params.id,version,JSON.stringify((await sql.query("select theme from platform_frontend_versions where template_id=$1::uuid and version=$2",[req.params.id,version]))[0].theme)]);
-  if(!applied.length){results.push({storeId,ok:false,error:"La tienda cambió mientras se actualizaba. Revisa y vuelve a intentarlo."});continue}
+  const baseline=(await sql.query("select theme from platform_frontend_versions where template_id=$1::uuid and version=$2",[req.params.id,version]))[0].theme;
+  const rows=await sql.query("select bravoshop_admin_deploy_frontend($1::uuid,$2::uuid,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7::uuid) as applied_version",[storeId,req.params.id,version,JSON.stringify(plan.current),JSON.stringify(plan.theme),JSON.stringify(baseline),req.user.id]);
+  const applied=Number(rows[0]?.applied_version);
+  if(applied===0){results.push({storeId,ok:false,error:"El comerciante ha empezado a editar un borrador. No se ha cambiado su tienda."});continue}
+  if(applied===-1){results.push({storeId,ok:false,error:"La tienda cambió durante la actualización. Revisa y vuelve a intentar."});continue}
+  if(!(applied>0)){results.push({storeId,ok:false,error:"No se pudo aplicar la actualización."});continue}
   await audit(req,"frontend.deployed","store",storeId,{template_id:req.params.id,version,protected_fields:plan.protectedFields});
   results.push({storeId,ok:true,protectedFields:plan.protectedFields});
  }
