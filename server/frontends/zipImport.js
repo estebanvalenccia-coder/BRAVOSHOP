@@ -124,19 +124,25 @@ export function prepareFrontendZip(input){
  }
  const images=[];
  let totalBytes=0;
- for(const ref of refs){
-  if(images.some(x=>x.path===ref.path))continue;
+ // Copy eligible image assets even when referenced from JSX/CSS instead of HTML.
+ // A local reference is needed to place an image automatically in a section.
+ const candidates=[...new Set([...refs.map(r=>r.path),...zip.files.filter(f=>isImageName(f.name)&&!f.name.split("/").some(n=>n.startsWith("."))).map(f=>f.name)])];
+ for(const assetPath of candidates){
   if(images.length>=MAX_IMAGES)break;
-  const file=fileMap.get(ref.path);if(!file||file.rawSize>MAX_IMAGE)continue;
+  const file=fileMap.get(assetPath);if(!file||file.rawSize>MAX_IMAGE)continue;
   const bytes=zip.extract(file,MAX_IMAGE);if(!bytes)continue;
-  const mime=identify(bytes,ref.path);if(!mime)continue;
+  const mime=identify(bytes,assetPath);if(!mime)continue;
   if(totalBytes+bytes.length>MAX_IMAGE_TOTAL)continue;
   totalBytes+=bytes.length;
-  images.push({path:ref.path,mime,size:bytes.length,bytes});
+  images.push({path:assetPath,mime,size:bytes.length,bytes});
  }
  const validPaths=new Set(images.map(x=>x.path));
  refs=refs.filter(r=>validPaths.has(r.path));
- const moreHtml=htmls.length>5,missedImages=refs.length===0&&zip.files.some(f=>isImageName(f.name));
+ if(kind==="html_reference"&&!refs.some(r=>r.sectionId==="hero")){
+  const heroCandidate=images.find(x=>/(?:^|[/_-])(hero|cover|banner|portada|principal)(?:[._/-]|$)/i.test(x.path));
+  if(heroCandidate)refs.push({sectionId:"hero",path:heroCandidate.path,key:"image"});
+ }
+ const moreHtml=htmls.length>5,missedImages=images.length===0&&zip.files.some(f=>isImageName(f.name));
  const warning=kind==="html_reference"?"El diseño HTML se convierte a bloques editables. Scripts, CSS, rutas y lógica de pago NO se ejecutan ni se importan.":"Solo se importan los campos permitidos del manifiesto; no se ejecuta código.";
  const warnings=[warning,"Las imágenes solo se guardan al pulsar «Importar como plantilla».",...(missedImages?["Hay imágenes en el ZIP sin referencias locales compatibles; revisa y súbelas manualmente."]:[]),...(moreHtml?["Se han detectado más páginas; se han usado las primeras cuatro páginas secundarias."]:[])];
  const inspection={kind,name,sector,theme,files:allNames,assets:images.map(({path,mime,size})=>({path,mime,size})),asset_refs:refs,pages,warnings};
