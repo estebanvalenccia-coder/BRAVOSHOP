@@ -63,6 +63,12 @@ frontendsRouter.post("/:id/release",needId,async(req,res)=>{
  await audit(req,"frontend.release.created","frontend_template",req.params.id,{version:rows[0].version});
  res.status(201).json({release:rows[0]});
 });
+frontendsRouter.get("/:id/assets",needId,async(req,res)=>{
+ const template=await sql.query("select 1 from platform_frontend_templates where id=$1::uuid",[req.params.id]);
+ if(!template.length)return bad(res,"Plantilla no encontrada",404);
+ const assets=await sql.query("select id,original_path,public_url,mime_type,size_bytes,created_at from platform_frontend_assets where template_id=$1::uuid order by created_at asc limit 100",[req.params.id]);
+ res.json({assets});
+});
 frontendsRouter.get("/:id/versions",needId,async(req,res)=>{
  const rows=await sql.query("select template_id,version,notes,published_at from platform_frontend_versions where template_id=$1::uuid order by version desc limit 60",[req.params.id]);
  res.json({versions:rows});
