@@ -70,9 +70,9 @@ export function StoreImport({stores,onClose,onCreate,onImported}){
    {parsed&&<section style={{background:"#f5f7f4",padding:16,borderRadius:12,margin:"16px 0"}}>
     <b>{fileName}</b>
     <p>Origen detectado: <strong>{parsed.source}</strong> · {parsed.products.length} productos · {parsed.variantCount} variantes · {parsed.skipped} filas omitidas</p>
-    <p style={{fontSize:13}}>Vista previa de los primeros productos (todos quedarán sin publicar).</p>
+    <p style={{fontSize:13}}>Vista previa de los primeros productos. Se conservarán sus categorías y todos quedarán sin publicar.</p>
     <div style={{maxHeight:155,overflowY:"auto"}}>
-     {parsed.products.slice(0,5).map((p,i)=><div key={i} style={{padding:"7px 0",borderBottom:"1px solid #dde1dc"}}><strong>{p.name}</strong> <span>· {p.variants.length} variantes · {p.variants[0].price} precio inicial</span></div>)}
+     {parsed.products.slice(0,5).map((p,i)=><div key={i} style={{padding:"7px 0",borderBottom:"1px solid #dde1dc"}}><strong>{p.name}</strong> <span>· {p.variants.length} variantes · {p.variants[0].price} precio inicial{p.categories?.length?" · "+p.categories.join(", "):""}</span></div>)}
     </div>
    </section>}
    {error&&<p role="alert" style={{color:"#a32222",fontWeight:600}}>{error}</p>}
