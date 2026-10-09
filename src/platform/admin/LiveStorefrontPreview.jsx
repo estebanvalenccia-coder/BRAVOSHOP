@@ -60,7 +60,7 @@ export function LiveStorefrontPreview({stores,theme}){
     <div style={{width:active.width,maxWidth:device==="desktop"?"100%":undefined,margin:"auto",transition:"width .18s ease"}}>
      <iframe ref={frameRef} title={"Vista previa "+(selected?.name||"tienda")} src={url}
       style={{border:"1px solid #bbb",borderRadius:8,width:"100%",height:620,background:"white",display:"block"}}
-      referrerPolicy="strict-origin-when-cross-origin" onLoad={sendCurrent}/>
+      sandbox="allow-scripts allow-same-origin allow-forms" referrerPolicy="strict-origin-when-cross-origin" onLoad={sendCurrent}/>
     </div>
     <p style={{fontSize:12,margin:"8px 0 2px",textAlign:"center"}}>{ready?"Diseño sincronizado con el escaparate":"Conectando con el escaparate…"} · {active.name}</p>
    </div>}
