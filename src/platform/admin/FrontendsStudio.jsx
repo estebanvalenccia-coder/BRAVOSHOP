@@ -104,6 +104,16 @@ export function FrontendsStudio(){
     <label>Descripción<textarea rows={2} value={draft.description} onChange={e=>patch({description:e.target.value})}/></label>
     <label>Color principal<input type="color" value={/^#[0-9a-f]{6}$/i.test(theme.primary_color||"")?theme.primary_color:"#315b42"} onChange={e=>patchTheme({primary_color:e.target.value})}/></label>
     <label>Texto de anuncio<input value={theme.announcement||""} onChange={e=>patchTheme({announcement:e.target.value})}/></label>
+    <label>Tipografía<select value={theme.font_style||"modern"} onChange={e=>patchTheme({font_style:e.target.value})}><option value="editorial">Editorial</option><option value="modern">Moderna</option><option value="friendly">Cercana</option></select></label>
+    <label>Anchura del contenido<select value={theme.content_width||"wide"} onChange={e=>patchTheme({content_width:e.target.value})}><option value="contained">Contenida</option><option value="wide">Amplia</option><option value="full">Pantalla completa</option></select></label>
+    <label>URL del logo<input value={theme.logo||""} onChange={e=>patchTheme({logo:e.target.value})} placeholder="https://..."/></label>
+    <h3>Navegación principal</h3>
+    {(theme.menu||[]).map((link,i)=><div key={i} className="sectionCard" style={{padding:8,marginBottom:6}}>
+      <label>Etiqueta<input value={link.label} maxLength={100} onChange={e=>patchTheme({menu:theme.menu.map((m,n)=>n===i?{...m,label:e.target.value}:m)})}/></label>
+      <label>Destino<input value={link.url} maxLength={500} placeholder="#catalog" onChange={e=>patchTheme({menu:theme.menu.map((m,n)=>n===i?{...m,url:e.target.value}:m)})}/></label>
+      <button type="button" className="ghost" onClick={()=>patchTheme({menu:theme.menu.filter((_,n)=>n!==i)})}>Quitar enlace</button>
+    </div>)}
+    <button type="button" className="ghost" disabled={(theme.menu?.length||0)>=25} onClick={()=>patchTheme({menu:[...(theme.menu||[]),{label:"Nuevo enlace",url:"#catalog"}]})}><Plus size={15}/> Agregar enlace</button>
     <label>Columnas de producto<select value={theme.product_columns||3} onChange={e=>patchTheme({product_columns:Number(e.target.value)})}><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
     <h3>Secciones de la portada</h3><p>Arrastra el icono de seis puntos para cambiar el orden; las flechas funcionan también con teclado.</p>
     {(theme.sections||[]).map((section,i)=><div className="sectionCard" key={section.id} style={{marginBottom:10,padding:10,outline:draggingSection===section.id?"2px dashed #777":undefined}} onDragOver={e=>{if(draggingSection){e.preventDefault();e.dataTransfer.dropEffect="move"}}} onDrop={e=>{if(!draggingSection)return;e.preventDefault();const originalIndex=theme.sections.findIndex(x=>x.id===draggingSection);if(originalIndex<0){setDraggingSection("");return}const rect=e.currentTarget.getBoundingClientRect();let target=i+(e.clientY>rect.top+rect.height/2?1:0);if(originalIndex<target)target--;patchTheme({sections:moveSectionToIndex(theme.sections,draggingSection,target)});setDraggingSection("")}}>
@@ -114,9 +124,15 @@ export function FrontendsStudio(){
        <button title="Duplicar" onClick={()=>copySection(section,i)}><Copy size={15}/></button>
        <button title="Eliminar" disabled={theme.sections.length===1} onClick={()=>patchTheme({sections:theme.sections.filter(x=>x.id!==section.id)})}><Trash2 size={15}/></button>
       </div>
+      <label>Antetítulo<input value={section.content?.eyebrow||""} onChange={e=>patchContent(section.id,"eyebrow",e.target.value)}/></label>
       <label>Título<input value={section.content?.title||""} onChange={e=>patchContent(section.id,"title",e.target.value)}/></label>
       <label>Texto<textarea rows={2} value={section.content?.text||""} onChange={e=>patchContent(section.id,"text",e.target.value)}/></label>
       <label>Imagen URL<input value={section.content?.image||""} onChange={e=>patchContent(section.id,"image",e.target.value)} placeholder="https://..."/></label>
+      {section.content?.image&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8}}>
+       <label>Posición horizontal: {section.content.image_position_x??50}%<input type="range" min="0" max="100" value={section.content.image_position_x??50} onChange={e=>patchContent(section.id,"image_position_x",Number(e.target.value))}/></label>
+       <label>Posición vertical: {section.content.image_position_y??50}%<input type="range" min="0" max="100" value={section.content.image_position_y??50} onChange={e=>patchContent(section.id,"image_position_y",Number(e.target.value))}/></label>
+       <label>Zoom: {section.content.image_zoom??100}%<input type="range" min="60" max="200" value={section.content.image_zoom??100} onChange={e=>patchContent(section.id,"image_zoom",Number(e.target.value))}/></label>
+      </div>}
       <label>Texto del botón<input value={section.content?.button||""} onChange={e=>patchContent(section.id,"button",e.target.value)}/></label>
       <label>Enlace del botón<input value={section.content?.button_url||""} onChange={e=>patchContent(section.id,"button_url",e.target.value)}/></label>
     </div>)}
