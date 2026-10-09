@@ -29,13 +29,13 @@ Registro de requisitos procedentes del diálogo con el propietario. Este archivo
 - [x] Vista previa con escaparate real (productos de tienda seleccionada) y tema temporal enviado desde Super Admin, con tamaños móvil/tablet/desktop (Centro de Frontends, octubre de 2026).\n- [ ] Previsualización fideligna por dispositivo de frontend existente **y del borrador** sin publicar, mediante ruta aislada.
 - [x] Importación confirmada de imágenes ZIP locales en almacenamiento propio, con asociación segura a la plantilla y selector visual (PR #26).
 - [ ] Biblioteca de recursos multimedia compartidos con permisos/licencias y reutilización por plantillas.
-- [x] Ordenación arrastrando secciones, tipografías, logo, enlaces del menú y controles de posición/zoom de imágenes (Centro de Frontends, octubre de 2026).\n- [ ] Drag-and-drop completo, edición en el lienzo, cuadrícula, tipografías, navegación y componentes reutilizables.
+- [x] Ordenación arrastrando secciones, tipografías, logo, enlaces del menú y controles de posición/zoom de imágenes (Centro de Frontends, octubre de 2026).\n- [x] Selección de secciones directamente sobre el escaparate real y edición en inspector sincronizado (PR #29).\n- [ ] Drag-and-drop completo, edición en el lienzo, cuadrícula, tipografías, navegación y componentes reutilizables.
 - [ ] Edición de funcionalidades de botones con acciones permitidas, sin ejecutar JavaScript arbitrario.
 - [x] Actualización manual de hasta 25 tiendas por lote con prevalidación y resultado individual, sin borrar borradores (PR #27).
 - [ ] Actualizaciones masivas por tipo de plantilla o conjunto de tiendas, con lotes, estado y compensaciones/reintentos.
 - [ ] Política de adopción automática opt-in, exclusiones por tienda y mantenimiento de overrides por campo (más fino que por sección).
 - [ ] Diferenciar actualizaciones de diseño de cambios de código/funcionalidades, con tests y release independiente.
-- [x] Restauración de una versión publicada al borrador central con revisión optimista; no modifica tiendas instaladas (Centro de Frontends, octubre de 2026).\n- [ ] Revertir una actualización de forma fiable con vista previa por tienda y registro.
+- [x] Restauración de una versión publicada al borrador central con revisión optimista; no modifica tiendas instaladas (Centro de Frontends, octubre de 2026).\n- [x] Restauración de una versión anterior de la misma plantilla en una tienda seleccionada, con previsualización de conflictos, registro de reversión y control de concurrencia (PR #29).\n- [ ] Restauración en masa con reintentos, exclusiones y compensación automática.
 - [ ] Importación/exportación de plantillas BravoShop y procedencia/historial.
 - [ ] Importación guiada desde GitHub y ZIP de React/Vite/HTML: mapa de componentes, imágenes, páginas y conexiones con catálogo, checkout y pagos; sandbox sin ejecución privilegiada.
 - [ ] Duplicación segura de tienda sin copiar credenciales, pedidos, datos personales ni cuentas Stripe.
