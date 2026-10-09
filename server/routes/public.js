@@ -1,5 +1,5 @@
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{normalizePublicHost,selectPublicStoreHost}from"../security/publicHost.js";import{isPreviewContentRequest}from"../security/publicPreviewRoutes.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
-import{requiresCurrencyMinorUnitUpgrade,isValidTwoDecimalStripeAmount}from"../services/paymentCurrency.js";
+import{requiresCurrencyMinorUnitUpgrade,isValidTwoDecimalStripeAmount,meetsStripeMinimumCharge,merchantStripeAccountReady,checkoutControlEnabled}from"../services/paymentCurrency.js";
 export const publicRouter=Router();
 publicRouter.get("/plans",async(_req,res)=>{const rows=await sql`select name,slug,monthly_price,annual_price,currency,trial_days,metadata from plans where status=\'active\' and is_public=true order by coalesce(monthly_price,999999),name`;res.json({plans:rows})});
 publicRouter.param("token",(req,res,next,token)=>{
@@ -119,7 +119,17 @@ publicRouter.post("/newsletter/unsubscribe/:token",newsletterLimiter,async(req,r
  if(!rows.length)return res.status(404).json({error:"Suscripción no encontrada"});
  res.json({ok:true});
 });
-publicRouter.get("/payment-config",requirePublicStore,async(req,res)=>{const rows=await sql`select provider,provider_account_id,charges_enabled from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;const p=rows[0];if(!p||p.provider!=="stripe"||!p.provider_account_id||!p.charges_enabled)return res.status(503).json({error:"La tienda todavía no tiene pagos habilitados"});const publishableKey=process.env.STRIPE_PUBLISHABLE_KEY;if(!publishableKey||!publishableKey.startsWith("pk_"))return res.status(503).json({error:"Stripe público pendiente de configuración"});res.json({provider:"stripe",publishable_key:publishableKey,account_id:p.provider_account_id})});
+publicRouter.get("/payment-config",requirePublicStore,async(req,res)=>{
+ if(!await publicFeatureEnabled(req.publicStore.id,"checkout"))return res.status(503).json({error:"El checkout está desactivado"});
+ const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
+ if(!checkoutControlEnabled(controls))return res.status(503).json({error:"Checkout temporalmente desactivado"});
+ const rows=await sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;
+ const p=rows[0];
+ if(!merchantStripeAccountReady(p))return res.status(503).json({error:"La cuenta Stripe de la tienda no está habilitada para cobros y transferencias"});
+ const publishableKey=process.env.STRIPE_PUBLISHABLE_KEY;
+ if(!publishableKey||!publishableKey.startsWith("pk_"))return res.status(503).json({error:"Stripe público pendiente de configuración"});
+ res.json({provider:"stripe",publishable_key:publishableKey,account_id:p.provider_account_id});
+});
 publicRouter.get("/blog/posts",requirePublicStore,async(req,res)=>{
  if(!await publicFeatureEnabled(req.publicStore.id,"blog"))return res.status(404).json({error:"Blog no disponible"});
  const rows=await sql`select b.id,b.title,b.slug,b.excerpt,b.published_at,m.public_url as cover_url
@@ -203,7 +213,7 @@ publicRouter.get("/shipping-rates",requirePublicStore,async(req,res)=>{
 publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	if(!await publicFeatureEnabled(req.publicStore.id,"checkout"))return res.status(503).json({error:"La tienda no tiene el checkout activado"});
 	const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
-	if(controls.length&&!controls[0].enabled)return res.status(503).json({error:"Checkout temporalmente desactivado"});
+	if(!checkoutControlEnabled(controls))return res.status(503).json({error:"Checkout temporalmente desactivado"});
 	const settings=req.publicStore.settings||{};
  const legalReady=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
  if(!legalReady)return res.status(503).json({error:"Completa la información legal antes de aceptar pedidos"});
@@ -215,7 +225,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
  const paymentRows=await sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled,default_currency from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;
 	const paymentAccount=paymentRows[0];
 	const platformPaymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET);
-	if(!platformPaymentsReady||paymentAccount?.provider!=="stripe"||paymentAccount?.status!=="active"||!paymentAccount?.provider_account_id||!paymentAccount?.charges_enabled||!paymentAccount?.payouts_enabled)return res.status(503).json({error:"La tienda todavía no está lista para aceptar pagos"});
+	if(!platformPaymentsReady||!merchantStripeAccountReady(paymentAccount))return res.status(503).json({error:"La tienda todavía no está lista para aceptar pagos"});
 	const normalized=[];
 	let subtotalCents=0;
 	for(const item of req.body.items){
@@ -298,6 +308,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 		:0;
 	const totalCents=taxableSubtotalCents+shippingCents+taxCents;
 	if(!Number.isSafeInteger(totalCents)||!isValidTwoDecimalStripeAmount(totalCents/100))return res.status(422).json({error:"El importe excede los límites de cobro admitidos para esta moneda"});
+ if(!meetsStripeMinimumCharge(totalCents,currency))return res.status(422).json({error:"El total es inferior al mínimo de cobro de Stripe. Añade productos o ajusta el descuento"});
 	const subtotal=subtotalCents/100;
 	const discount=discountCents/100;
 	const shipping=shippingCents/100;
@@ -367,7 +378,7 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
  const rows=await sql`
   select c.id,c.store_id,c.status,c.currency,c.total,
    s.status as store_status,pa.provider,pa.status as account_status,
-   pa.charges_enabled,pa.provider_account_id
+   pa.charges_enabled,pa.payouts_enabled,pa.provider_account_id
   from checkout_sessions c
   join stores s on s.id=c.store_id
   left join store_payment_accounts pa on pa.store_id=c.store_id
@@ -384,16 +395,19 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
   if(prior.length){await enqueueOrderNotification({storeId:c.store_id,orderId:prior[0].id,type:"order.confirmed"});return res.json({provider:"free",status:"completed",order_id:prior[0].id})}
   return res.status(409).json({error:"Checkout ya pagado"});
  }
+ const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
+ if(!checkoutControlEnabled(controls))return res.status(503).json({error:"Checkout temporalmente desactivado por la plataforma"});
  if(requiresCurrencyMinorUnitUpgrade(c.currency))return res.status(422).json({error:"Esta moneda aún no admite cobros seguros en BravoShop"});
  if(!isValidTwoDecimalStripeAmount(c.total))return res.status(422).json({error:"Importe no admitido por Stripe. Contacta con la tienda"});
+ if(!meetsStripeMinimumCharge(Math.round(Number(c.total)*100),c.currency))return res.status(422).json({error:"Total inferior al mínimo de Stripe. Crea un carrito con otro importe"});
  const billingState=await sql`select bravoshop_refresh_store_billing(${c.store_id}::uuid) as status`;
  c.store_status=billingState[0]?.status||c.store_status;
  if(!await publicFeatureEnabled(c.store_id,"checkout"))
   return res.status(503).json({error:"La tienda ha desactivado temporalmente el checkout"});
  if(!["active","trial"].includes(c.store_status))
   return res.status(423).json({error:"Tienda no disponible"});
- if(c.provider!=="stripe"||!c.provider_account_id||!c.charges_enabled)
-  return res.status(503).json({error:"La tienda todavía no tiene pagos reales habilitados"});
+ if(!merchantStripeAccountReady({...c,status:c.account_status}))
+  return res.status(503).json({error:"La cuenta Stripe ya no está habilitada para cobros y transferencias"});
  if(!process.env.STRIPE_SECRET_KEY)
   return res.status(503).json({error:"Proveedor de pagos pendiente de configuración"});
  await sql`select bravoshop_release_expired_inventory_reservations()`;
