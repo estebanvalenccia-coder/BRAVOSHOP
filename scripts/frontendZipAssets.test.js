@@ -62,3 +62,24 @@ test("solo incorpora imágenes con firmas compatibles, nunca contenido JS renomb
  assert.equal(result.assets.length,0);
  assert.equal(result.asset_refs.length,0);
 });
+
+test("detecta fotos de un build React aunque index.html no incluya imágenes",()=>{
+ const result=inspectFrontendZip(zip([
+  ["dist/index.html",'<html><title>Herencia React</title><div id="root"></div><script type="module" src="assets/app.js"></script></html>'],
+  ["dist/assets/hero.png",png],
+  ["dist/assets/logo.png",png]
+ ]));
+ assert.equal(result.kind,"html_reference");
+ assert.equal(result.assets.length,2);
+ assert.equal(result.asset_refs.find(x=>x.sectionId==="hero")?.path,"dist/assets/hero.png");
+ assert.equal(result.theme.sections[0].content.image,"");
+});
+test("marca fotos no enlazadas para selección posterior, no las inserta como contenido ejecutable",()=>{
+ const result=inspectFrontendZip(zip([
+  ["index.html",'<title>Shop</title><h1>Plantillas</h1>'],
+  ["assets/producto.png",png]
+ ]));
+ assert.equal(result.assets.length,1);
+ assert.equal(result.asset_refs.length,0);
+ assert.equal(result.theme.sections[0].content.image,"");
+});
