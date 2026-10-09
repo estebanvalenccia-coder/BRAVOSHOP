@@ -248,6 +248,31 @@ storesRouter.get("/:storeId/payments",requireStore,requirePermission("payments.r
  const fallback=await sql`select settings from store_settings where store_id=${req.storeId}::uuid limit 1`;
  res.json({payment_account:{provider:"stripe",status:"not_connected",provider_account_id:null,charges_enabled:false,payouts_enabled:false,details_submitted:false,default_currency:fallback[0]?.settings?.currency||"EUR",country:fallback[0]?.settings?.country||null},platform});
 });
+// Create a preview capability on demand. Legacy stores might have no token,
+// so building a URL from stale frontend settings produces a cross-origin 400.
+// Keep strict tenant host checks: only an authenticated store reader gets a link.
+storesRouter.post("/:storeId/preview-link",requireStore,requirePermission("store.read"),async(req,res)=>{
+ const candidate=randomUUID();
+ const rows=await sql`
+  insert into store_settings(store_id,settings)
+  values(${req.storeId}::uuid,jsonb_build_object('published',false,'preview_token',${candidate}))
+  on conflict(store_id) do update
+  set settings=case
+   when length(coalesce(store_settings.settings->>'preview_token',''))>=32
+    then store_settings.settings
+   else jsonb_set(coalesce(store_settings.settings,'{}'::jsonb),'{preview_token}',to_jsonb(${candidate}::text),true)
+  end
+  returning settings->>'preview_token' as preview_token
+ `;
+ const token=rows[0]?.preview_token;
+ if(typeof token!=="string"||token.length<32)return res.status(503).json({error:"No se pudo habilitar la vista previa de esta tienda"});
+ const hostname=req.store.slug+".bravoshop.online";
+ const url=new URL("https://app.bravoshop.online/preview");
+ url.searchParams.set("host",hostname);
+ url.searchParams.set("studio","1");
+ url.searchParams.set("preview_token",token);
+ return res.set("Cache-Control","private, no-store").json({url:url.toString()});
+});
 storesRouter.get("/:storeId",requireStore,requirePermission("store.read"),async(req,res)=>{const rows=await sql`select s.*,ss.settings,st.theme from stores s left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where s.id=${req.storeId}::uuid`;if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});const features=await sql`select feature_key,enabled,config from store_features where store_id=${req.storeId}::uuid`;res.json({store:{...rows[0],role:req.membership.role,permissions:req.permissions,features}})});
 storesRouter.patch("/:storeId",requireStore,requirePermission("store.update"),async(req,res)=>{const{name,sector,theme,settings}=req.body||{};if(theme?.template==="premium-organic"&&!await canUsePremiumTemplate(req.storeId)){const existingTheme=await sql`select theme->>'template' as template from store_theme where store_id=${req.storeId}::uuid limit 1`;if(existingTheme[0]?.template!=="premium-organic")return res.status(403).json({error:"La plantilla Premium requiere un plan Premium"});}if(name!==undefined&&(!String(name).trim()||String(name).trim().length>120))return res.status(400).json({error:"Nombre de tienda inválido"});let safeSettings=settings;if(settings!==undefined){safeSettings={...(settings||{})};delete safeSettings.published;delete safeSettings.preview_token}await sql.transaction([...(name!==undefined||sector!==undefined?[sql`update stores set name=coalesce(${name===undefined?null:String(name).trim()},name),sector=coalesce(${sector===undefined?null:sector},sector),updated_at=now() where id=${req.storeId}::uuid`]:[]),...(safeSettings!==undefined?[sql`insert into store_settings(store_id,settings) values(${req.storeId}::uuid,${JSON.stringify(safeSettings||{})}::jsonb) on conflict(store_id) do update set settings=store_settings.settings||excluded.settings`]:[]),...(theme!==undefined?[sql`insert into store_theme(store_id,theme) values(${req.storeId}::uuid,${JSON.stringify(theme||{})}::jsonb) on conflict(store_id) do update set theme=excluded.theme`]:[])]);res.json({ok:true})});
 // Limit visual design changes to the theme: managers cannot modify identity or billing.
