@@ -7,16 +7,17 @@ import{boundHeroHeight}from"../storefront/previewSectionSizing.js";
 const PREVIEW_ORIGIN="https://app.bravoshop.online";
 const DEVICES=[{key:"desktop",name:"Ordenador",width:"100%",icon:Monitor},{key:"tablet",name:"Tablet",width:"768px",icon:Tablet},{key:"mobile",name:"Móvil",width:"390px",icon:Smartphone}];
 
-export function LiveStorefrontPreview({stores,theme,onSelectSection,onInlineTextChange,onSectionResize,selectedSectionId}){
+export function LiveStorefrontPreview({stores,theme,onSelectSection,onInlineTextChange,onSectionResize,onReorderSection,selectedSectionId}){
  const[storeId,setStoreId]=useState(""),[device,setDevice]=useState("desktop");
  const[url,setUrl]=useState(""),[ready,setReady]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const frameRef=useRef(null),mounted=useRef(0);
- const themeIds=useRef(new Set()),onSelection=useRef(null),onInlineChange=useRef(null),onResize=useRef(null),sectionTypes=useRef(new Map());
+ const themeIds=useRef(new Set()),onSelection=useRef(null),onInlineChange=useRef(null),onResize=useRef(null),onReorder=useRef(null),sectionTypes=useRef(new Map());
  themeIds.current=new Set((theme?.sections||[]).map(s=>s.id));
  sectionTypes.current=new Map((theme?.sections||[]).map(s=>[s.id,s.type]));
  onSelection.current=onSelectSection;
  onInlineChange.current=onInlineTextChange;
  onResize.current=onSectionResize;
+ onReorder.current=onReorderSection;
  const selected=stores.find(x=>x.id===storeId);
  async function loadLink(id){
   const request=++mounted.current;
@@ -38,6 +39,20 @@ export function LiveStorefrontPreview({stores,theme,onSelectSection,onInlineText
  useEffect(()=>{
   function receive(event){
    if(event.origin!==PREVIEW_ORIGIN||event.source!==frameRef.current?.contentWindow)return;
+   if(event.data?.type==="BRAVOSHOP_PREVIEW_SECTION_MOVE"){
+    const {sectionId,direction}=event.data;
+    if(typeof sectionId!=="string"||!themeIds.current.has(sectionId)||![1,-1].includes(direction))return;
+    onReorder.current?.({sectionId,direction});
+    onSelection.current?.(sectionId);
+    return;
+   }
+   if(event.data?.type==="BRAVOSHOP_PREVIEW_SECTION_DROP"){
+    const {movingId,targetId}=event.data;
+    if(typeof movingId!=="string"||typeof targetId!=="string"||movingId===targetId||!themeIds.current.has(movingId)||!themeIds.current.has(targetId))return;
+    onReorder.current?.({movingId,targetId});
+    onSelection.current?.(movingId);
+    return;
+   }
    if(event.data?.type==="BRAVOSHOP_PREVIEW_SECTION_RESIZED"){
     const {sectionId,height}=event.data;
     if(typeof sectionId!=="string"||sectionTypes.current.get(sectionId)!=="hero"||typeof height!=="number"||!Number.isFinite(height)||height<300||height>900)return;
@@ -76,7 +91,7 @@ export function LiveStorefrontPreview({stores,theme,onSelectSection,onInlineText
  const active=DEVICES.find(d=>d.key===device)||DEVICES[0];
  return <section aria-label="Vista previa real del escaparate" style={{border:"1px solid #ddd",borderRadius:12,padding:12,margin:"8px 0 16px"}}>
   <h3>Escaparate real en tiempo de edición</h3>
-  <p>Elige una tienda. Haz un clic en una sección para seleccionarla o doble clic sobre su título o descripción para escribir directamente. También puedes arrastrar el control inferior de la portada para cambiar su altura. Los cambios quedan en el borrador, sin publicar.</p>
+  <p>Elige una tienda. Haz un clic en una sección para seleccionarla o doble clic sobre su título o descripción para escribir directamente. Usa las barras verdes para subir, bajar o arrastrar una sección a otra posición. También puedes arrastrar el control inferior de la portada para cambiar su altura. Los cambios quedan en el borrador, sin publicar.</p>
   <label>Tienda de prueba<select value={storeId} disabled={busy} onChange={e=>{setStoreId(e.target.value);loadLink(e.target.value)}}>
    <option value="">Selecciona una tienda...</option>
    {stores.map(s=><option key={s.id} value={s.id}>{s.name} · {s.slug}</option>)}
