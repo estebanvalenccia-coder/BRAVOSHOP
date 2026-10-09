@@ -43,7 +43,7 @@ export function FrontendsStudio(){
  }
  async function release(){
   if(!editingId)return fail(new Error("Guarda primero la plantilla"));if(asSnapshot(draft)!==cleanSnapshot)return fail(new Error("Tienes cambios sin guardar. Guarda el borrador antes de publicar una versión"));
-  setBusy(true);try{const r=await releaseFrontend(editingId,releaseNotes);setChosenVersion(String(r.release.version));setVersions(v=>[{version:r.release.version,notes:r.release.notes,published_at:r.release.published_at},...v]);setPreview(null);const data=await refresh();setSavedRevision(data.templates.find(t=>t.id===editingId)?.draft_revision??null);flash("Versión "+r.release.version+" publicada en la biblioteca. Aún no se ha instalado en ninguna tienda.")}catch(e){fail(e)}finally{setBusy(false)}
+  setBusy(true);try{const r=await releaseFrontend(editingId,releaseNotes,savedRevision);setChosenVersion(String(r.release.version));setVersions(v=>[{version:r.release.version,notes:r.release.notes,published_at:r.release.published_at},...v]);setPreview(null);const data=await refresh();setSavedRevision(data.templates.find(t=>t.id===editingId)?.draft_revision??null);flash("Versión "+r.release.version+" publicada en la biblioteca. Aún no se ha instalado en ninguna tienda.")}catch(e){fail(e)}finally{setBusy(false)}
  }
  async function restoreDraft(version){
   if(!editingId||!Number.isSafeInteger(savedRevision))return fail(new Error("Abre la plantilla de nuevo para recuperar la revisión actual"));
