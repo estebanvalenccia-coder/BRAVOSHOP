@@ -7,6 +7,7 @@ import{sanitizeTheme,mergeMerchantTheme}from"../frontends/themeMerge.js";
 import{inspectFrontendZip}from"../frontends/zipPreview.js";
 import{prepareFrontendZip}from"../frontends/zipImport.js";
 import{validateRolloutInput}from"../frontends/rolloutValidation.js";
+import{validRollbackTarget,validRollbackConfirmation}from"../frontends/rollbackGuard.js";
 import{createUploadIntent,verifyObject,removeObject,mediaReady}from"../services/mediaSigner.js";
 import{getTemplate,templateSections}from"../../src/platform/config/storeTemplates.js";
 
@@ -163,7 +164,7 @@ async function rollbackPlan(templateId,storeId,version){
  const active=await sql.query("select version from store_frontend_deployments where store_id=$1::uuid and template_id=$2::uuid",[storeId,templateId]);
  if(!active.length)return {error:"La tienda no utiliza esta plantilla central",status:409};
  const fromVersion=Number(active[0].version);
- if(version<1||version>=fromVersion)return {error:"Selecciona una versión anterior a la instalada",status:400};
+ if(!validRollbackTarget({installedTemplateId:templateId,requestedTemplateId:templateId,installedVersion:fromVersion,targetVersion:version}))return {error:"Selecciona una versión anterior a la instalada",status:400};
  const result=await planDeployment(templateId,version,storeId,false);
  if(result.error)return result;
  return {...result,fromVersion,toVersion:version};
@@ -177,7 +178,7 @@ frontendsRouter.post("/:id/stores/:storeId/rollback-preview",needId,async(req,re
 });
 frontendsRouter.post("/:id/stores/:storeId/rollback",needId,async(req,res)=>{
  const storeId=req.params.storeId,version=Number(req.body?.version),expected=Number(req.body?.expectedCurrentVersion);
- if(!validId(storeId)||!Number.isSafeInteger(version)||version<1||!Number.isSafeInteger(expected)||expected<=version)
+ if(!validId(storeId)||!validRollbackConfirmation({expectedCurrentVersion:expected,targetVersion:version}))
   return bad(res,"La versión anterior y la actual son obligatorias");
  const plan=await rollbackPlan(req.params.id,storeId,version);
  if(plan.error)return bad(res,plan.error,plan.status);
