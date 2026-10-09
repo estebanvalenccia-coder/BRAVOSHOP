@@ -21,6 +21,44 @@ async function canUsePremiumTemplate(storeId){
  return rows.length>0;
 }
 storesRouter.get("/",async(req,res)=>{await sql`select bravoshop_expire_billing_access(200)`;const rows=await sql`select s.*,sm.role,coalesce(ss.settings,'{}'::jsonb) as settings,coalesce(st.theme,'{}'::jsonb) as theme,(select count(*)::int from products p where p.store_id=s.id and p.status='active') as published_products from stores s join store_members sm on sm.store_id=s.id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where sm.user_id=${req.user.id}::uuid and sm.status='active' and s.status<>'scheduled_for_deletion' order by s.created_at desc`;res.json({stores:rows})});
+
+// Retired shops cannot use requireStore (which deliberately returns HTTP 423).
+// Owners can nevertheless list and restore only shops they still own.
+storesRouter.get("/retired",async(req,res)=>{
+ const rows=await sql`
+  select s.id,s.name,s.slug,s.sector,s.updated_at as retired_at
+  from stores s
+  join store_members sm on sm.store_id=s.id
+  where sm.user_id=${req.user.id}::uuid and sm.role='owner'
+    and sm.status='active' and s.status='scheduled_for_deletion'
+  order by s.updated_at desc limit 100`;
+ res.set("Cache-Control","private, no-store").json({stores:rows});
+});
+storesRouter.post("/retired/:storeId/restore",async(req,res)=>{
+ const id=String(req.params.storeId||"");
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+  return res.status(404).json({error:"Tienda no encontrada"});
+ const slug=req.body?.confirm_slug;
+ if(typeof slug!=="string"||!SLUG.test(slug))
+  return res.status(400).json({error:"Confirma el subdominio exacto de la tienda"});
+ const result=await sql`select bravoshop_restore_store(${id}::uuid,${req.user.id}::uuid,${slug}) as result`;
+ const answer=result[0]?.result||{};
+ if(!answer.ok){
+  const code=answer.reason||"RESTORE_BLOCKED";
+  const reasons={
+   not_found:"Tienda no encontrada",
+   owner_required:"Solo la persona propietaria puede recuperar esta tienda",
+   confirmation_mismatch:"El subdominio indicado no coincide",
+   not_retired:"La tienda ya no está en la papelera"
+  };
+  return res.status(code==="not_found"?404:code==="owner_required"?403:409)
+   .json({code,error:reasons[code]||"No se pudo recuperar la tienda"});
+ }
+ res.set("Cache-Control","no-store").json({
+  ok:true,status:"unpaid",
+  note:"Tienda recuperada sin publicar. Revisa tu plan, las funciones y Stripe antes de volver a vender."
+ });
+});
 storesRouter.post("/",storeCreationLimiter,async(req,res)=>{
  const{name,slug,sector,theme={},settings={},features=[]}=req.body||{};
  const keyHeader=req.get("Idempotency-Key")||"";
