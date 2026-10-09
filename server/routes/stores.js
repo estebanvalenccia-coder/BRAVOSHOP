@@ -255,7 +255,7 @@ storesRouter.post("/:storeId/preview-link",requireStore,requirePermission("store
  const candidate=randomUUID();
  const rows=await sql`
   insert into store_settings(store_id,settings)
-  values(${req.storeId}::uuid,jsonb_build_object('published',false,'preview_token',${candidate}))
+  values(${req.storeId}::uuid,jsonb_build_object('published',false,'preview_token',${candidate}::text))
   on conflict(store_id) do update
   set settings=case
    when length(coalesce(store_settings.settings->>'preview_token',''))>=32
