@@ -7,6 +7,7 @@ export async function retireStore(storeId,confirmSlug){return api(`/api/stores/$
 export async function listRetiredStores(){const data=await api("/api/stores/retired");return data.stores??[]}
 export async function restoreRetiredStore(storeId,confirmSlug){return api(`/api/stores/retired/${storeId}/restore`,{method:"POST",body:{confirm_slug:confirmSlug}})}
 export async function importStoreProducts(storeId,source,products){return api(`/api/stores/${storeId}/import/products`,{method:"POST",body:{source,products}})}
+export async function checkStoreImportProducts(storeId,source,products){return api(`/api/stores/${storeId}/import/check`,{method:"POST",body:{source,products}})}
 export async function updateStoreTheme(storeId,theme){return api(`/api/stores/${storeId}/theme`,{method:"PUT",body:{theme}})}
 export async function updateStoreFeatures(storeId,features){return api(`/api/stores/${storeId}/features`,{method:"PUT",body:{features}})}
 export async function setStorePublication(storeId,published){return api(`/api/stores/${storeId}/publication`,{method:"POST",body:{published}})}

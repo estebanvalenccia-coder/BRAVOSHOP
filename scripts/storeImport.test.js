@@ -84,7 +84,7 @@ test("Stores Hub exposes a file-based import wizard with preview and batches",as
  assert.ok(src.includes("Importar tienda"));
  assert.ok(src.includes("<StoreImport stores={stores}"));
  const ui=await readFile(new URL("../src/platform/onboarding/StoreImport.jsx",import.meta.url),"utf8");
- for(const feature of ['type="file"',"parseStoreCatalogCsv(","importStoreProducts(","setProgress(total)",'aria-modal="true"'])
+ for(const feature of ['type="file"',"parseStoreCatalogCsv(","importStoreProducts(","checkStoreImportProducts(","setProgress(current.imported)",'aria-modal="true"'])
   assert.ok(ui.includes(feature),feature);
  assert.ok(ui.includes("batch.length===25"));
  assert.ok(ui.includes("variants+product.variants.length>100"));
@@ -183,4 +183,42 @@ test("missing CSV prices never become free products; explicit zero remains valid
  const free=parseStoreCatalogCsv("Handle,Title,Variant SKU,Variant Price\nfree,Producto gratis,FREE-1,0.00");
  assert.equal(free.products[0].variants[0].price,"0.00");
  assert.equal(validateImportedProducts(free).ok,true);
+});
+
+test("import preflight requires product-create permission, protects tenant scope and exposes allowed slugs",async()=>{
+ const src=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const start=src.indexOf('storesRouter.post("/:storeId/import/check"');
+ const end=src.indexOf('storesRouter.post("/:storeId/import/products"',start);
+ assert.ok(start>=0&&end>start);
+ const route=src.slice(start,end);
+ for(const fragment of [
+  'requireStore,requirePermission("products.create")',
+  'validateImportedProducts(req.body)',
+  'where store_id=${req.storeId}::uuid',
+  'lower(sku)=any(',
+  '"product_exists"',
+  '"sku_exists"',
+  "importable_slugs:importable",
+  '"private, no-store"'
+ ])assert.ok(route.includes(fragment),fragment);
+ assert.ok(!route.includes("delete from"));
+ assert.ok(!route.includes("update products"));
+ assert.ok(!route.includes("update inventory_levels"));
+});
+
+test("import wizard resumes completed batches and preflights conflicts before creating products",async()=>{
+ const ui=await readFile(new URL("../src/platform/onboarding/StoreImport.jsx",import.meta.url),"utf8");
+ for(const fragment of [
+  "setRun(null)",
+  "setSkipped(0)",
+  "current.index<current.batches.length",
+  "await checkStoreImportProducts(storeId,parsed.source,fullBatch)",
+  "fullBatch.filter(p=>importable.has(p.slug))",
+  "await importStoreProducts(storeId,parsed.source,fresh)",
+  "const retry=await checkStoreImportProducts(storeId,parsed.source,fresh)",
+  "setRun(current)",
+  "setSkipped(current.skipped)",
+  "Reanudar importación",
+  "productos existentes omitidos sin modificar"
+ ])assert.ok(ui.includes(fragment),fragment);
 });
