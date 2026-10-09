@@ -15,3 +15,5 @@ export async function inspectFrontendArchive(file){
  if(!result.ok)throw new Error(json.error||"No se pudo analizar el ZIP");
  return json.inspection;
 }
+
+export async function getSuperAdminStorePreviewLink(storeId){return api("/api/admin/frontends/stores/"+storeId+"/preview-link",{method:"POST"})}
