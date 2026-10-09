@@ -1,0 +1,135 @@
+import React,{useEffect,useState}from"react";
+import{Plus,Upload,ArrowUp,ArrowDown,Trash2,Copy,Eye,Save,Send,Store,FileArchive,ExternalLink}from"lucide-react";
+import{STORE_TEMPLATES,applyTemplate,ADDABLE_SECTIONS}from"../config/storeTemplates.js";
+import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,createPlatformStore,inspectFrontendArchive}from"../data/frontendsService.js";
+
+const blank=(template="premium-organic")=>({name:"Nueva plantilla",sector:"general",description:"",theme:applyTemplate(template)});
+const label={hero:"Portada",benefits:"Ventajas",categories:"Categorías",products:"Productos",story:"Historia",newsletter:"Newsletter",banner:"Banner",text:"Texto",imageText:"Imagen y texto"};
+export function FrontendsStudio(){
+ const[tab,setTab]=useState("gallery"),[templates,setTemplates]=useState([]),[stores,setStores]=useState([]);
+ const[editingId,setEditingId]=useState(null),[draft,setDraft]=useState(blank()),[versions,setVersions]=useState([]);
+ const[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
+ const[inspection,setInspection]=useState(null),[releaseNotes,setReleaseNotes]=useState("");
+ const[target,setTarget]=useState(""),[replaceExisting,setReplaceExisting]=useState(false),[preview,setPreview]=useState(null),[chosenVersion,setChosenVersion]=useState("");
+ const[newStore,setNewStore]=useState({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"premium-organic"});
+ const flash=(message)=>{setNotice(message);setError("")};
+ const fail=(e)=>{setError(e.message||String(e));setNotice("")};
+ async function refresh(){const data=await loadFrontendStudio();setTemplates(data.templates||[]);setStores(data.stores||[]);return data}
+ useEffect(()=>{refresh().catch(fail)},[]);
+ async function choose(item){
+  setEditingId(item.id);setDraft({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme});
+  setChosenVersion(String(item.version||""));setPreview(null);setTarget("");setReplaceExisting(false);setTab("editor");
+  try{const r=await listFrontendVersions(item.id);setVersions(r.versions||[])}catch(e){fail(e)}
+ }
+ function start(template){setEditingId(null);setDraft(blank(template));setVersions([]);setChosenVersion("");setPreview(null);setTab("editor");flash("Plantilla nueva. Guarda el borrador para empezar a versionarla.")}
+ const patch=changes=>setDraft(d=>({...d,...changes}));
+ const patchTheme=changes=>setDraft(d=>({...d,theme:{...d.theme,...changes}}));
+ const patchSection=(id,changes)=>patchTheme({sections:(draft.theme.sections||[]).map(s=>s.id===id?{...s,...changes}:s)});
+ const patchContent=(id,key,value)=>patchTheme({sections:(draft.theme.sections||[]).map(s=>s.id===id?{...s,content:{...(s.content||{}),[key]:value}}:s)});
+ function moveSection(index,direction){const items=[...(draft.theme.sections||[])];const next=index+direction;if(next<0||next>=items.length)return;[items[index],items[next]]=[items[next],items[index]];patchTheme({sections:items})}
+ function addSection(type){const section={id:type+"-"+Date.now(),type,label:label[type]||type,visible:true,content:{title:label[type]||type,text:"",button:"",button_url:"#catalog"}};patchTheme({sections:[...(draft.theme.sections||[]),section]})}
+ function copySection(s,index){const items=[...(draft.theme.sections||[])];items.splice(index+1,0,{...s,id:s.type+"-"+Date.now(),label:s.label+" copia",content:{...s.content}});patchTheme({sections:items})}
+ async function save(){
+  setBusy(true);try{
+   if(editingId){const r=await saveFrontendDraft(editingId,draft);setDraft({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme});flash("Borrador actualizado. Publica una versión cuando esté listo.")}
+   else{const r=await createFrontendDraft(draft);setEditingId(r.template.id);setDraft({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme});flash("Plantilla creada. Ya puedes publicar una versión.")}
+   await refresh();
+  }catch(e){fail(e)}finally{setBusy(false)}
+ }
+ async function release(){
+  if(!editingId)return fail(new Error("Guarda primero la plantilla"));
+  setBusy(true);try{const r=await releaseFrontend(editingId,releaseNotes);setChosenVersion(String(r.release.version));setVersions(v=>[{version:r.release.version,notes:r.release.notes,published_at:r.release.published_at},...v]);setPreview(null);await refresh();flash("Versión "+r.release.version+" publicada en la biblioteca. Aún no se ha instalado en ninguna tienda.")}catch(e){fail(e)}finally{setBusy(false)}
+ }
+ async function inspect(file){if(!file)return;setBusy(true);try{setInspection(await inspectFrontendArchive(file));setTab("import");flash("ZIP analizado sin ejecutar código. Revisa los avisos antes de importar.")}catch(e){fail(e)}finally{setBusy(false)}}
+ function useInspection(){setEditingId(null);setVersions([]);setChosenVersion("");setPreview(null);setDraft({name:inspection.name,sector:inspection.sector,description:"Importado desde ZIP ("+inspection.kind+"). Requiere revisión visual.",theme:inspection.theme});setTab("editor");flash("Borrador preparado. Revisa el diseño y guárdalo.") }
+ async function showPreview(){
+  if(!editingId||!chosenVersion||!target)return fail(new Error("Elige una versión y una tienda"));
+  setBusy(true);try{const r=await previewFrontendDeployment(editingId,{version:Number(chosenVersion),storeId:target,replaceExisting});setPreview({id:editingId,version:chosenVersion,storeId:target,replaceExisting,...r.preview});flash("Simulación completada. Revisa los campos protegidos antes de publicar.")}catch(e){setPreview(null);fail(e)}finally{setBusy(false)}
+ }
+ async function deploy(){
+  if(!preview||preview.id!==editingId||preview.storeId!==target||preview.version!==chosenVersion||preview.replaceExisting!==replaceExisting)return fail(new Error("Realiza antes una vista previa actualizada"));
+  if(!window.confirm("Se aplicará la versión "+chosenVersion+" a "+preview.store+". ¿Continuar?"))return;
+  setBusy(true);try{const r=await deployFrontend(editingId,{version:Number(chosenVersion),storeIds:[target],replaceExisting});const result=r.results?.[0];if(!result?.ok)throw new Error(result?.error||"No se pudo aplicar la actualización");flash("Frontend actualizado en "+preview.store+". "+(result.protectedFields?.length||0)+" personalizaciones protegidas.");setPreview(null);await refresh()}catch(e){fail(e)}finally{setBusy(false)}
+ }
+ async function createStore(){
+  setBusy(true);try{const r=await createPlatformStore({...newStore,templateId:editingId&&chosenVersion?editingId:undefined});await refresh();flash("Tienda "+r.store.name+" creada en estado de prueba. El propietario asignado puede administrarla.");setNewStore({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"premium-organic"})}catch(e){fail(e)}finally{setBusy(false)}
+ }
+ const selected=templates.find(t=>t.id===editingId),theme=draft.theme||{},targetStore=stores.find(s=>s.id===target);
+ return <div className="frontendStudio">
+  <header><div><small>BRAVOSHOP CONTROL · DISEÑO MULTITIENDA</small><h1>Centro de Frontends</h1><p className="adminLead">Crea plantillas, edita secciones, importa referencias ZIP y actualiza tiendas sin perder personalizaciones.</p></div></header>
+  <div className="designTopActions" style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18}}>
+   {[[ "gallery","Galería"],["editor","Editor"],["import","Importar ZIP"],["stores","Tiendas"],["deploy","Versiones y actualizaciones"]].map(([id,text])=><button key={id} className={tab===id?"active":"ghost"} onClick={()=>setTab(id)}>{text}</button>)}
+  </div>
+  {error&&<div className="errorBox" role="alert">{error}</div>}
+  {notice&&<article className="panel" role="status" style={{padding:12,marginBottom:16}}>{notice}</article>}
+  {tab==="gallery"&&<section className="adminGrid">
+   <article className="panel wide"><h2>Plantillas disponibles</h2><p>Estas plantillas base sirven para iniciar un diseño. Los borradores personalizados aparecen debajo.</p><div className="templatePicker">{STORE_TEMPLATES.map(t=><button key={t.id} className="templateChoice" onClick={()=>start(t.id)}><div className={"templateThumb "+t.id}><i/><i/><i/></div><span><b>{t.name}</b><small>{t.sector}</small></span><Plus size={16}/></button>)}</div></article>
+   <article className="panel wide"><h2>Mis plantillas versionadas</h2>{!templates.length&&<p>No hay plantillas propias. Crea una desde una base o desde ZIP.</p>}
+   {templates.map(t=><div key={t.id} className="health" style={{gap:12}}><div style={{flex:1}}><b>{t.name}</b><small>{t.sector} · {t.installed_stores} tiendas · versión {t.version||"sin publicar"}</small></div><button onClick={()=>choose(t)}>Editar</button></div>)}</article>
+  </section>}
+  {tab==="editor"&&<div className="adminGrid">
+   <article className="panel"><h2>Editor de plantilla {editingId?"· Borrador":"· Nueva"}</h2>
+    <label>Nombre<input value={draft.name} onChange={e=>patch({name:e.target.value})}/></label>
+    <label>Sector<input value={draft.sector} onChange={e=>patch({sector:e.target.value})}/></label>
+    <label>Descripción<textarea rows={2} value={draft.description} onChange={e=>patch({description:e.target.value})}/></label>
+    <label>Color principal<input type="color" value={/^#[0-9a-f]{6}$/i.test(theme.primary_color||"")?theme.primary_color:"#315b42"} onChange={e=>patchTheme({primary_color:e.target.value})}/></label>
+    <label>Texto de anuncio<input value={theme.announcement||""} onChange={e=>patchTheme({announcement:e.target.value})}/></label>
+    <label>Columnas de producto<select value={theme.product_columns||3} onChange={e=>patchTheme({product_columns:Number(e.target.value)})}><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+    <h3>Secciones de la portada</h3>
+    {(theme.sections||[]).map((section,i)=><div className="sectionCard" key={section.id} style={{marginBottom:10,padding:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}><b style={{flex:1}}>{section.label}</b>
+       <button title="Mover arriba" disabled={i===0} onClick={()=>moveSection(i,-1)}><ArrowUp size={15}/></button>
+       <button title="Mover abajo" disabled={i===theme.sections.length-1} onClick={()=>moveSection(i,1)}><ArrowDown size={15}/></button>
+       <button title="Mostrar u ocultar" onClick={()=>patchSection(section.id,{visible:!section.visible})}><Eye size={15}/>{section.visible?"Visible":"Oculta"}</button>
+       <button title="Duplicar" onClick={()=>copySection(section,i)}><Copy size={15}/></button>
+       <button title="Eliminar" disabled={theme.sections.length===1} onClick={()=>patchTheme({sections:theme.sections.filter(x=>x.id!==section.id)})}><Trash2 size={15}/></button>
+      </div>
+      <label>Título<input value={section.content?.title||""} onChange={e=>patchContent(section.id,"title",e.target.value)}/></label>
+      <label>Texto<textarea rows={2} value={section.content?.text||""} onChange={e=>patchContent(section.id,"text",e.target.value)}/></label>
+      <label>Imagen URL<input value={section.content?.image||""} onChange={e=>patchContent(section.id,"image",e.target.value)} placeholder="https://..."/></label>
+      <label>Texto del botón<input value={section.content?.button||""} onChange={e=>patchContent(section.id,"button",e.target.value)}/></label>
+      <label>Enlace del botón<input value={section.content?.button_url||""} onChange={e=>patchContent(section.id,"button_url",e.target.value)}/></label>
+    </div>)}
+    <label>Agregar sección<select value="" onChange={e=>{if(e.target.value)addSection(e.target.value)}}><option value="">Selecciona un bloque...</option>{ADDABLE_SECTIONS.map(s=><option key={s.type} value={s.type}>{s.label}</option>)}</select></label>
+    <div className="designTopActions"><button disabled={busy} onClick={save}><Save size={15}/> Guardar borrador</button></div>
+    {editingId&&<><hr/><h3>Crear actualización</h3><p>El borrador guardado se convierte en una versión inmutable. No cambia ninguna tienda hasta que la instales.</p><label>Notas de versión<input value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} placeholder="Mejoras de portada y navegación"/></label><button disabled={busy} onClick={release}><Send size={15}/> Publicar versión nueva</button></>}
+   </article>
+   <article className="panel"><h2>Vista visual del borrador</h2><div style={{border:"1px solid #dddddd",borderRadius:12,overflow:"hidden",background:"#fff",color:"#202020"}}>
+    <div style={{background:theme.primary_color||"#315b42",color:"white",padding:16,fontWeight:700}}>{draft.name}</div>
+    {(theme.sections||[]).filter(x=>x.visible!==false).map(section=><div key={section.id} style={{padding:18,borderBottom:"1px solid #eee"}}><small>{section.label}</small><h3 style={{fontSize:20,margin:"8px 0"}}>{section.content?.title||label[section.type]||"Sección"}</h3><p>{section.content?.text}</p>{section.content?.image&&<img src={section.content.image} alt="" loading="lazy" style={{maxWidth:"100%",maxHeight:180,objectFit:"cover"}}/>}{section.content?.button&&<div><span style={{display:"inline-block",marginTop:6,background:theme.primary_color||"#315b42",color:"#fff",padding:"8px 12px",borderRadius:6}}>{section.content.button}</span></div>}</div>)}
+   </div><p>Vista estructural del tema. Comprueba la tienda real después de desplegar; esta vista no simula el checkout.</p>
+   {editingId&&<button className="ghost" onClick={()=>setTab("deploy")}>Gestionar versiones y despliegues</button>}</article>
+  </div>}
+  {tab==="import"&&<article className="panel"><h2><FileArchive size={20}/> Importar desde ZIP</h2><p>Adjunta un archivo ZIP de Herencia u otra web. El sistema reconoce manifiestos <code>bravoshop-template.json</code> y analiza <code>index.html</code> como referencia. No ejecuta scripts ni importa automáticamente bases de datos, fotografías o pasarelas de pago.</p>
+   <label>Archivo .zip (máximo 8 MB)<input type="file" accept=".zip,application/zip" disabled={busy} onChange={e=>inspect(e.target.files?.[0])}/></label>
+   {inspection&&<><h3>{inspection.name}</h3><p>Tipo: {inspection.kind==="bravoshop_template"?"Plantilla BravoShop compatible":"Web HTML de referencia"}</p>
+    {inspection.warnings.map((w,i)=><p key={i}><strong>Aviso:</strong> {w}</p>)}
+    <details><summary>Archivos detectados ({inspection.files.length} mostrados)</summary><ul>{inspection.files.map((name,i)=><li key={i}>{name}</li>)}</ul></details>
+    <button disabled={busy} onClick={useInspection}><Plus size={15}/> Preparar borrador editable</button>
+   </>}
+  </article>}
+  {tab==="stores"&&<article className="panel"><h2>Tiendas y frontends publicados</h2><p>Visualiza cualquier escaparate y consulta su plantilla instalada.</p>
+   {stores.map(s=><div key={s.id} className="health" style={{gap:12}}><div style={{flex:1}}><b>{s.name}</b><small>{s.slug}.bravoshop.online · {s.sector||"general"} · {s.status} · {s.deployed_version?"versión "+s.deployed_version:"plantilla individual"}</small></div><a href={"https://"+s.slug+".bravoshop.online"} target="_blank" rel="noopener noreferrer">Ver frontend <ExternalLink size={14}/></a></div>)}
+   {!stores.length&&<p>No hay tiendas todavía.</p>}
+   <hr/><h2>Crear tienda desde el Super Admin</h2><p>El propietario tiene que estar registrado en BravoShop. La nueva tienda comienza en estado de prueba y no comparte datos con ninguna otra.</p>
+   <label>Nombre<input value={newStore.name} onChange={e=>setNewStore(x=>({...x,name:e.target.value}))}/></label>
+   <label>Subdominio<input value={newStore.slug} onChange={e=>setNewStore(x=>({...x,slug:e.target.value.toLowerCase()}))} placeholder="mi-tienda"/></label>
+   <label>Correo del propietario<input type="email" value={newStore.ownerEmail} onChange={e=>setNewStore(x=>({...x,ownerEmail:e.target.value}))} placeholder="comerciante@ejemplo.com"/></label>
+   <label>Sector<input value={newStore.sector} onChange={e=>setNewStore(x=>({...x,sector:e.target.value}))}/></label>
+   <label>Plantilla base<select value={newStore.builtin} disabled={Boolean(editingId&&chosenVersion)} onChange={e=>setNewStore(x=>({...x,builtin:e.target.value}))}>{STORE_TEMPLATES.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+   {editingId&&chosenVersion&&<p>Se utilizará la última versión publicada de <b>{selected?.name}</b>. Para crearla con la plantilla base en su lugar, selecciona otra desde la galería.</p>}
+   <button disabled={busy||!newStore.name||!newStore.slug||!newStore.ownerEmail} onClick={createStore}><Store size={15}/> Crear tienda</button>
+  </article>}
+  {tab==="deploy"&&<article className="panel"><h2>Versiones y actualizaciones</h2><p>Instala las nuevas versiones solo en las tiendas seleccionadas. Las secciones y propiedades personalizadas se protegen durante la actualización.</p>
+   <label>Plantilla<select value={editingId||""} onChange={e=>{const t=templates.find(x=>x.id===e.target.value);if(t)choose(t).then(()=>setTab("deploy"));else setEditingId(null)}}><option value="">Selecciona una plantilla</option>{templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+   <label>Versión<select value={chosenVersion} onChange={e=>{setChosenVersion(e.target.value);setPreview(null)}}><option value="">Selecciona una versión</option>{versions.map(v=><option key={v.version} value={v.version}>v{v.version} · {v.notes||"Sin notas"}</option>)}</select></label>
+   <label>Tienda de destino<select value={target} onChange={e=>{setTarget(e.target.value);setPreview(null)}}><option value="">Selecciona una tienda</option>{stores.map(s=><option key={s.id} value={s.id}>{s.name} ({s.slug})</option>)}</select></label>
+   {targetStore&&<p>Versión instalada: {targetStore.deployed_version||"ninguna"} · <a href={"https://"+targetStore.slug+".bravoshop.online"} target="_blank" rel="noopener noreferrer">Abrir la tienda real</a></p>}
+   <label style={{display:"flex",alignItems:"center",gap:10}}><input type="checkbox" checked={replaceExisting} onChange={e=>{setReplaceExisting(e.target.checked);setPreview(null)}}/> Autorizar sustitución del diseño inicial o cambiar de plantilla en esta tienda</label>
+   <p>La sustitución inicial requiere confirmación porque una tienda sin esta plantilla puede tener un diseño completamente personalizado.</p>
+   <button disabled={busy||!editingId||!chosenVersion||!target} onClick={showPreview}><Eye size={15}/> Simular cambios</button>
+   {preview&&<div className="panel" style={{marginTop:14,padding:15}}><h3>Simulación para {preview.store}</h3><p>Campos personalizados conservados: {preview.protectedFields.length}</p><ul>{preview.protectedFields.slice(0,12).map(k=><li key={k}>{k}</li>)}</ul><p>No se han modificado datos en esta simulación.</p><button disabled={busy} onClick={deploy}><Send size={15}/> Aplicar versión {chosenVersion} a esta tienda</button></div>}
+   {versions.length>0&&<><hr/><h3>Historial de versiones</h3>{versions.map(v=><div className="health" key={v.version}><b>v{v.version}</b><span>{v.notes||"Sin notas"}</span><small>{new Date(v.published_at).toLocaleDateString()}</small></div>)}</>}
+  </article>}
+ </div>
+}
