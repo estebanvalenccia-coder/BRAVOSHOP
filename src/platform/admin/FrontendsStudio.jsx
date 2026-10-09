@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";
 import{Plus,Upload,ArrowUp,ArrowDown,Trash2,Copy,Eye,Save,Send,Store,FileArchive,ExternalLink}from"lucide-react";
 import{STORE_TEMPLATES,applyTemplate,ADDABLE_SECTIONS}from"../config/storeTemplates.js";
-import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,createPlatformStore,inspectFrontendArchive,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
+import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,createPlatformStore,inspectFrontendArchive,importFrontendArchive,listFrontendAssets,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
 
 const blank=(template="premium-organic")=>({name:"Nueva plantilla",sector:"general",description:"",theme:applyTemplate(template)});
 const label={hero:"Portada",benefits:"Ventajas",categories:"Categorías",products:"Productos",story:"Historia",newsletter:"Newsletter",banner:"Banner",text:"Texto",imageText:"Imagen y texto"};
@@ -9,7 +9,7 @@ export function FrontendsStudio(){
  const[tab,setTab]=useState("gallery"),[templates,setTemplates]=useState([]),[stores,setStores]=useState([]);
  const[editingId,setEditingId]=useState(null),[draft,setDraft]=useState(blank()),[versions,setVersions]=useState([]);
  const[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
- const[inspection,setInspection]=useState(null),[releaseNotes,setReleaseNotes]=useState("");
+ const[inspection,setInspection]=useState(null),[archive,setArchive]=useState(null),[templateAssets,setTemplateAssets]=useState([]),[assetSection,setAssetSection]=useState("hero"),[releaseNotes,setReleaseNotes]=useState("");
  const[target,setTarget]=useState(""),[replaceExisting,setReplaceExisting]=useState(false),[preview,setPreview]=useState(null),[chosenVersion,setChosenVersion]=useState("");
  const[newStore,setNewStore]=useState({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"editorial-fashion"});
  const flash=(message)=>{setNotice(message);setError("")};
@@ -17,11 +17,11 @@ export function FrontendsStudio(){
  async function refresh(){const data=await loadFrontendStudio();setTemplates(data.templates||[]);setStores(data.stores||[]);return data}
  useEffect(()=>{refresh().catch(fail)},[]);
  async function choose(item){
-  setEditingId(item.id);setDraft({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme});
+  setEditingId(item.id);setAssetSection(item.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme});
   setChosenVersion(String(item.version||""));setPreview(null);setTarget("");setReplaceExisting(false);setTab("editor");
-  try{const r=await listFrontendVersions(item.id);setVersions(r.versions||[])}catch(e){fail(e)}
+  try{const [versionsData,assets]=await Promise.all([listFrontendVersions(item.id),listFrontendAssets(item.id)]);setVersions(versionsData.versions||[]);setTemplateAssets(assets)}catch(e){fail(e)}
  }
- function start(template){setEditingId(null);setDraft(blank(template));setVersions([]);setChosenVersion("");setPreview(null);setTab("editor");flash("Plantilla nueva. Guarda el borrador para empezar a versionarla.")}
+ function start(template){setEditingId(null);setAssetSection("hero");setTemplateAssets([]);setDraft(blank(template));setVersions([]);setChosenVersion("");setPreview(null);setTab("editor");flash("Plantilla nueva. Guarda el borrador para empezar a versionarla.")}
  const patch=changes=>setDraft(d=>({...d,...changes}));
  const patchTheme=changes=>setDraft(d=>({...d,theme:{...d.theme,...changes}}));
  const patchSection=(id,changes)=>patchTheme({sections:(draft.theme.sections||[]).map(s=>s.id===id?{...s,...changes}:s)});
@@ -40,8 +40,14 @@ export function FrontendsStudio(){
   if(!editingId)return fail(new Error("Guarda primero la plantilla"));
   setBusy(true);try{const r=await releaseFrontend(editingId,releaseNotes);setChosenVersion(String(r.release.version));setVersions(v=>[{version:r.release.version,notes:r.release.notes,published_at:r.release.published_at},...v]);setPreview(null);await refresh();flash("Versión "+r.release.version+" publicada en la biblioteca. Aún no se ha instalado en ninguna tienda.")}catch(e){fail(e)}finally{setBusy(false)}
  }
- async function inspect(file){if(!file)return;setBusy(true);try{setInspection(await inspectFrontendArchive(file));setTab("import");flash("ZIP analizado sin ejecutar código. Revisa los avisos antes de importar.")}catch(e){fail(e)}finally{setBusy(false)}}
- function useInspection(){setEditingId(null);setVersions([]);setChosenVersion("");setPreview(null);setDraft({name:inspection.name,sector:inspection.sector,description:"Importado desde ZIP ("+inspection.kind+"). Requiere revisión visual.",theme:inspection.theme});setTab("editor");flash("Borrador preparado. Revisa el diseño y guárdalo.") }
+ async function inspect(file){if(!file)return;setBusy(true);setArchive(null);setInspection(null);try{const result=await inspectFrontendArchive(file);setInspection(result);setArchive(file);setTab("import");flash("ZIP analizado sin ejecutar código. Revisa los avisos antes de importar.")}catch(e){fail(e)}finally{setBusy(false)}}
+ async function saveArchive(){
+  if(!archive||!inspection)return fail(new Error("Analiza primero el ZIP"));
+  if(!window.confirm("Crear una plantilla nueva y guardar "+(inspection.assets?.length||0)+" imágenes detectadas en BravoShop? No afectará a las tiendas existentes."))return;
+  setBusy(true);
+  try{const result=await importFrontendArchive(archive);setEditingId(result.template.id);setAssetSection(result.template.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme});setChosenVersion("");setVersions([]);setTemplateAssets(await listFrontendAssets(result.template.id));setTarget("");setPreview(null);setTab("editor");await refresh();flash("Plantilla importada con "+result.assets.length+" imágenes almacenadas. Revisa el diseño y publica una versión cuando quieras.")}catch(e){fail(e)}finally{setBusy(false)}
+ }
+ function useInspection(){setEditingId(null);setAssetSection(inspection?.theme?.sections?.[0]?.id||"hero");setTemplateAssets([]);setVersions([]);setChosenVersion("");setPreview(null);setDraft({name:inspection.name,sector:inspection.sector,description:"Importado desde ZIP ("+inspection.kind+"). Requiere revisión visual.",theme:inspection.theme});setTab("editor");flash("Borrador preparado. Revisa el diseño y guárdalo.") }
  async function showPreview(){
   if(!editingId||!chosenVersion||!target)return fail(new Error("Elige una versión y una tienda"));
   setBusy(true);try{const r=await previewFrontendDeployment(editingId,{version:Number(chosenVersion),storeId:target,replaceExisting});setPreview({id:editingId,version:chosenVersion,storeId:target,replaceExisting,...r.preview});flash("Simulación completada. Revisa los campos protegidos antes de publicar.")}catch(e){setPreview(null);fail(e)}finally{setBusy(false)}
@@ -102,18 +108,38 @@ export function FrontendsStudio(){
     <div className="designTopActions"><button disabled={busy} onClick={save}><Save size={15}/> Guardar borrador</button></div>
     {editingId&&<><hr/><h3>Crear actualización</h3><p>El borrador guardado se convierte en una versión inmutable. No cambia ninguna tienda hasta que la instales.</p><label>Notas de versión<input value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} placeholder="Mejoras de portada y navegación"/></label><button disabled={busy} onClick={release}><Send size={15}/> Publicar versión nueva</button></>}
    </article>
-   <article className="panel"><h2>Vista visual del borrador</h2><div style={{border:"1px solid #dddddd",borderRadius:12,overflow:"hidden",background:"#fff",color:"#202020"}}>
+   <article className="panel"><h2>Vista visual del borrador</h2>
+    {editingId&&templateAssets.length>0&&<div className="sectionCard" style={{padding:12,marginBottom:16}}>
+      <h3>Fotografías importadas ({templateAssets.length})</h3>
+      <p>Selecciona una sección del diseño y aplica una imagen almacenada. No hace falta volver a subirla.</p>
+      <label>Sección de destino<select value={assetSection} onChange={e=>setAssetSection(e.target.value)}>
+       {(theme.sections||[]).map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
+      </select></label>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+       {templateAssets.map(asset=><div key={asset.id} style={{minWidth:0,border:"1px solid #ddd",borderRadius:8,padding:8}}>
+        <img src={asset.public_url} alt={asset.original_path} loading="lazy" style={{width:"100%",height:100,objectFit:"cover",borderRadius:6}}/>
+        <small style={{display:"block",overflowWrap:"anywhere"}}>{asset.original_path}</small>
+        <button className="ghost" onClick={()=>patchContent(assetSection,"image",asset.public_url)}>Usar en sección</button>
+       </div>)}
+      </div>
+     </div>}<div style={{border:"1px solid #dddddd",borderRadius:12,overflow:"hidden",background:"#fff",color:"#202020"}}>
     <div style={{background:theme.primary_color||"#315b42",color:"white",padding:16,fontWeight:700}}>{draft.name}</div>
     {(theme.sections||[]).filter(x=>x.visible!==false).map(section=><div key={section.id} style={{padding:18,borderBottom:"1px solid #eee"}}><small>{section.label}</small><h3 style={{fontSize:20,margin:"8px 0"}}>{section.content?.title||label[section.type]||"Sección"}</h3><p>{section.content?.text}</p>{section.content?.image&&<img src={section.content.image} alt="" loading="lazy" style={{maxWidth:"100%",maxHeight:180,objectFit:"cover"}}/>}{section.content?.button&&<div><span style={{display:"inline-block",marginTop:6,background:theme.primary_color||"#315b42",color:"#fff",padding:"8px 12px",borderRadius:6}}>{section.content.button}</span></div>}</div>)}
    </div><p>Vista estructural del tema. Comprueba la tienda real después de desplegar; esta vista no simula el checkout.</p>
    {editingId&&<button className="ghost" onClick={()=>setTab("deploy")}>Gestionar versiones y despliegues</button>}</article>
   </div>}
-  {tab==="import"&&<article className="panel"><h2><FileArchive size={20}/> Importar desde ZIP</h2><p>Adjunta un archivo ZIP de Herencia u otra web. El sistema reconoce manifiestos <code>bravoshop-template.json</code> y analiza <code>index.html</code> como referencia. No ejecuta scripts ni importa automáticamente bases de datos, fotografías o pasarelas de pago.</p>
+  {tab==="import"&&<article className="panel"><h2><FileArchive size={20}/> Importar desde ZIP</h2><p>Adjunta un archivo ZIP de Herencia u otra web. El sistema reconoce manifiestos <code>bravoshop-template.json</code> y analiza <code>index.html</code> como referencia. No ejecuta scripts ni importa bases de datos ni pasarelas de pago. Puedes guardar imágenes locales compatibles dentro de una plantilla nueva tras confirmar.</p>
    <label>Archivo .zip (máximo 8 MB)<input type="file" accept=".zip,application/zip" disabled={busy} onChange={e=>inspect(e.target.files?.[0])}/></label>
    {inspection&&<><h3>{inspection.name}</h3><p>Tipo: {inspection.kind==="bravoshop_template"?"Plantilla BravoShop compatible":"Web HTML de referencia"}</p>
+    <p><strong>Páginas secundarias detectadas:</strong> {inspection.pages?.length||0} · <strong>Imágenes listas para guardar:</strong> {inspection.assets?.length||0}</p>
+    {inspection.pages?.length>0&&<details><summary>Páginas convertidas en secciones</summary><ul>{inspection.pages.map((page,i)=><li key={i}>{page.title} · {page.file}</li>)}</ul></details>}
+    {inspection.assets?.length>0&&<details><summary>Imágenes detectadas</summary><ul>{inspection.assets.map((asset,i)=><li key={i}>{asset.path} ({Math.ceil(asset.size/1024)} KB)</li>)}</ul></details>}
     {inspection.warnings.map((w,i)=><p key={i}><strong>Aviso:</strong> {w}</p>)}
     <details><summary>Archivos detectados ({inspection.files.length} mostrados)</summary><ul>{inspection.files.map((name,i)=><li key={i}>{name}</li>)}</ul></details>
-    <button disabled={busy} onClick={useInspection}><Plus size={15}/> Preparar borrador editable</button>
+    <div className="designTopActions" style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button disabled={busy||!archive} onClick={saveArchive}><Upload size={15}/> {busy?"Importando…":("Importar plantilla y "+(inspection.assets?.length||0)+" imágenes")}</button>
+      <button className="ghost" disabled={busy} onClick={useInspection}><Plus size={15}/> Preparar borrador sin copiar imágenes</button>
+    </div>
    </>}
   </article>}
   {tab==="stores"&&<article className="panel"><h2>Tiendas y frontends publicados</h2><p>Visualiza cualquier escaparate y consulta su plantilla instalada.</p>

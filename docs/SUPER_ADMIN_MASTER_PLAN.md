@@ -27,7 +27,7 @@ Registro de requisitos procedentes del diálogo con el propietario. Este archivo
 - [x] Historial inmutable de versiones, simulación previa, despliegue explícito y merge que respeta personalizaciones (PR #25).
 - [ ] Integrar y validar en producción todas las operaciones anteriores tras migraciones, CI y pruebas funcionales.
 - [ ] Previsualización fideligna por dispositivo de frontend existente **y del borrador** sin publicar, mediante ruta aislada.
-- [ ] Biblioteca de recursos multimedia compartidos con permisos/licencias y reutilización por plantillas.
+- [x] Importación confirmada de imágenes ZIP locales en almacenamiento propio, con asociación segura a la plantilla y selector visual (PR #26).\n- [ ] Biblioteca de recursos multimedia compartidos con permisos/licencias y reutilización por plantillas.
 - [ ] Drag-and-drop completo, edición en el lienzo, cuadrícula, tipografías, navegación y componentes reutilizables.
 - [ ] Edición de funcionalidades de botones con acciones permitidas, sin ejecutar JavaScript arbitrario.
 - [ ] Actualizaciones masivas por tipo de plantilla o conjunto de tiendas, con lotes, estado y compensaciones/reintentos.

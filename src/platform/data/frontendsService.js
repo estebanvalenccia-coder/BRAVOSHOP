@@ -17,3 +17,14 @@ export async function inspectFrontendArchive(file){
 }
 
 export async function getSuperAdminStorePreviewLink(storeId){return api("/api/admin/frontends/stores/"+storeId+"/preview-link",{method:"POST"})}
+
+export async function importFrontendArchive(file){
+ if(!file||!file.name.toLowerCase().endsWith(".zip")||file.size>8*1024*1024)throw new Error("Selecciona un ZIP de hasta 8 MB");
+ const apiBase=(import.meta.env.VITE_API_URL||"").replace(/\/$/,"");
+ const response=await fetch(apiBase+"/api/admin/frontends/zip/import",{method:"POST",credentials:"include",headers:{"Content-Type":"application/zip"},body:file});
+ const data=await response.json().catch(()=>({}));
+ if(!response.ok)throw new Error(data.error||"No se pudo importar el ZIP");
+ return data;
+}
+
+export async function listFrontendAssets(id){const data=await api("/api/admin/frontends/"+id+"/assets");return data.assets??[]}
