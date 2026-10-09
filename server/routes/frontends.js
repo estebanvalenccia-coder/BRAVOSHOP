@@ -123,18 +123,27 @@ frontendsRouter.post("/stores/create",async(req,res)=>{
  }else{
   const builtin=getTemplate(req.body?.builtin||"premium-organic");theme=sanitizeTheme({...builtin.defaults,template:builtin.id,sections:templateSections(builtin.id)});
  }
+ const plans=await sql.query("select id,trial_days from plans where slug='basic' and status='active' limit 1");
+ if(!plans.length)return bad(res,"El plan Basic de BravoShop no está configurado",503);
+ const trialDays=Math.max(0,Number(plans[0].trial_days||0));
+ const startsTrial=trialDays>0;
+ const storeStatus=startsTrial?"trial":"unpaid";
+ const subscriptionStatus=startsTrial?"trialing":"incomplete";
+ const settings={published:false,preview_token:randomUUID()};
  const orgId=randomUUID(),storeId=randomUUID();
  try{
   const queries=[
    sql.query("insert into organizations(id,name) values($1::uuid,$2)",[orgId,name]),
-   sql.query("insert into stores(id,organization_id,name,slug,sector,status) values($1::uuid,$2::uuid,$3,$4,$5,'trial')",[storeId,orgId,name,slug,sector]),
+   sql.query("insert into stores(id,organization_id,name,slug,sector,status) values($1::uuid,$2::uuid,$3,$4,$5,$6)",[storeId,orgId,name,slug,sector,storeStatus]),
    sql.query("insert into store_members(store_id,user_id,role) values($1::uuid,$2::uuid,'owner')",[storeId,owner[0].id]),
-   sql.query("insert into store_settings(store_id,settings) values($1::uuid,'{}'::jsonb)",[storeId]),
-   sql.query("insert into store_theme(store_id,theme) values($1::uuid,$2::jsonb)",[storeId,JSON.stringify(theme)])
+   sql.query("insert into store_settings(store_id,settings) values($1::uuid,$2::jsonb)",[storeId,JSON.stringify(settings)]),
+   sql.query("insert into store_theme(store_id,theme) values($1::uuid,$2::jsonb)",[storeId,JSON.stringify(theme)]),
+   sql.query("insert into store_payment_accounts(store_id,provider,status,default_currency) values($1::uuid,'stripe','not_connected','EUR')",[storeId]),
+   sql.query("insert into store_subscriptions(store_id,plan_id,status,trial_ends_at,updated_at) values($1::uuid,$2::uuid,$3,case when $4::boolean then now()+make_interval(days=>$5::integer) else null end,now())",[storeId,plans[0].id,subscriptionStatus,startsTrial,trialDays])
   ];
   if(templateId)queries.push(sql.query("insert into store_frontend_deployments(store_id,template_id,version,baseline_theme) values($1::uuid,$2::uuid,$3,$4::jsonb)",[storeId,templateId,releaseVersion,JSON.stringify(theme)]));
   await sql.transaction(queries);
  }catch(e){if(String(e).toLowerCase().includes("unique"))return bad(res,"Subdominio ocupado",409);throw e}
  await audit(req,"store.created.by_owner","store",storeId,{slug,owner_id:owner[0].id});
- res.status(201).json({store:{id:storeId,name,slug,sector,status:"trial"}});
+ res.status(201).json({store:{id:storeId,name,slug,sector,status:storeStatus}});
 });
