@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";
 import{Plus,Upload,ArrowUp,ArrowDown,Trash2,Copy,Eye,Save,Send,Store,FileArchive,ExternalLink}from"lucide-react";
 import{STORE_TEMPLATES,applyTemplate,ADDABLE_SECTIONS}from"../config/storeTemplates.js";
-import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,createPlatformStore,inspectFrontendArchive,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
+import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,createPlatformStore,inspectFrontendArchive,importFrontendArchive,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
 
 const blank=(template="premium-organic")=>({name:"Nueva plantilla",sector:"general",description:"",theme:applyTemplate(template)});
 const label={hero:"Portada",benefits:"Ventajas",categories:"Categorías",products:"Productos",story:"Historia",newsletter:"Newsletter",banner:"Banner",text:"Texto",imageText:"Imagen y texto"};
@@ -9,7 +9,7 @@ export function FrontendsStudio(){
  const[tab,setTab]=useState("gallery"),[templates,setTemplates]=useState([]),[stores,setStores]=useState([]);
  const[editingId,setEditingId]=useState(null),[draft,setDraft]=useState(blank()),[versions,setVersions]=useState([]);
  const[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
- const[inspection,setInspection]=useState(null),[releaseNotes,setReleaseNotes]=useState("");
+ const[inspection,setInspection]=useState(null),[archive,setArchive]=useState(null),[releaseNotes,setReleaseNotes]=useState("");
  const[target,setTarget]=useState(""),[replaceExisting,setReplaceExisting]=useState(false),[preview,setPreview]=useState(null),[chosenVersion,setChosenVersion]=useState("");
  const[newStore,setNewStore]=useState({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"editorial-fashion"});
  const flash=(message)=>{setNotice(message);setError("")};
@@ -40,7 +40,13 @@ export function FrontendsStudio(){
   if(!editingId)return fail(new Error("Guarda primero la plantilla"));
   setBusy(true);try{const r=await releaseFrontend(editingId,releaseNotes);setChosenVersion(String(r.release.version));setVersions(v=>[{version:r.release.version,notes:r.release.notes,published_at:r.release.published_at},...v]);setPreview(null);await refresh();flash("Versión "+r.release.version+" publicada en la biblioteca. Aún no se ha instalado en ninguna tienda.")}catch(e){fail(e)}finally{setBusy(false)}
  }
- async function inspect(file){if(!file)return;setBusy(true);try{setInspection(await inspectFrontendArchive(file));setTab("import");flash("ZIP analizado sin ejecutar código. Revisa los avisos antes de importar.")}catch(e){fail(e)}finally{setBusy(false)}}
+ async function inspect(file){if(!file)return;setBusy(true);setArchive(null);setInspection(null);try{const result=await inspectFrontendArchive(file);setInspection(result);setArchive(file);setTab("import");flash("ZIP analizado sin ejecutar código. Revisa los avisos antes de importar.")}catch(e){fail(e)}finally{setBusy(false)}}
+ async function saveArchive(){
+  if(!archive||!inspection)return fail(new Error("Analiza primero el ZIP"));
+  if(!window.confirm("Crear una plantilla nueva y guardar "+(inspection.assets?.length||0)+" imágenes detectadas en BravoShop? No afectará a las tiendas existentes."))return;
+  setBusy(true);
+  try{const result=await importFrontendArchive(archive);setEditingId(result.template.id);setDraft({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme});setChosenVersion("");setVersions([]);setTarget("");setPreview(null);setTab("editor");await refresh();flash("Plantilla importada con "+result.assets.length+" imágenes almacenadas. Revisa el diseño y publica una versión cuando quieras.")}catch(e){fail(e)}finally{setBusy(false)}
+ }
  function useInspection(){setEditingId(null);setVersions([]);setChosenVersion("");setPreview(null);setDraft({name:inspection.name,sector:inspection.sector,description:"Importado desde ZIP ("+inspection.kind+"). Requiere revisión visual.",theme:inspection.theme});setTab("editor");flash("Borrador preparado. Revisa el diseño y guárdalo.") }
  async function showPreview(){
   if(!editingId||!chosenVersion||!target)return fail(new Error("Elige una versión y una tienda"));
@@ -108,12 +114,18 @@ export function FrontendsStudio(){
    </div><p>Vista estructural del tema. Comprueba la tienda real después de desplegar; esta vista no simula el checkout.</p>
    {editingId&&<button className="ghost" onClick={()=>setTab("deploy")}>Gestionar versiones y despliegues</button>}</article>
   </div>}
-  {tab==="import"&&<article className="panel"><h2><FileArchive size={20}/> Importar desde ZIP</h2><p>Adjunta un archivo ZIP de Herencia u otra web. El sistema reconoce manifiestos <code>bravoshop-template.json</code> y analiza <code>index.html</code> como referencia. No ejecuta scripts ni importa automáticamente bases de datos, fotografías o pasarelas de pago.</p>
+  {tab==="import"&&<article className="panel"><h2><FileArchive size={20}/> Importar desde ZIP</h2><p>Adjunta un archivo ZIP de Herencia u otra web. El sistema reconoce manifiestos <code>bravoshop-template.json</code> y analiza <code>index.html</code> como referencia. No ejecuta scripts ni importa bases de datos ni pasarelas de pago. Puedes guardar imágenes locales compatibles dentro de una plantilla nueva tras confirmar.</p>
    <label>Archivo .zip (máximo 8 MB)<input type="file" accept=".zip,application/zip" disabled={busy} onChange={e=>inspect(e.target.files?.[0])}/></label>
    {inspection&&<><h3>{inspection.name}</h3><p>Tipo: {inspection.kind==="bravoshop_template"?"Plantilla BravoShop compatible":"Web HTML de referencia"}</p>
+    <p><strong>Páginas secundarias detectadas:</strong> {inspection.pages?.length||0} · <strong>Imágenes listas para guardar:</strong> {inspection.assets?.length||0}</p>
+    {inspection.pages?.length>0&&<details><summary>Páginas convertidas en secciones</summary><ul>{inspection.pages.map((page,i)=><li key={i}>{page.title} · {page.file}</li>)}</ul></details>}
+    {inspection.assets?.length>0&&<details><summary>Imágenes detectadas</summary><ul>{inspection.assets.map((asset,i)=><li key={i}>{asset.path} ({Math.ceil(asset.size/1024)} KB)</li>)}</ul></details>}
     {inspection.warnings.map((w,i)=><p key={i}><strong>Aviso:</strong> {w}</p>)}
     <details><summary>Archivos detectados ({inspection.files.length} mostrados)</summary><ul>{inspection.files.map((name,i)=><li key={i}>{name}</li>)}</ul></details>
-    <button disabled={busy} onClick={useInspection}><Plus size={15}/> Preparar borrador editable</button>
+    <div className="designTopActions" style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <button disabled={busy||!archive} onClick={saveArchive}><Upload size={15}/> {busy?"Importando…":("Importar plantilla y "+(inspection.assets?.length||0)+" imágenes")}</button>
+      <button className="ghost" disabled={busy} onClick={useInspection}><Plus size={15}/> Preparar borrador sin copiar imágenes</button>
+    </div>
    </>}
   </article>}
   {tab==="stores"&&<article className="panel"><h2>Tiendas y frontends publicados</h2><p>Visualiza cualquier escaparate y consulta su plantilla instalada.</p>
