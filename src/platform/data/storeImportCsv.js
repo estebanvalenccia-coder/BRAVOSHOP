@@ -45,7 +45,7 @@ const readImportCategories=value=>[...new Set(
 )];
 const normalizePrice=value=>{
  const raw=str(value);
- return raw.includes(",")&&!raw.includes(".")?raw.replace(",","."):raw||"0";
+ return raw.includes(",")&&!raw.includes(".")?raw.replace(",","."):raw;
 };
 
 
@@ -124,6 +124,10 @@ function parseWooCommerceProducts(rows,get){
   }
   products.push(product);
  }
+ for(const product of products){
+  const withoutPrice=product.variants.find(v=>v.price==="");
+  if(withoutPrice)throw new Error('El producto "'+product.name+'" tiene variantes sin precio en el CSV. Añade un precio explícito (0,00 solo si es gratuito) y vuelve a exportarlo.');
+ }
  return {source:"woocommerce",products,skipped,variantCount:products.reduce((n,p)=>n+p.variants.length,0)};
 }
 
@@ -195,5 +199,9 @@ export function parseStoreCatalogCsv(sourceText){
  const products=[...results.values()].filter(p=>p.variants.length);
  if(!products.length)throw new Error("No se encontraron productos compatibles. Exporta los productos en CSV desde la plataforma de origen.");
  const count=products.reduce((sum,p)=>sum+p.variants.length,0);
+ for(const product of products){
+  const withoutPrice=product.variants.find(v=>v.price==="");
+  if(withoutPrice)throw new Error('El producto "'+product.name+'" tiene variantes sin precio en el CSV. Añade un precio explícito (0,00 solo si es gratuito) y vuelve a exportarlo.');
+ }
  return {source,products,skipped,variantCount:count};
 }
