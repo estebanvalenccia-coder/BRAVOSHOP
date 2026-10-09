@@ -112,6 +112,7 @@ frontendsRouter.post("/zip/import",raw({type:["application/zip","application/oct
  try{({inspection,images}=prepareFrontendZip(req.body))}catch(error){return bad(res,error.message)}
  if(images.length&&!mediaReady())return bad(res,"Almacenamiento de imágenes no disponible; no se ha importado nada",503);
  const templateId=randomUUID(),uploaded=[],links=new Map();
+ let committed=false;
  try{
   for(const asset of images){
    const objectPath=templateId+"/library/"+randomUUID();
@@ -137,11 +138,12 @@ frontendsRouter.post("/zip/import",raw({type:["application/zip","application/oct
     ...uploaded.map(asset=>sql.query("insert into platform_frontend_assets(template_id,original_path,object_path,public_url,mime_type,size_bytes,imported_by) values($1::uuid,$2,$3,$4,$5,$6,$7::uuid)",[templateId,asset.path,asset.objectPath,asset.publicUrl,asset.mime,asset.size,req.user.id]))
   ];
   await sql.transaction(queries);
-  await audit(req,"frontend.zip.imported","frontend_template",templateId,{kind:inspection.kind,asset_count:uploaded.length,page_count:inspection.pages.length});
+  committed=true;
+  try{await audit(req,"frontend.zip.imported","frontend_template",templateId,{kind:inspection.kind,asset_count:uploaded.length,page_count:inspection.pages.length})}
+  catch(error){console.error("Frontend ZIP audit failed",{templateId,error:error.message})}
   return res.status(201).json({template:{id:templateId,name:inspection.name,sector:inspection.sector,draft_theme:safe,version:0,description:"Importado desde ZIP · "+inspection.kind},assets:uploaded.map(a=>({path:a.path,url:a.publicUrl,size:a.size})),warnings:inspection.warnings});
  }catch(error){
-  await Promise.allSettled(uploaded.map(asset=>removeObject({object_path:asset.objectPath})));
-  // A database commit might have succeeded before an audit failure; avoid hiding it.
+  if(!committed)await Promise.allSettled(uploaded.map(asset=>removeObject({object_path:asset.objectPath})));
   if(uploaded.length)console.error("Frontend ZIP import failed",{templateId,count:uploaded.length,error:error.message});
   return bad(res,"No se completó la importación. Comprueba el almacenamiento y vuelve a intentarlo.",502);
  }
