@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";
 import{GripVertical}from"lucide-react";
 import{LiveStorefrontPreview}from"./LiveStorefrontPreview.jsx";
-import{moveSectionToIndex}from"./frontendEditorUtils.js";
+import{moveSectionToIndex,moveSectionBefore,moveVisibleSection}from"./frontendEditorUtils.js";import{SectionLayoutControls}from"./SectionLayoutControls.jsx";
 import{Plus,Upload,ArrowUp,ArrowDown,Trash2,Copy,Eye,Save,Send,Store,FileArchive,ExternalLink}from"lucide-react";
 import{STORE_TEMPLATES,applyTemplate,ADDABLE_SECTIONS}from"../config/storeTemplates.js";
 import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,restoreFrontendDraft,previewFrontendRollback,rollbackStoreFrontend,listStoreFrontendRollbacks,previewFrontendDeployment,deployFrontend,previewFrontendBatch,createPlatformStore,inspectFrontendArchive,importFrontendArchive,listFrontendAssets,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
@@ -32,6 +32,12 @@ export function FrontendsStudio(){
  const patchTheme=changes=>setDraft(d=>({...d,theme:{...d.theme,...changes}}));
  const patchSection=(id,changes)=>patchTheme({sections:(draft.theme.sections||[]).map(s=>s.id===id?{...s,...changes}:s)});
  const patchContent=(id,key,value)=>patchTheme({sections:(draft.theme.sections||[]).map(s=>s.id===id?{...s,content:{...(s.content||{}),[key]:value}}:s)});
+ const patchLayout=(id,key,value)=>setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>{
+  if(section.id!==id)return section;
+  const content={...(section.content||{})};
+  if(value===null)delete content[key];else content[key]=value;
+  return {...section,content};
+ })}}));
  function moveSection(index,direction){const items=[...(draft.theme.sections||[])];const next=index+direction;if(next<0||next>=items.length)return;[items[index],items[next]]=[items[next],items[index]];patchTheme({sections:items})}
  function addSection(type){const section={id:type+"-"+Date.now(),type,label:label[type]||type,visible:true,content:{title:label[type]||type,text:"",button:"",button_url:"#catalog"}};patchTheme({sections:[...(draft.theme.sections||[]),section]})}
  function copySection(s,index){const items=[...(draft.theme.sections||[])];items.splice(index+1,0,{...s,id:s.type+"-"+Date.now(),label:s.label+" copia",content:{...s.content}});patchTheme({sections:items})}
@@ -155,6 +161,7 @@ export function FrontendsStudio(){
       <label>Título<input value={section.content?.title||""} onChange={e=>patchContent(section.id,"title",e.target.value)}/></label>
       <label>Texto<textarea rows={2} value={section.content?.text||""} onChange={e=>patchContent(section.id,"text",e.target.value)}/></label>
       <label>Imagen URL<input value={section.content?.image||""} onChange={e=>patchContent(section.id,"image",e.target.value)} placeholder="https://..."/></label>
+      <details><summary>Cuadrícula, espaciado y alineación</summary><SectionLayoutControls section={section} onChange={(key,value)=>patchLayout(section.id,key,value)}/></details>
       {section.type==="hero"&&<label>Altura de portada: {section.content?.hero_height||440} px<input type="range" min="300" max="900" step="10" value={section.content?.hero_height||440} onChange={e=>patchContent(section.id,"hero_height",Number(e.target.value))}/></label>}
       {section.content?.image&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8}}>
        <label>Posición horizontal: {section.content.image_position_x??50}%<input type="range" min="0" max="100" value={section.content.image_position_x??50} onChange={e=>patchContent(section.id,"image_position_x",Number(e.target.value))}/></label>
@@ -173,7 +180,7 @@ export function FrontendsStudio(){
      </div>)}</>}
     {editingId&&<><hr/><h3>Crear actualización</h3>{asSnapshot(draft)!==cleanSnapshot&&<p role="status"><strong>Hay cambios sin guardar.</strong> Guarda el borrador antes de publicar.</p>}<p>El borrador guardado se convierte en una versión inmutable. No cambia ninguna tienda hasta que la instales.</p><label>Notas de versión<input value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} placeholder="Mejoras de portada y navegación"/></label><button disabled={busy||asSnapshot(draft)!==cleanSnapshot} onClick={release}><Send size={15}/> Publicar versión nueva</button></>}
    </article>
-   <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme} selectedSectionId={selectedSectionId} onSelectSection={setSelectedSectionId} onInlineTextChange={(sectionId,field,value)=>{setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>section.id===sectionId?{...section,content:{...section.content,[field]:value}}:section)}}))}} onSectionResize={(sectionId,height)=>{setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>section.id===sectionId?{...section,content:{...section.content,hero_height:height}}:section)}}))}}/>
+   <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme} onReorderSection={action=>setDraft(d=>({...d,theme:{...d.theme,sections:action.direction?moveVisibleSection(d.theme.sections,action.sectionId,action.direction):moveSectionBefore(d.theme.sections,action.movingId,action.targetId)}}))}  selectedSectionId={selectedSectionId} onSelectSection={setSelectedSectionId} onInlineTextChange={(sectionId,field,value)=>{setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>section.id===sectionId?{...section,content:{...section.content,[field]:value}}:section)}}))}} onSectionResize={(sectionId,height)=>{setDraft(current=>({...current,theme:{...current.theme,sections:(current.theme.sections||[]).map(section=>section.id===sectionId?{...section,content:{...section.content,hero_height:height}}:section)}}))}}/>
     {activeSection&&<div className="sectionCard" style={{padding:14,marginBottom:16,border:"2px solid #2b8a60"}} role="region" aria-label="Editor de la sección seleccionada">
      <h3>Edición de {activeSection.label}</h3>
      <p>Has seleccionado esta sección desde el escaparate. Los cambios se muestran antes de guardar o publicar.</p>
@@ -182,6 +189,7 @@ export function FrontendsStudio(){
      <label>Botón<input value={activeSection.content?.button||""} onChange={e=>patchContent(activeSection.id,"button",e.target.value)}/></label>
      <label>Destino del botón<input value={activeSection.content?.button_url||""} onChange={e=>patchContent(activeSection.id,"button_url",e.target.value)}/></label>
      <label>Imagen<input value={activeSection.content?.image||""} onChange={e=>patchContent(activeSection.id,"image",e.target.value)}/></label>
+     <SectionLayoutControls section={activeSection} onChange={(key,value)=>patchLayout(activeSection.id,key,value)}/>
      {activeSection.type==="hero"&&<label>Altura de portada: {activeSection.content?.hero_height||440} px<input type="range" min="300" max="900" step="10" value={activeSection.content?.hero_height||440} onChange={e=>patchContent(activeSection.id,"hero_height",Number(e.target.value))}/></label>}
      <div style={{display:"flex",gap:10,alignItems:"center"}}>
       <button className="ghost" type="button" onClick={()=>patchSection(activeSection.id,{visible:false})}>Ocultar sección</button>
