@@ -6,6 +6,7 @@ import{requireSuperAdmin}from"../middleware/superAdmin.js";
 import{sanitizeTheme,mergeMerchantTheme}from"../frontends/themeMerge.js";
 import{inspectFrontendZip}from"../frontends/zipPreview.js";
 import{prepareFrontendZip}from"../frontends/zipImport.js";
+import{validateRolloutInput}from"../frontends/rolloutValidation.js";
 import{createUploadIntent,verifyObject,removeObject,mediaReady}from"../services/mediaSigner.js";
 import{getTemplate,templateSections}from"../../src/platform/config/storeTemplates.js";
 
@@ -93,10 +94,9 @@ frontendsRouter.post("/:id/preview",needId,async(req,res)=>{
  res.json({preview:{store:plan.store,theme:plan.theme,protectedFields:plan.protectedFields}});
 });
 frontendsRouter.post("/:id/batch-preview",needId,async(req,res)=>{
- const version=Number(req.body?.version),storeIds=req.body?.storeIds;
- if(!Number.isSafeInteger(version)||version<1||!Array.isArray(storeIds)||storeIds.length<1||storeIds.length>25||!storeIds.every(validId)||new Set(storeIds).size!==storeIds.length)
-  return bad(res,"Selecciona entre 1 y 25 tiendas diferentes y una versión válida");
- const replace=req.body?.replaceExisting===true;
+ let version,storeIds,replaceExisting;
+ try{({version,storeIds,replaceExisting}=validateRolloutInput(req.body))}catch(e){return bad(res,e.message)}
+ const replace=replaceExisting;
  const results=[];
  for(const storeId of storeIds){
   const planned=await planDeployment(req.params.id,version,storeId,replace);
@@ -105,11 +105,11 @@ frontendsRouter.post("/:id/batch-preview",needId,async(req,res)=>{
  res.set("Cache-Control","private, no-store").json({version,results,allReady:results.every(x=>x.ok)});
 });
 frontendsRouter.post("/:id/deploy",needId,async(req,res)=>{
- const version=Number(req.body?.version),storeIds=req.body?.storeIds;
- if(!Number.isSafeInteger(version)||version<1||!Array.isArray(storeIds)||storeIds.length<1||storeIds.length>25||new Set(storeIds).size!==storeIds.length||!storeIds.every(validId))return bad(res,"Selecciona de 1 a 25 tiendas y una versión válida");
+ let version,storeIds,replaceExisting;
+ try{({version,storeIds,replaceExisting}=validateRolloutInput(req.body))}catch(e){return bad(res,e.message)}
  const results=[];
  for(const storeId of storeIds){
-  const plan=await planDeployment(req.params.id,version,storeId,req.body?.replaceExisting===true);
+  const plan=await planDeployment(req.params.id,version,storeId,replaceExisting);
   if(plan.error){results.push({storeId,ok:false,error:plan.error});continue}
   const baseline=(await sql.query("select theme from platform_frontend_versions where template_id=$1::uuid and version=$2",[req.params.id,version]))[0].theme;
   const rows=await sql.query("select bravoshop_admin_deploy_frontend($1::uuid,$2::uuid,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7::uuid) as applied_version",[storeId,req.params.id,version,JSON.stringify(plan.current),JSON.stringify(plan.theme),JSON.stringify(baseline),req.user.id]);
