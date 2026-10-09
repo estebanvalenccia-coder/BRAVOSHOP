@@ -163,6 +163,15 @@ storesRouter.post("/:storeId/import/products",requireStore,requirePermission("pr
    values(${pid}::uuid,${req.storeId}::uuid,${product.name},${product.slug},
    ${product.description},${productPrice},'draft',null,${product.vendor||null},
    ${JSON.stringify({import_source:checked.source})}::jsonb,'{}'::jsonb)`);
+  for(const category of product.categories){
+   queries.push(sql`insert into categories(id,store_id,name,slug)
+    values(${randomUUID()}::uuid,${req.storeId}::uuid,${category.name},${category.slug})
+    on conflict(store_id,slug) do nothing`);
+   queries.push(sql`insert into product_categories(product_id,category_id,store_id)
+    select ${pid}::uuid,id,${req.storeId}::uuid from categories
+    where store_id=${req.storeId}::uuid and slug=${category.slug}
+    on conflict do nothing`);
+  }
   for(const variant of product.variants){
    const vid=randomUUID();
    queries.push(sql`insert into product_variants(id,store_id,product_id,title,sku,price,active,options)
@@ -182,7 +191,7 @@ storesRouter.post("/:storeId/import/products",requireStore,requirePermission("pr
    return res.status(409).json({error:"Hay un producto o SKU duplicado, o ha cambiado el catálogo durante la importación. No se ha importado parcialmente este lote."});
   throw error;
  }
- res.status(201).json({ok:true,products_created:checked.products.length,variants_created:checked.totalVariants,status:"draft"});
+ res.status(201).json({ok:true,products_created:checked.products.length,variants_created:checked.totalVariants,categories_linked:checked.products.reduce((n,p)=>n+p.categories.length,0),status:"draft"});
 });
 storesRouter.put("/:storeId/payments/preferences",requireStore,requirePermission("payments.manage"),async(req,res)=>{const country=String(req.body?.country||"").trim().toUpperCase();const currency=String(req.body?.default_currency||"").trim().toUpperCase();if(!/^[A-Z]{2}$/.test(country)||!/^[A-Z]{3}$/.test(currency))return res.status(400).json({error:"País o divisa inválidos"});const linked=await sql`select provider_account_id,country,default_currency from store_payment_accounts where store_id=${req.storeId}::uuid`;if(linked[0]?.provider_account_id&&(linked[0].country!==country||linked[0].default_currency!==currency))return res.status(409).json({code:"STRIPE_ACCOUNT_IDENTITY_LOCKED",error:"La cuenta Stripe ya está vinculada. El país y la divisa se gestionan desde Stripe Express y no pueden cambiarse aquí."});await sql`insert into store_payment_accounts(store_id,provider,status,country,default_currency) values(${req.storeId}::uuid,'stripe','not_connected',${country},${currency}) on conflict(store_id) do update set country=excluded.country,default_currency=excluded.default_currency,updated_at=now()`;res.json({ok:true,country,default_currency:currency})});
 storesRouter.post("/:storeId/payments/connect",requireStore,requirePermission("payments.manage"),async(req,res)=>{
