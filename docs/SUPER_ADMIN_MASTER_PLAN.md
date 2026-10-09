@@ -1,6 +1,15 @@
 # BravoShop — Mandato de Super Admin y Centro de Frontends
 
+**Prioridad inmediata: [beta comercial viable](BETA_LAUNCH_PLAN.md)**. Posponer expansión del editor hasta verificar primera compra y reembolso con Stripe.
+
 Registro de requisitos procedentes del diálogo con el propietario. Este archivo es una **lista de comprobación de desarrollo**, no una declaración de funcionalidades ya completadas. Revisarlo en cada bloque/PR antes de informar de avances.
+
+## Lanzamiento comercial rápido
+
+- [x] Panel protegido de diagnóstico del piloto: planes, catálogo vendible, publicación, legal, envíos, módulos, Stripe Connect, email y checkout de plataforma (PR #33).
+- [ ] Primera tienda con Stripe Connect operativa, producto con stock y datos legales listos.
+- [ ] Compra controlada con webhook, pedido, correo y reembolso verificados de extremo a extremo.
+- [ ] Validación autenticada del Super Admin y aislamiento entre comerciantes.
 
 ## Super Admin: 12 áreas de producto
 
