@@ -6,12 +6,13 @@ import{Plus,Upload,ArrowUp,ArrowDown,Trash2,Copy,Eye,Save,Send,Store,FileArchive
 import{STORE_TEMPLATES,applyTemplate,ADDABLE_SECTIONS}from"../config/storeTemplates.js";
 import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,restoreFrontendDraft,previewFrontendDeployment,deployFrontend,previewFrontendBatch,createPlatformStore,inspectFrontendArchive,importFrontendArchive,listFrontendAssets,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
 
+const asSnapshot=d=>JSON.stringify({name:d.name,sector:d.sector,description:d.description,theme:d.theme});
 const blank=(template="premium-organic")=>({name:"Nueva plantilla",sector:"general",description:"",theme:applyTemplate(template)});
 const label={hero:"Portada",benefits:"Ventajas",categories:"Categorías",products:"Productos",story:"Historia",newsletter:"Newsletter",banner:"Banner",text:"Texto",imageText:"Imagen y texto"};
 export function FrontendsStudio(){
  const[tab,setTab]=useState("gallery"),[templates,setTemplates]=useState([]),[stores,setStores]=useState([]);
  const[editingId,setEditingId]=useState(null),[draft,setDraft]=useState(blank()),[versions,setVersions]=useState([]);
- const[savedRevision,setSavedRevision]=useState(null),[draggingSection,setDraggingSection]=useState("");
+ const[savedRevision,setSavedRevision]=useState(null),[draggingSection,setDraggingSection]=useState(""),[cleanSnapshot,setCleanSnapshot]=useState("");
  const[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const[inspection,setInspection]=useState(null),[archive,setArchive]=useState(null),[templateAssets,setTemplateAssets]=useState([]),[assetSection,setAssetSection]=useState("hero"),[releaseNotes,setReleaseNotes]=useState("");
  const[target,setTarget]=useState(""),[replaceExisting,setReplaceExisting]=useState(false),[preview,setPreview]=useState(null),[chosenVersion,setChosenVersion]=useState("");
@@ -21,11 +22,11 @@ export function FrontendsStudio(){
  async function refresh(){const data=await loadFrontendStudio();setTemplates(data.templates||[]);setStores(data.stores||[]);return data}
  useEffect(()=>{refresh().catch(fail)},[]);
  async function choose(item){
-  setEditingId(item.id);setSavedRevision(item.draft_revision??null);setAssetSection(item.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme});
+  setEditingId(item.id);setSavedRevision(item.draft_revision??null);setCleanSnapshot(asSnapshot({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme}));setAssetSection(item.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme});
   setChosenVersion(String(item.version||""));setPreview(null);setTarget("");setReplaceExisting(false);setTab("editor");
   try{const [versionsData,assets]=await Promise.all([listFrontendVersions(item.id),listFrontendAssets(item.id)]);setVersions(versionsData.versions||[]);setTemplateAssets(assets)}catch(e){fail(e)}
  }
- function start(template){setEditingId(null);setSavedRevision(null);setAssetSection("hero");setTemplateAssets([]);setDraft(blank(template));setVersions([]);setChosenVersion("");setPreview(null);setTab("editor");flash("Plantilla nueva. Guarda el borrador para empezar a versionarla.")}
+ function start(template){setEditingId(null);setSavedRevision(null);setCleanSnapshot("");setAssetSection("hero");setTemplateAssets([]);setDraft(blank(template));setVersions([]);setChosenVersion("");setPreview(null);setTab("editor");flash("Plantilla nueva. Guarda el borrador para empezar a versionarla.")}
  const patch=changes=>setDraft(d=>({...d,...changes}));
  const patchTheme=changes=>setDraft(d=>({...d,theme:{...d.theme,...changes}}));
  const patchSection=(id,changes)=>patchTheme({sections:(draft.theme.sections||[]).map(s=>s.id===id?{...s,...changes}:s)});
@@ -35,13 +36,13 @@ export function FrontendsStudio(){
  function copySection(s,index){const items=[...(draft.theme.sections||[])];items.splice(index+1,0,{...s,id:s.type+"-"+Date.now(),label:s.label+" copia",content:{...s.content}});patchTheme({sections:items})}
  async function save(){
   setBusy(true);try{
-   if(editingId){const r=await saveFrontendDraft(editingId,{...draft,expectedRevision:savedRevision});setSavedRevision(r.template.draft_revision??null);setDraft({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme});flash("Borrador actualizado. Publica una versión cuando esté listo.")}
-   else{const r=await createFrontendDraft(draft);setEditingId(r.template.id);setSavedRevision(r.template.draft_revision??null);setDraft({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme});flash("Plantilla creada. Ya puedes publicar una versión.")}
+   if(editingId){const r=await saveFrontendDraft(editingId,{...draft,expectedRevision:savedRevision});setSavedRevision(r.template.draft_revision??null);setCleanSnapshot(asSnapshot({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme}));setDraft({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme});flash("Borrador actualizado. Publica una versión cuando esté listo.")}
+   else{const r=await createFrontendDraft(draft);setEditingId(r.template.id);setSavedRevision(r.template.draft_revision??null);setCleanSnapshot(asSnapshot({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme}));setDraft({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme});flash("Plantilla creada. Ya puedes publicar una versión.")}
    await refresh();
   }catch(e){fail(e)}finally{setBusy(false)}
  }
  async function release(){
-  if(!editingId)return fail(new Error("Guarda primero la plantilla"));
+  if(!editingId)return fail(new Error("Guarda primero la plantilla"));if(asSnapshot(draft)!==cleanSnapshot)return fail(new Error("Tienes cambios sin guardar. Guarda el borrador antes de publicar una versión"));
   setBusy(true);try{const r=await releaseFrontend(editingId,releaseNotes);setChosenVersion(String(r.release.version));setVersions(v=>[{version:r.release.version,notes:r.release.notes,published_at:r.release.published_at},...v]);setPreview(null);const data=await refresh();setSavedRevision(data.templates.find(t=>t.id===editingId)?.draft_revision??null);flash("Versión "+r.release.version+" publicada en la biblioteca. Aún no se ha instalado en ninguna tienda.")}catch(e){fail(e)}finally{setBusy(false)}
  }
  async function restoreDraft(version){
@@ -51,7 +52,7 @@ export function FrontendsStudio(){
   try{
    const r=await restoreFrontendDraft(editingId,version,savedRevision);
    setDraft({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme});
-   setSavedRevision(r.template.draft_revision);setAssetSection(r.template.draft_theme?.sections?.[0]?.id||"hero");
+   setSavedRevision(r.template.draft_revision);setCleanSnapshot(asSnapshot({name:r.template.name,sector:r.template.sector,description:r.template.description,theme:r.template.draft_theme}));setAssetSection(r.template.draft_theme?.sections?.[0]?.id||"hero");
    setPreview(null);await refresh();flash("Versión v"+version+" recuperada como borrador. Guarda una nueva publicación para utilizarla en tiendas.");
   }catch(e){fail(e)}finally{setBusy(false)}
  }
@@ -60,9 +61,9 @@ export function FrontendsStudio(){
   if(!archive||!inspection)return fail(new Error("Analiza primero el ZIP"));
   if(!window.confirm("Crear una plantilla nueva y guardar "+(inspection.assets?.length||0)+" imágenes detectadas en BravoShop? No afectará a las tiendas existentes."))return;
   setBusy(true);
-  try{const result=await importFrontendArchive(archive);setEditingId(result.template.id);setSavedRevision(result.template.draft_revision??null);setAssetSection(result.template.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme});setChosenVersion("");setVersions([]);setTemplateAssets(await listFrontendAssets(result.template.id));setTarget("");setPreview(null);setTab("editor");await refresh();flash("Plantilla importada con "+result.assets.length+" imágenes almacenadas. Revisa el diseño y publica una versión cuando quieras.")}catch(e){fail(e)}finally{setBusy(false)}
+  try{const result=await importFrontendArchive(archive);setEditingId(result.template.id);setSavedRevision(result.template.draft_revision??null);setCleanSnapshot(asSnapshot({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme}));setAssetSection(result.template.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:result.template.name,sector:result.template.sector,description:result.template.description,theme:result.template.draft_theme});setChosenVersion("");setVersions([]);setTemplateAssets(await listFrontendAssets(result.template.id));setTarget("");setPreview(null);setTab("editor");await refresh();flash("Plantilla importada con "+result.assets.length+" imágenes almacenadas. Revisa el diseño y publica una versión cuando quieras.")}catch(e){fail(e)}finally{setBusy(false)}
  }
- function useInspection(){setEditingId(null);setSavedRevision(null);setAssetSection(inspection?.theme?.sections?.[0]?.id||"hero");setTemplateAssets([]);setVersions([]);setChosenVersion("");setPreview(null);setDraft({name:inspection.name,sector:inspection.sector,description:"Importado desde ZIP ("+inspection.kind+"). Requiere revisión visual.",theme:inspection.theme});setTab("editor");flash("Borrador preparado. Revisa el diseño y guárdalo.") }
+ function useInspection(){setEditingId(null);setSavedRevision(null);setCleanSnapshot("");setAssetSection(inspection?.theme?.sections?.[0]?.id||"hero");setTemplateAssets([]);setVersions([]);setChosenVersion("");setPreview(null);setDraft({name:inspection.name,sector:inspection.sector,description:"Importado desde ZIP ("+inspection.kind+"). Requiere revisión visual.",theme:inspection.theme});setTab("editor");flash("Borrador preparado. Revisa el diseño y guárdalo.") }
  async function showPreview(){
   if(!editingId||!chosenVersion||!target)return fail(new Error("Elige una versión y una tienda"));
   setBusy(true);try{const r=await previewFrontendDeployment(editingId,{version:Number(chosenVersion),storeId:target,replaceExisting});setPreview({id:editingId,version:chosenVersion,storeId:target,replaceExisting,...r.preview});flash("Simulación completada. Revisa los campos protegidos antes de publicar.")}catch(e){setPreview(null);fail(e)}finally{setBusy(false)}
@@ -126,7 +127,7 @@ export function FrontendsStudio(){
       <div style={{flex:1}}><strong>Versión {v.version}</strong><small>{v.notes||"Sin notas"} · {new Date(v.published_at).toLocaleDateString()}</small></div>
       <button disabled={busy} className="ghost" onClick={()=>restoreDraft(v.version)}>Restaurar borrador</button>
      </div>)}</>}
-    {editingId&&<><hr/><h3>Crear actualización</h3><p>El borrador guardado se convierte en una versión inmutable. No cambia ninguna tienda hasta que la instales.</p><label>Notas de versión<input value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} placeholder="Mejoras de portada y navegación"/></label><button disabled={busy} onClick={release}><Send size={15}/> Publicar versión nueva</button></>}
+    {editingId&&<><hr/><h3>Crear actualización</h3>{asSnapshot(draft)!==cleanSnapshot&&<p role="status"><strong>Hay cambios sin guardar.</strong> Guarda el borrador antes de publicar.</p>}<p>El borrador guardado se convierte en una versión inmutable. No cambia ninguna tienda hasta que la instales.</p><label>Notas de versión<input value={releaseNotes} onChange={e=>setReleaseNotes(e.target.value)} placeholder="Mejoras de portada y navegación"/></label><button disabled={busy||asSnapshot(draft)!==cleanSnapshot} onClick={release}><Send size={15}/> Publicar versión nueva</button></>}
    </article>
    <article className="panel"><h2>Vista del diseño</h2><LiveStorefrontPreview stores={stores} theme={theme}/>
     {editingId&&templateAssets.length>0&&<div className="sectionCard" style={{padding:12,marginBottom:16}}>
