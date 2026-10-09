@@ -33,3 +33,5 @@ export async function listPlatformRefunds(){const data=await api("/api/admin/ref
 export async function syncPlatformPromotion(id){const data=await api("/api/admin/promotions/"+encodeURIComponent(id)+"/sync",{method:"POST",body:{}});return data.promotion}
 
 export async function deactivatePlatformPromotion(id){const data=await api("/api/admin/promotions/"+encodeURIComponent(id)+"/deactivate",{method:"POST",body:{}});return data.promotion}
+
+export async function getCommercialLaunchReadiness(){return api("/api/admin/launch/readiness")}
