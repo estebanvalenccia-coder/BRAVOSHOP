@@ -1,4 +1,4 @@
-import React,{useEffect,useState}from"react";import{Store,ShieldCheck,Sparkles,Blocks,BarChart3,ArrowRight}from"lucide-react";import{Onboarding}from"./onboarding/Onboarding.jsx";import{MerchantAdmin}from"./admin/MerchantAdmin.jsx";import{SuperAdmin}from"./admin/SuperAdmin.jsx";import{AuthScreen}from"./auth/AuthScreen.jsx";import{Storefront}from"./storefront/Storefront.jsx";import{DemoExperience}from"./demo/DemoExperience.jsx";import{useAuth}from"./auth/AuthProvider.jsx";import{createStore,listMyStores,loadStore,syncPaymentAccount,connectPaymentAccount,acceptStoreInvitation,startBillingCheckout,redeemAccessCode,retireStore}from"./data/storeService.js";import{listPublicPlans}from"./data/storefrontService.js";import{STORE_TEMPLATES,TEMPLATE_IMAGE_URLS,applyTemplate}from"./config/storeTemplates.js";import{safeStorefrontImage}from"./storefront/security.js";
+import React,{useEffect,useState}from"react";import{Store,ShieldCheck,Sparkles,Blocks,BarChart3,ArrowRight}from"lucide-react";import{Onboarding}from"./onboarding/Onboarding.jsx";import{StoreImport}from"./onboarding/StoreImport.jsx";import{MerchantAdmin}from"./admin/MerchantAdmin.jsx";import{SuperAdmin}from"./admin/SuperAdmin.jsx";import{AuthScreen}from"./auth/AuthScreen.jsx";import{Storefront}from"./storefront/Storefront.jsx";import{DemoExperience}from"./demo/DemoExperience.jsx";import{useAuth}from"./auth/AuthProvider.jsx";import{createStore,listMyStores,loadStore,syncPaymentAccount,connectPaymentAccount,acceptStoreInvitation,startBillingCheckout,redeemAccessCode,retireStore}from"./data/storeService.js";import{listPublicPlans}from"./data/storefrontService.js";import{STORE_TEMPLATES,TEMPLATE_IMAGE_URLS,applyTemplate}from"./config/storeTemplates.js";import{safeStorefrontImage}from"./storefront/security.js";
 const sectors=[
 {name:"Moda",tag:"Marcas · Boutiques · Colecciones",image:"https://www.proson.gr/sites/default/files/styles/article/public/2023-06/katastima.jpg.webp?itok=FhkHaQKa"},
 {name:"Alimentación",tag:"Gourmet · Panadería · Delivery",image:"https://i.pinimg.com/originals/95/84/a7/9584a772ae3cc48c7b5da1df294a1e2a.jpg"},
@@ -23,13 +23,14 @@ function MerchantPortal(){
  if(loading||mode==="loading")return <div className="bootScreen">Cargando BravoShop…</div>;
  if(resetToken)return <AuthScreen mode="reset" resetToken={resetToken} onBack={()=>window.location.assign("https://app.bravoshop.online")} onDone={()=>window.location.assign("https://app.bravoshop.online")}/>;
  if(mode==="auth")return <AuthScreen mode={authMode} onModeChange={setAuthMode} onBack={()=>window.location.assign("https://bravoshop.online")} onDone={()=>window.location.reload()}/>;
- if(mode==="stores")return <StoresHub stores={stores} user={user} onOpen={openStore} onCreate={()=>setMode("onboarding")} onDelete={async selected=>{await retireStore(selected.id,selected.slug);setStores(items=>items.filter(x=>x.id!==selected.id));}}/>;
+ if(mode==="stores")return <StoresHub stores={stores} user={user} onOpen={openStore} onCreate={()=>setMode("onboarding")} onDelete={async selected=>{await retireStore(selected.id,selected.slug);setStores(items=>items.filter(x=>x.id!==selected.id));}} onImportDone={async()=>setStores(await listMyStores())}/>;
  if(mode==="onboarding")return <Onboarding initialTemplate={requestedTemplate} initialPlan={requestedPlan} initialInterval={requestedInterval} onCancel={()=>{history.replaceState({},"",window.location.pathname);stores.length?setMode("stores"):window.location.assign("https://bravoshop.online")}} onFinish={async data=>{try{setError("");const created=await createStore({...data,theme:{...applyTemplate(data.template),primary_color:data.color},settings:{country:data.country,currency:data.currency,locale:data.locale}});const full=await loadStore(created.id);const ready={...created,...full};try{sessionStorage.removeItem("bravoshop:store-creation-key")}catch{}history.replaceState({},"",window.location.pathname);setStores(x=>[...x,ready]);setStore(ready);setInitialSection(requestedPlan||data.access_code?"billing":"home");setMode("merchant");if(data.access_code?.trim()){try{const access=await redeemAccessCode(ready.id,data.access_code);if(access.grant_type==="plan"){setError("Código de acceso activado. Ya puedes configurar tu tienda sin contratar otro plan.");return}}catch(codeError){setError("Tienda creada, pero el código de acceso no se ha podido canjear: "+codeError.message+". Puedes volver a intentarlo desde Facturación.");return}}if(requestedPlan){try{const checkout=await startBillingCheckout(ready.id,requestedPlan,requestedInterval);if(checkout?.url){window.location.assign(checkout.url);return}setError("Tu tienda está creada. Abre Plan y suscripción para contratar el plan seleccionado.")}catch(billingError){setError("Tu tienda está creada, pero no se pudo abrir el pago: "+billingError.message)}}}catch(e){setError(e.message);setMode("error")}}}/>;
  if(mode==="merchant"&&store)return <>{error&&<div className="merchantPortalAlert" role="alert">{error}</div>}<MerchantAdmin store={store} initialSection={initialSection} onExit={backToStores}/></>;
  return <div className="storeError"><h1>No se pudo abrir tu panel</h1><p>{error}</p><button onClick={()=>window.location.reload()}>Reintentar</button></div>
 }
 function storeHubCoverImage(store){const image=store?.theme?.sections?.find(x=>x.id==="hero")?.content?.image;return safeStorefrontImage(image)||TEMPLATE_IMAGE_URLS[store?.theme?.template]||TEMPLATE_IMAGE_URLS["editorial-fashion"]}
-function StoresHub({stores,user,onOpen,onCreate,onDelete}){
+function StoresHub({stores,user,onOpen,onCreate,onDelete,onImportDone}){
+ const[importing,setImporting]=useState(false);
  const[deleting,setDeleting]=useState(null);
  const[typedSlug,setTypedSlug]=useState("");
  const[busy,setBusy]=useState(false);
@@ -42,7 +43,7 @@ function StoresHub({stores,user,onOpen,onCreate,onDelete}){
   finally{setBusy(false)}
  };
  return <div className="storesHub">
-  <header className="storesTop"><a className="brand" href="https://bravoshop.online">BravoShop</a><div><span>{user?.name||user?.email||"Mi cuenta"}</span><button onClick={onCreate}><PlusIcon/> Nueva tienda</button></div></header>
+  <header className="storesTop"><a className="brand" href="https://bravoshop.online">BravoShop</a><div><span>{user?.name||user?.email||"Mi cuenta"}</span><button className="ghost" onClick={()=>setImporting(true)}>Importar tienda</button><button onClick={onCreate}><PlusIcon/> Nueva tienda</button></div></header>
   <main>
    <div className="storesIntro"><span>MIS TIENDAS</span><h1>Todo tu comercio, en un solo lugar.</h1><p>Elige una tienda para entrar a su administración, revisar productos, pedidos, diseño y configuración.</p></div>
    <div className="storesHubGrid">
@@ -63,6 +64,7 @@ function StoresHub({stores,user,onOpen,onCreate,onDelete}){
     <button className="newStoreCard" onClick={onCreate}><span>+</span><b>Crear otra tienda</b><small>Nuevo negocio o marca</small></button>
    </div>
   </main>
+  {importing&&<StoreImport stores={stores} onClose={()=>setImporting(false)} onCreate={onCreate} onImported={onImportDone}/>}
   {deleting&&<div role="presentation" style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(12,17,14,.68)",display:"grid",placeItems:"center",padding:16}}>
    <section role="dialog" aria-modal="true" aria-label="Eliminar tienda" style={{background:"#fff",borderRadius:18,padding:28,width:"100%",maxWidth:480,color:"#252525",boxShadow:"0 24px 72px #0004"}}>
     <h2>Eliminar {deleting.name}</h2>
