@@ -27,7 +27,7 @@ export function beginInlineTextEdit(node,{maxLength,onCommit}){
  function finish(commit){
   if(ended)return;ended=true;
   const result=normalizeInlineText(node.textContent||"",maxLength);
-  node.removeEventListener("keydown",onKeydown);node.removeEventListener("blur",onBlur);
+  node.removeEventListener("keydown",onKeydown);node.removeEventListener("blur",onBlur);node.removeEventListener("paste",onPaste);
   if(prevEditable===null)node.removeAttribute("contenteditable");else node.setAttribute("contenteditable",prevEditable);
   node.style.outline=prevOutline;
   if(!commit||!result||result===normalizeInlineText(initial,maxLength))node.textContent=initial;
@@ -38,10 +38,22 @@ export function beginInlineTextEdit(node,{maxLength,onCommit}){
   else if(e.key==="Enter"&&!e.isComposing){e.preventDefault();finish(true);node.blur()}
  }
  function onBlur(){finish(true)}
+ function onPaste(e){
+  e.preventDefault();
+  const pasted=e.clipboardData?.getData("text/plain")||"";
+  const selection=node.ownerDocument.getSelection(),range=selection?.rangeCount?selection.getRangeAt(0):null;
+  if(!range||!node.contains(range.commonAncestorContainer))return;
+  range.deleteContents();
+  const text=node.ownerDocument.createTextNode(pasted.slice(0,maxLength));
+  range.insertNode(text);
+  range.setStartAfter(text);range.collapse(true);
+  selection.removeAllRanges();selection.addRange(range);
+ }
  node.setAttribute("contenteditable","plaintext-only"); // plain text on supporting browsers
  node.style.outline="3px solid #2b8a60";
  node.addEventListener("keydown",onKeydown);
  node.addEventListener("blur",onBlur);
+ node.addEventListener("paste",onPaste);
  node.focus();
  return true;
 }
