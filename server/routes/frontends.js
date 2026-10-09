@@ -5,6 +5,8 @@ import{requireAuth}from"../middleware/auth.js";
 import{requireSuperAdmin}from"../middleware/superAdmin.js";
 import{sanitizeTheme,mergeMerchantTheme}from"../frontends/themeMerge.js";
 import{inspectFrontendZip}from"../frontends/zipPreview.js";
+import{prepareFrontendZip}from"../frontends/zipImport.js";
+import{createUploadIntent,verifyObject,removeObject,mediaReady}from"../services/mediaSigner.js";
 import{getTemplate,templateSections}from"../../src/platform/config/storeTemplates.js";
 
 export const frontendsRouter=Router();
@@ -101,6 +103,48 @@ frontendsRouter.post("/:id/deploy",needId,async(req,res)=>{
   results.push({storeId,ok:true,protectedFields:plan.protectedFields});
  }
  res.json({results});
+});
+// ZIP assets are uploaded only on this explicit action; inspection is read-only.
+// Each template has its own media namespace (never a merchant store namespace).
+frontendsRouter.post("/zip/import",raw({type:["application/zip","application/octet-stream"],limit:"8mb"}),async(req,res)=>{
+ if(!Buffer.isBuffer(req.body))return bad(res,"Envía un archivo ZIP válido");
+ let inspection,images;
+ try{({inspection,images}=prepareFrontendZip(req.body))}catch(error){return bad(res,error.message)}
+ if(images.length&&!mediaReady())return bad(res,"Almacenamiento de imágenes no disponible; no se ha importado nada",503);
+ const templateId=randomUUID(),uploaded=[],links=new Map();
+ try{
+  for(const asset of images){
+   const objectPath=templateId+"/library/"+randomUUID();
+   const intent=await createUploadIntent({store_id:templateId,object_path:objectPath,content_type:asset.mime,size_bytes:asset.size});
+   const upload=new URL(intent.upload_url);
+   const publicUrl=new URL(intent.public_url);
+   if(upload.protocol!=="https:"||upload.username||upload.password||publicUrl.protocol!=="https:"||publicUrl.username||publicUrl.password||upload.origin!==publicUrl.origin||intent.method!=="PUT")throw new Error("El servicio multimedia no devolvió destinos válidos");
+   // Record before PUT so a failed verify doesn't leave an orphaned upload.
+   uploaded.push({...asset,objectPath,publicUrl:publicUrl.toString()});
+   const response=await fetch(upload,{method:"PUT",headers:{"Content-Type":asset.mime},body:asset.bytes,redirect:"error",signal:AbortSignal.timeout(25000)});
+   if(!response.ok)throw new Error("No se pudo transferir una imagen del ZIP");
+   await verifyObject({object_path:objectPath,content_type:asset.mime,size_bytes:asset.size});
+   links.set(asset.path,publicUrl.toString());
+  }
+  const theme=structuredClone(inspection.theme);
+  for(const ref of inspection.asset_refs){
+   const imageUrl=links.get(ref.path);if(!imageUrl)continue;
+   if(ref.sectionId){const section=theme.sections.find(s=>s.id===ref.sectionId);if(section)section.content={...section.content,[ref.key]:imageUrl}}
+   else theme[ref.key]=imageUrl;
+  }
+  const safe=sanitizeTheme(theme);
+  const queries=[sql.query("insert into platform_frontend_templates(id,name,sector,description,draft_theme,created_by) values($1::uuid,$2,$3,$4,$5::jsonb,$6::uuid)",[templateId,inspection.name.slice(0,120),inspection.sector.slice(0,120),"Importado desde ZIP · "+inspection.kind,JSON.stringify(safe),req.user.id]),
+    ...uploaded.map(asset=>sql.query("insert into platform_frontend_assets(template_id,original_path,object_path,public_url,mime_type,size_bytes,imported_by) values($1::uuid,$2,$3,$4,$5,$6,$7::uuid)",[templateId,asset.path,asset.objectPath,asset.publicUrl,asset.mime,asset.size,req.user.id]))
+  ];
+  await sql.transaction(queries);
+  await audit(req,"frontend.zip.imported","frontend_template",templateId,{kind:inspection.kind,asset_count:uploaded.length,page_count:inspection.pages.length});
+  return res.status(201).json({template:{id:templateId,name:inspection.name,sector:inspection.sector,draft_theme:safe,version:0,description:"Importado desde ZIP · "+inspection.kind},assets:uploaded.map(a=>({path:a.path,url:a.publicUrl,size:a.size})),warnings:inspection.warnings});
+ }catch(error){
+  await Promise.allSettled(uploaded.map(asset=>removeObject({object_path:asset.objectPath})));
+  // A database commit might have succeeded before an audit failure; avoid hiding it.
+  if(uploaded.length)console.error("Frontend ZIP import failed",{templateId,count:uploaded.length,error:error.message});
+  return bad(res,"No se completó la importación. Comprueba el almacenamiento y vuelve a intentarlo.",502);
+ }
 });
 frontendsRouter.post("/zip/inspect",raw({type:["application/zip","application/octet-stream"],limit:"8mb"}),async(req,res)=>{
  if(!Buffer.isBuffer(req.body))return bad(res,"Envía un archivo ZIP válido");
