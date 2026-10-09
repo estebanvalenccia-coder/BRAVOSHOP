@@ -42,10 +42,10 @@ async function resolveStore(hostInput){
 	if(host.endsWith(".bravoshop.online")){
 		const labels=host.split(".");
 		if(labels.length!==3||reservedSubdomains.has(labels[0]))return null;
-		const rows=await sql`select s.*,ss.settings,st.theme from stores s left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where s.slug=${labels[0]} limit 1`;
+		const rows=await sql`select s.*,ss.settings,st.theme from stores s left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where s.slug=${labels[0]} and s.status<>'scheduled_for_deletion' limit 1`;
 		return rows[0]||null;
 	}
-	const rows=await sql`select s.*,ss.settings,st.theme from domains d join stores s on s.id=d.store_id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where lower(d.hostname)=${host} and d.kind='custom' and d.status='verified' limit 1`;
+	const rows=await sql`select s.*,ss.settings,st.theme from domains d join stores s on s.id=d.store_id left join store_settings ss on ss.store_id=s.id left join store_theme st on st.store_id=s.id where lower(d.hostname)=${host} and d.kind='custom' and d.status='verified' and s.status<>'scheduled_for_deletion' limit 1`;
 	return rows[0]||null;
 }
 async function requirePublicStore(req,res,next){
