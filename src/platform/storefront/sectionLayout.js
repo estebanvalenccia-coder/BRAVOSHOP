@@ -15,7 +15,9 @@ export function sectionLayoutStyle(section){
   const value=Number(c.section_padding);
   if(Number.isFinite(value))style.paddingBlock=Math.max(0,Math.min(120,Math.round(value)))+"px";
  }
- if(Object.hasOwn(SECTION_WIDTHS,c.section_width)){
+ if(c.section_width==="full"){
+  style.maxWidth="none";style.width="100%";style.marginInline="0";style.boxSizing="border-box";
+ }else if(Object.hasOwn(SECTION_WIDTHS,c.section_width)){
   style.maxWidth=SECTION_WIDTHS[c.section_width]+"px";
   style.width="100%";style.marginInline="auto";style.boxSizing="border-box";
  }
