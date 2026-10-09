@@ -12,6 +12,7 @@ import{commerceRouter}from"./routes/commerce.js";
 import{mediaRouter}from"./routes/media.js";
 import{insightsRouter}from"./routes/insights.js";
 import{adminRouter}from"./routes/admin.js";
+import{frontendsRouter}from"./routes/frontends.js";
 import{publicRouter}from"./routes/public.js";
 import{stripeWebhookRouter}from"./routes/stripeWebhook.js";
 import{requestId}from"./middleware/requestId.js";
@@ -32,6 +33,6 @@ app.get("/api/ready",async(_req,res)=>{
   res.json({ok:true,database:"ready",schema:"ready"});
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
 });
-app.use("/api/public",publicRouter);app.use("/api/auth",authRouter);app.use("/api/admin",adminRouter);app.use("/api/stores",storesRouter);app.use("/api/stores/:storeId",teamMembersRouter);app.use("/api/stores/:storeId",domainsRouter);app.use("/api/stores/:storeId",commerceRouter);app.use("/api/stores/:storeId",mediaRouter);app.use("/api/stores/:storeId",insightsRouter);
+app.use("/api/public",publicRouter);app.use("/api/auth",authRouter);app.use("/api/admin",adminRouter);app.use("/api/admin/frontends",frontendsRouter);app.use("/api/stores",storesRouter);app.use("/api/stores/:storeId",teamMembersRouter);app.use("/api/stores/:storeId",domainsRouter);app.use("/api/stores/:storeId",commerceRouter);app.use("/api/stores/:storeId",mediaRouter);app.use("/api/stores/:storeId",insightsRouter);
 app.use((err,req,res,_next)=>{console.error(JSON.stringify({level:"error",request_id:req.requestId,route:req.path,error_code:err.code||"INTERNAL_ERROR"}));const databaseUnavailable=err.code==="DATABASE_NOT_CONFIGURED";res.status(databaseUnavailable?503:500).json({error:databaseUnavailable?"Base de datos BravoShop no configurada":"Error interno",request_id:req.requestId});});
 const port=Number(process.env.PORT||3001);app.listen(port,()=>console.log(`BravoShop API listening on ${port}`));
