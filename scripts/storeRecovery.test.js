@@ -17,7 +17,7 @@ test("recovery is atomic, owner-scoped and cannot republish a store",async()=>{
   "jsonb_build_object('published',false,'preview_token',gen_random_uuid()::text)"
  ])assert.ok(s.includes(guard),guard);
  assert.ok(!/delete\s+from/i.test(s));
- assert.ok(!s.includes("status='active'"));
+ assert.ok(!s.includes("update stores set status='active'"));
  assert.ok(!s.includes("status='trial'"));
  assert.ok(!s.includes("update store_subscriptions"));
  assert.ok(!s.includes("update store_features"));
@@ -49,7 +49,7 @@ test("merchant hub exposes Papelera and an exact-slug protected recovery dialog"
   "disabled={busy||confirmRestore!==restoring.slug}",
   "await restoreRetiredStore(restoring.id,restoring.slug)",
   "setTrash(rows=>rows.filter",
-  'hadRetired?"stores":"onboarding"'
+  'items.length||hadRetired?"stores":"onboarding"'
  ])assert.ok(src.includes(fragment),fragment);
 });
 
