@@ -26,3 +26,5 @@ export async function importFrontendArchive(file){
  if(!response.ok)throw new Error(data.error||"No se pudo importar el ZIP");
  return data;
 }
+
+export async function listFrontendAssets(id){const data=await api("/api/admin/frontends/"+id+"/assets");return data.assets??[]}
