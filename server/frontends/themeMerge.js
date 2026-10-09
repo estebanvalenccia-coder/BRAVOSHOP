@@ -1,6 +1,6 @@
 const ALLOWED_SECTIONS=new Set(["hero","benefits","categories","products","featured","story","newsletter","banner","text","imageText","richText","image","video","faq","reviews","contact","collection"]);
 const THEME_KEYS=new Set(["template","primary_color","font_style","hero_layout","card_style","header_style","content_width","footer_style","announcement","logo","menu","product_columns","sections"]);
-const CONTENT_KEYS=new Set(["eyebrow","title","text","button","button_url","image","image_position_x","image_position_y","image_zoom"]);
+const CONTENT_KEYS=new Set(["eyebrow","title","text","button","button_url","image","image_position_x","image_position_y","image_zoom","hero_height"]);
 const plain=x=>x!==null&&typeof x==="object"&&!Array.isArray(x);
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const str=(v,n)=>typeof v==="string"?v.slice(0,n):"";
@@ -23,7 +23,8 @@ export function sanitizeTheme(theme){
     if(section.content!==undefined&&!plain(section.content))throw new Error("Contenido inválido");
     for(const [k,v] of Object.entries(section.content||{})){
      if(!CONTENT_KEYS.has(k))continue;
-     if(k==="image_position_x"||k==="image_position_y"||k==="image_zoom")content[k]=Math.max(0,Math.min(k==="image_zoom"?400:100,Number(v)||0));
+     if(k==="hero_height")content[k]=Math.round(Math.max(300,Math.min(900,Number(v)||440)));
+     else if(k==="image_position_x"||k==="image_position_y"||k==="image_zoom")content[k]=Math.max(0,Math.min(k==="image_zoom"?400:100,Number(v)||0));
      else content[k]=str(v,2000);
      if((k==="image"||k==="button_url")&&!safeLink(content[k]))throw new Error("URL no permitida en "+k);
     }
