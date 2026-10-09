@@ -11,7 +11,7 @@ export function FrontendsStudio(){
  const[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const[inspection,setInspection]=useState(null),[releaseNotes,setReleaseNotes]=useState("");
  const[target,setTarget]=useState(""),[replaceExisting,setReplaceExisting]=useState(false),[preview,setPreview]=useState(null),[chosenVersion,setChosenVersion]=useState("");
- const[newStore,setNewStore]=useState({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"premium-organic"});
+ const[newStore,setNewStore]=useState({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"editorial-fashion"});
  const flash=(message)=>{setNotice(message);setError("")};
  const fail=(e)=>{setError(e.message||String(e));setNotice("")};
  async function refresh(){const data=await loadFrontendStudio();setTemplates(data.templates||[]);setStores(data.stores||[]);return data}
@@ -52,7 +52,7 @@ export function FrontendsStudio(){
   setBusy(true);try{const r=await deployFrontend(editingId,{version:Number(chosenVersion),storeIds:[target],replaceExisting});const result=r.results?.[0];if(!result?.ok)throw new Error(result?.error||"No se pudo aplicar la actualización");flash("Frontend actualizado en "+preview.store+". "+(result.protectedFields?.length||0)+" personalizaciones protegidas.");setPreview(null);await refresh()}catch(e){fail(e)}finally{setBusy(false)}
  }
  async function createStore(){
-  setBusy(true);try{const r=await createPlatformStore({...newStore,templateId:editingId&&chosenVersion?editingId:undefined});await refresh();flash("Tienda "+r.store.name+" creada en estado de prueba. El propietario asignado puede administrarla.");setNewStore({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"premium-organic"})}catch(e){fail(e)}finally{setBusy(false)}
+  setBusy(true);try{const r=await createPlatformStore({...newStore,templateId:editingId&&chosenVersion?editingId:undefined});await refresh();flash("Tienda "+r.store.name+" creada en estado de prueba. El propietario asignado puede administrarla.");setNewStore({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"editorial-fashion"})}catch(e){fail(e)}finally{setBusy(false)}
  }
  async function openStorePreview(store){
   const tab=window.open("about:blank","_blank");
