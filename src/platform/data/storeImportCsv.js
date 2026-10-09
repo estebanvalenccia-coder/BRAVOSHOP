@@ -45,13 +45,91 @@ const normalizePrice=value=>{
  return raw.includes(",")&&!raw.includes(".")?raw.replace(",","."):raw||"0";
 };
 
+
+// WooCommerce links child variations to a variable parent using Parent=SKU
+// or Parent=id:123. Parents/children can arrive in either order.
+function parseWooCommerceProducts(rows,get){
+ const groups=new Map(),byParent=new Map();
+ let skipped=0;
+ const toKey=value=>str(value).toLowerCase();
+ const usedSlugs=new Set();
+ const makeSlug=(base,id)=>{
+  const original=importSlug(base);
+  if(!usedSlugs.has(original)){usedSlugs.add(original);return original}
+  const suffix="-"+importSlug(id||String(usedSlugs.size+1));
+  const unique=original.slice(0,120-suffix.length).replace(/-+$/,"")+suffix;
+  if(usedSlugs.has(unique))throw new Error("El archivo tiene productos distintos con el mismo nombre e identificador");
+  usedSlugs.add(unique);return unique;
+ };
+ const toVariant=(row,title,skuFallback="")=>{
+  const sku=get(row,"sku")||skuFallback;
+  const price=normalizePrice(get(row,"regular price","sale price","price","precio"));
+  const rawQty=get(row,"stock","stock quantity","inventory");
+  const track=get(row,"manage stock?").toLowerCase();
+  return {
+   title:(title||"Default").slice(0,180),
+   sku,
+   price,
+   quantity:rawQty===""?0:Number(rawQty),
+   track_inventory:track==="1"||track==="yes"||track==="true"||rawQty!==""
+  };
+ };
+ const parentRows=[],childRows=[];
+ for(const row of rows){
+  if(!row.some(v=>str(v)))continue;
+  const type=get(row,"type").toLowerCase();
+  if(type==="variation"){childRows.push(row);continue}
+  if(type==="grouped"||type==="external"){skipped++;continue}
+  parentRows.push(row);
+ }
+ for(const row of parentRows){
+  const name=get(row,"name","product name","title");
+  if(!name){skipped++;continue}
+  const id=get(row,"id"),sku=get(row,"sku");
+  const key=makeSlug(get(row,"slug")||name,id||sku);
+  const group={
+   name,slug:key,
+   description:plain(get(row,"description","short description","body (html)")),
+   vendor:get(row,"brands","vendor","marca"),
+   variants:[]
+  };
+  groups.set(key,{product:group,row,type:get(row,"type").toLowerCase()});
+  if(id){byParent.set("id:"+toKey(id),group);byParent.set(toKey(id),group)}
+  if(sku)byParent.set(toKey(sku),group);
+ }
+ for(const row of childRows){
+  const ref=toKey(get(row,"parent","parent sku","parent_sku"));
+  const group=byParent.get(ref);
+  if(!group){skipped++;continue}
+  const attributes=[];
+  for(let i=1;i<=5;i++){
+   const label=get(row,"attribute "+i+" name");
+   const option=get(row,"attribute "+i+" value(s)");
+   if(option)attributes.push(label?label+": "+option.split(",")[0].trim():option.split(",")[0].trim());
+  }
+  const title=attributes.join(" / ")||get(row,"name")||"Default";
+  group.variants.push(toVariant(row,title));
+ }
+ const products=[];
+ for(const {product,row,type} of groups.values()){
+  if(!product.variants.length){
+   // A variable parent with no exported variants must not be advertised
+   // as a valid single-variant product: skip and disclose skipped count.
+   if(type==="variable"){skipped++;continue}
+   product.variants.push(toVariant(row,"Default"));
+  }
+  products.push(product);
+ }
+ return {source:"woocommerce",products,skipped,variantCount:products.reduce((n,p)=>n+p.variants.length,0)};
+}
+
 export function parseStoreCatalogCsv(sourceText){
  const table=parseCsvTable(sourceText);
  if(table.length<2)throw new Error("El CSV está vacío o no tiene productos");
  const headers=table[0].map(v=>str(v).toLowerCase());
  const has=name=>headers.includes(name);
  const source=has("handle")&&(has("variant price")||has("body (html)"))?"shopify":
-  has("regular price")||has("manage stock?")?"woocommerce":
+  has("regular price")||has("manage stock?")||(has("type")&&has("parent")&&(has("sku")||has("id")))?"woocommerce":
   has("producto")&&(has("variante")||has("precio variante"))?"bravoshop":"generic";
  const get=(values,...keys)=>{
   for(const key of keys){
@@ -60,6 +138,11 @@ export function parseStoreCatalogCsv(sourceText){
   }
   return "";
  };
+ if(source==="woocommerce"){
+  const result=parseWooCommerceProducts(table.slice(1),get);
+  if(!result.products.length)throw new Error("No se encontraron productos WooCommerce compatibles. Revisa las relaciones Parent e ID/SKU.");
+  return result;
+ }
  const results=new Map();
  let skipped=0;
  for(const row of table.slice(1)){
