@@ -144,6 +144,31 @@ storesRouter.delete("/:storeId",requireStore,async(req,res)=>{
 
 // Import only catalogue data from an authorized merchant CSV export.
 // Does not transfer order/payment credentials, historic buyers or live status.
+// Preflight checks conflicts in the destination catalog. Retrying an import
+// can then skip already-created products without rewriting stock or pricing.
+storesRouter.post("/:storeId/import/check",requireStore,requirePermission("products.create"),async(req,res)=>{
+ const checked=validateImportedProducts(req.body);
+ if(!checked.ok)return res.status(400).json({error:checked.error});
+ const slugs=checked.products.map(p=>p.slug);
+ const skus=checked.products.flatMap(p=>p.variants.map(v=>v.sku?.toLowerCase()).filter(Boolean));
+ const existingProducts=await sql`select slug from products where store_id=${req.storeId}::uuid and slug=any(${slugs})`;
+ const existingSkuRows=skus.length
+  ?await sql`select distinct lower(sku) as sku from product_variants where store_id=${req.storeId}::uuid and lower(sku)=any(${skus})`
+  :[];
+ const existingSlugs=new Set(existingProducts.map(row=>row.slug));
+ const existingSkus=new Set(existingSkuRows.map(row=>row.sku));
+ const conflicts=[],importable=[];
+ for(const product of checked.products){
+  const reason=existingSlugs.has(product.slug)?"product_exists":
+   product.variants.some(v=>v.sku&&existingSkus.has(v.sku.toLowerCase()))?"sku_exists":null;
+  if(reason)conflicts.push({slug:product.slug,name:product.name,reason});
+  else importable.push(product.slug);
+ }
+ res.set("Cache-Control","private, no-store").json({
+  ok:true,importable_slugs:importable,conflicts,
+  can_import:importable.length,already_present:conflicts.length
+ });
+});
 storesRouter.post("/:storeId/import/products",requireStore,requirePermission("products.create"),async(req,res)=>{
  const checked=validateImportedProducts(req.body);
  if(!checked.ok)return res.status(400).json({error:checked.error});
