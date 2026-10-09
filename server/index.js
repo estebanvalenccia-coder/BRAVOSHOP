@@ -44,6 +44,8 @@ app.get("/api/ready",async(_req,res)=>{
   if(!frontendMediaMigration.length)return res.status(503).json({ok:false,database:"frontend_import_assets_migration_incomplete"});
   const visualEditorMigration=await sql`select 1 from _bravoshop_migrations where name='0076_frontend_draft_revision.sql' limit 1`;
   if(!visualEditorMigration.length)return res.status(503).json({ok:false,database:"frontend_revision_migration_incomplete"});
+  const rollbackMigration=await sql`select 1 from _bravoshop_migrations where name='0077_frontend_rollbacks.sql' limit 1`;
+  if(!rollbackMigration.length)return res.status(503).json({ok:false,database:"frontend_rollback_migration_incomplete"});
   res.json({ok:true,database:"ready",schema:"ready",integrations:{media:mediaReady(),payments:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET),notifications:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),custom_domains:railwayDomainsReady()},commit:process.env.RAILWAY_GIT_COMMIT_SHA||null});
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
 });
