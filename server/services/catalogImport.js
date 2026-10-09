@@ -20,6 +20,21 @@ export function validateImportedProducts(input){
   slugs.add(slug);
   const description=typeof raw.description==="string"?raw.description.slice(0,10000).trim():"";
   const vendor=typeof raw.vendor==="string"?raw.vendor.slice(0,180).trim():"";
+  const rawCategories=raw.categories??[];
+  if(!Array.isArray(rawCategories)||rawCategories.length>12)
+   return {ok:false,error:"Se permiten hasta 12 categorías por producto"};
+  const categories=[],categorySlugs=new Set();
+  for(const item of rawCategories){
+   if(typeof item!=="string"||!item.trim()||item.trim().length>120||/[<]/.test(item))
+    return {ok:false,error:"Nombre de categoría no válido"};
+   const categoryName=item.trim();
+   const slug=categoryName.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,120).replace(/-+$/,"");
+   if(!slug)return{ok:false,error:"Identificador de categoría inválido"};
+   if(categorySlugs.has(slug))continue;
+   categorySlugs.add(slug);categories.push({name:categoryName,slug});
+  }
+
   if(!Array.isArray(raw.variants)||!raw.variants.length||raw.variants.length>50)
    return {ok:false,error:"Cada producto debe tener de 1 a 50 variantes"};
   let variants=[];
@@ -41,7 +56,7 @@ export function validateImportedProducts(input){
    totalVariants++;
    if(totalVariants>100)return{ok:false,error:"Se admiten hasta 100 variantes por lote"};
   }
-  products.push({name,slug,description,vendor,variants});
+  products.push({name,slug,description,vendor,categories,variants});
  }
  return {ok:true,products,source:input.source,totalVariants};
 }

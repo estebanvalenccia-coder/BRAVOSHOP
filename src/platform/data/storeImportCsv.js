@@ -40,6 +40,9 @@ const plain=value=>str(value)
  .replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&lt;/gi,"<")
  .replace(/&gt;/gi,">").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'")
  .replace(/\s+/g," ").trim().slice(0,10000);
+const readImportCategories=value=>[...new Set(
+ str(value).split(",").map(v=>plain(v).trim()).filter(Boolean)
+)];
 const normalizePrice=value=>{
  const raw=str(value);
  return raw.includes(",")&&!raw.includes(".")?raw.replace(",","."):raw||"0";
@@ -91,6 +94,7 @@ function parseWooCommerceProducts(rows,get){
    name,slug:key,
    description:plain(get(row,"description","short description","body (html)")),
    vendor:get(row,"brands","vendor","marca"),
+   categories:readImportCategories(get(row,"categories","categorías","categorias")),
    variants:[]
   };
   groups.set(key,{product:group,row,type:get(row,"type").toLowerCase()});
@@ -160,7 +164,9 @@ export function parseStoreCatalogCsv(sourceText){
    product={
     name:name||originHandle,slug:groupKey.slice(0,120),
     description:plain(get(row,"body (html)","description","short description","descripción")),
-    vendor:get(row,"vendor","brands","marca"),variants:[]
+    vendor:get(row,"vendor","brands","marca"),
+    categories:readImportCategories(get(row,"categories","category","categorías","categorias")||(source==="shopify"?get(row,"type","product category"):"")),
+    variants:[]
    };
    results.set(groupKey,product);
   }else{

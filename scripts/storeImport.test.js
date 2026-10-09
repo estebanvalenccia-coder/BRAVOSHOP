@@ -134,3 +134,41 @@ test("WooCommerce skips orphan variations and incomplete variable parents rather
  assert.equal(result.products[0].name,"Working");
  assert.equal(result.skipped,2);
 });
+
+test("CSV import preserves Shopify Type and WooCommerce category assignments",()=>{
+ const shopify=parseStoreCatalogCsv("Handle,Title,Type,Variant Price,Variant SKU\nplanta,Planta,Interior,14.50,PLANTA-1");
+ assert.deepEqual(shopify.products[0].categories,["Interior"]);
+ assert.deepEqual(validateImportedProducts(shopify).products[0].categories,[{name:"Interior",slug:"interior"}]);
+ const woo=parseStoreCatalogCsv('ID,Type,SKU,Name,Regular price,Categories\n10,simple,ROSA,Rosa,15.00,"Plantas > Rosas, Jardín"');
+ assert.deepEqual(woo.products[0].categories,["Plantas > Rosas","Jardín"]);
+ const checked=validateImportedProducts(woo);
+ assert.equal(checked.ok,true);
+ assert.deepEqual(checked.products[0].categories,[
+  {name:"Plantas > Rosas",slug:"plantas-rosas"},
+  {name:"Jardín",slug:"jardin"}
+ ]);
+});
+
+test("CSV import refuses invalid category arrays and suspicious names",()=>{
+ const p={name:"Planta",slug:"planta",variants:[{title:"Default",price:"5.00",quantity:0}],categories:[]};
+ for(const categories of ["bad",["<script>"],[" "],["X".repeat(121)],Array(13).fill("Categoría")]){
+  assert.equal(validateImportedProducts({source:"generic",products:[{...p,categories}]}).ok,false);
+ }
+ const dedup=validateImportedProducts({source:"generic",products:[{...p,categories:["Rosas","Rósas"]}]});
+ assert.equal(dedup.ok,true);
+ assert.equal(dedup.products[0].categories.length,1);
+});
+
+test("category assignments are written only for importing tenant and inside the atomic product transaction",async()=>{
+ const src=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const start=src.indexOf('storesRouter.post("/:storeId/import/products"');
+ const end=src.indexOf('storesRouter.put("/:storeId/payments/preferences"',start);
+ const flow=src.slice(start,end);
+ assert.ok(flow.includes("insert into categories(id,store_id,name,slug)"));
+ assert.ok(flow.includes("on conflict(store_id,slug) do nothing"));
+ assert.ok(flow.includes("insert into product_categories(product_id,category_id,store_id)"));
+ assert.ok(flow.includes("where store_id="));
+ assert.ok(flow.includes("category.slug"));
+ assert.ok(flow.includes("await sql.transaction(queries)"));
+ assert.ok(flow.includes("categories_linked:"));
+});
