@@ -30,6 +30,7 @@ Registro de requisitos procedentes del diálogo con el propietario. Este archivo
 - [x] Importación confirmada de imágenes ZIP locales en almacenamiento propio, con asociación segura a la plantilla y selector visual (PR #26).\n- [ ] Biblioteca de recursos multimedia compartidos con permisos/licencias y reutilización por plantillas.
 - [ ] Drag-and-drop completo, edición en el lienzo, cuadrícula, tipografías, navegación y componentes reutilizables.
 - [ ] Edición de funcionalidades de botones con acciones permitidas, sin ejecutar JavaScript arbitrario.
+- [x] Actualización manual de hasta 25 tiendas por lote con prevalidación y resultado individual, sin borrar borradores (PR #27).
 - [ ] Actualizaciones masivas por tipo de plantilla o conjunto de tiendas, con lotes, estado y compensaciones/reintentos.
 - [ ] Política de adopción automática opt-in, exclusiones por tienda y mantenimiento de overrides por campo (más fino que por sección).
 - [ ] Diferenciar actualizaciones de diseño de cambios de código/funcionalidades, con tests y release independiente.
