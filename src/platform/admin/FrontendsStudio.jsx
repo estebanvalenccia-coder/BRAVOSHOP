@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";
 import{Plus,Upload,ArrowUp,ArrowDown,Trash2,Copy,Eye,Save,Send,Store,FileArchive,ExternalLink}from"lucide-react";
 import{STORE_TEMPLATES,applyTemplate,ADDABLE_SECTIONS}from"../config/storeTemplates.js";
-import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,createPlatformStore,inspectFrontendArchive}from"../data/frontendsService.js";
+import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,previewFrontendDeployment,deployFrontend,createPlatformStore,inspectFrontendArchive,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
 
 const blank=(template="premium-organic")=>({name:"Nueva plantilla",sector:"general",description:"",theme:applyTemplate(template)});
 const label={hero:"Portada",benefits:"Ventajas",categories:"Categorías",products:"Productos",story:"Historia",newsletter:"Newsletter",banner:"Banner",text:"Texto",imageText:"Imagen y texto"};
@@ -53,6 +53,14 @@ export function FrontendsStudio(){
  }
  async function createStore(){
   setBusy(true);try{const r=await createPlatformStore({...newStore,templateId:editingId&&chosenVersion?editingId:undefined});await refresh();flash("Tienda "+r.store.name+" creada en estado de prueba. El propietario asignado puede administrarla.");setNewStore({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"premium-organic"})}catch(e){fail(e)}finally{setBusy(false)}
+ }
+ async function openStorePreview(store){
+  const tab=window.open("about:blank","_blank");
+  try{
+   const data=await getSuperAdminStorePreviewLink(store.id);
+   if(tab)tab.location.replace(data.url);
+   else window.location.assign(data.url);
+  }catch(e){if(tab)tab.close();fail(e)}
  }
  const selected=templates.find(t=>t.id===editingId),theme=draft.theme||{},targetStore=stores.find(s=>s.id===target);
  return <div className="frontendStudio">
@@ -109,7 +117,7 @@ export function FrontendsStudio(){
    </>}
   </article>}
   {tab==="stores"&&<article className="panel"><h2>Tiendas y frontends publicados</h2><p>Visualiza cualquier escaparate y consulta su plantilla instalada.</p>
-   {stores.map(s=><div key={s.id} className="health" style={{gap:12}}><div style={{flex:1}}><b>{s.name}</b><small>{s.slug}.bravoshop.online · {s.sector||"general"} · {s.status} · {s.deployed_version?"versión "+s.deployed_version:"plantilla individual"}</small></div><a href={"https://"+s.slug+".bravoshop.online"} target="_blank" rel="noopener noreferrer">Ver frontend <ExternalLink size={14}/></a></div>)}
+   {stores.map(s=><div key={s.id} className="health" style={{gap:12}}><div style={{flex:1}}><b>{s.name}</b><small>{s.slug}.bravoshop.online · {s.sector||"general"} · {s.status} · {s.deployed_version?"versión "+s.deployed_version:"plantilla individual"}</small></div><button onClick={()=>openStorePreview(s)}>Ver frontend <ExternalLink size={14}/></button></div>)}
    {!stores.length&&<p>No hay tiendas todavía.</p>}
    <hr/><h2>Crear tienda desde el Super Admin</h2><p>El propietario tiene que estar registrado en BravoShop. La nueva tienda comienza en estado de prueba y no comparte datos con ninguna otra.</p>
    <label>Nombre<input value={newStore.name} onChange={e=>setNewStore(x=>({...x,name:e.target.value}))}/></label>
@@ -124,7 +132,7 @@ export function FrontendsStudio(){
    <label>Plantilla<select value={editingId||""} onChange={e=>{const t=templates.find(x=>x.id===e.target.value);if(t)choose(t).then(()=>setTab("deploy"));else setEditingId(null)}}><option value="">Selecciona una plantilla</option>{templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
    <label>Versión<select value={chosenVersion} onChange={e=>{setChosenVersion(e.target.value);setPreview(null)}}><option value="">Selecciona una versión</option>{versions.map(v=><option key={v.version} value={v.version}>v{v.version} · {v.notes||"Sin notas"}</option>)}</select></label>
    <label>Tienda de destino<select value={target} onChange={e=>{setTarget(e.target.value);setPreview(null)}}><option value="">Selecciona una tienda</option>{stores.map(s=><option key={s.id} value={s.id}>{s.name} ({s.slug})</option>)}</select></label>
-   {targetStore&&<p>Versión instalada: {targetStore.deployed_version||"ninguna"} · <a href={"https://"+targetStore.slug+".bravoshop.online"} target="_blank" rel="noopener noreferrer">Abrir la tienda real</a></p>}
+   {targetStore&&<p>Versión instalada: {targetStore.deployed_version||"ninguna"} · <button className="ghost" onClick={()=>openStorePreview(targetStore)}>Vista previa autorizada</button></p>}
    <label style={{display:"flex",alignItems:"center",gap:10}}><input type="checkbox" checked={replaceExisting} onChange={e=>{setReplaceExisting(e.target.checked);setPreview(null)}}/> Autorizar sustitución del diseño inicial o cambiar de plantilla en esta tienda</label>
    <p>La sustitución inicial requiere confirmación porque una tienda sin esta plantilla puede tener un diseño completamente personalizado.</p>
    <button disabled={busy||!editingId||!chosenVersion||!target} onClick={showPreview}><Eye size={15}/> Simular cambios</button>
