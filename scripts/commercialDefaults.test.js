@@ -154,7 +154,7 @@ test("store creation requests have durable per-merchant idempotency even across 
 test("published stores open the public URL, while previews remain separate and publication blockers are actionable",async()=>{
  const source=await readFile(new URL("../src/platform/admin/MerchantAdmin.jsx",import.meta.url),"utf8");
  assert.ok(source.includes('const view=()=>window.open("https://"+store.slug+".bravoshop.online"'));
- assert.ok(source.includes('const preview=()=>window.open("https://app.bravoshop.online/preview?host="'));
+ assert.ok(source.includes('const preview=()=>openAuthenticatedStorePreview(store.id).catch(e=>setError(e.message))'));
  assert.ok(source.includes("Ver tienda pública"));
  assert.ok(source.includes('!o.published&&!publicable&&<div className="launchRequirements"'));
  assert.ok(source.includes('["billing","products","design"].includes(x.go)'));
