@@ -235,14 +235,14 @@ function BatchRollout({templates,stores,onRefresh}){
   {preview&&samePlan&&<div className="panel" style={{marginTop:16,padding:14}}>
    <h3>Resultado de la simulación · v{version}</h3>
    <p>{preview.results.filter(x=>x.ok).length} preparadas · {preview.results.filter(x=>!x.ok).length} con incidencias. No se ha modificado ninguna tienda.</p>
-   {preview.results.map(item=><div key={item.storeId} className="health"><div style={{flex:1}}><b>{item.store||stores.find(s=>s.id===item.storeId)?.name||item.storeId}</b><small>{item.ok?((item.protectedFields?.length||0)+" personalizaciones protegidas"):item.error}</small></div><span>{item.ok?"Lista":"Revisar"}</span></div>)}
+   {preview.results.map(item=><div key={item.storeId} className="health"><div style={{flex:1}}><b>{item.store||stores.find(s=>s.id===item.storeId)?.name||item.storeId}</b><small>{item.ok?((item.protectedFields?.length||0)+" personalizaciones protegidas"):item.error}</small></div><span>{item.alreadyApplied?"Ya actualizada":item.ok?"Lista":"Revisar"}</span></div>)}
    <button disabled={busy||!preview.allReady} onClick={apply}>Confirmar actualización de {selected.length} tiendas</button>
    {!preview.allReady&&<p>Corrige las incidencias o selecciona solo las tiendas válidas y vuelve a simular.</p>}
   </div>}
   {results&&<div className="panel" style={{marginTop:16,padding:14}} role="status">
    <h3>Resultado real de la publicación</h3>
    <p>{success} actualizadas de {results.length}. {results.length-success} necesitan revisión. Las operaciones pueden haberse aplicado parcialmente.</p>
-   {results.map(item=><div className="health" key={item.storeId}><b>{stores.find(s=>s.id===item.storeId)?.name||item.storeId}</b><span>{item.ok?"Aplicada":item.error}</span></div>)}
+   {results.map(item=><div className="health" key={item.storeId}><b>{stores.find(s=>s.id===item.storeId)?.name||item.storeId}</b><span>{item.alreadyApplied?"Sin cambios: ya tenía esta versión":item.ok?"Aplicada":item.error}</span></div>)}
   </div>}
  </article>;
 }
