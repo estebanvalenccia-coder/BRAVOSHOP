@@ -25,7 +25,7 @@ export function validateImportedProducts(input){
    return {ok:false,error:"Se permiten hasta 12 categorías por producto"};
   const categories=[],categorySlugs=new Set();
   for(const item of rawCategories){
-   if(typeof item!=="string"||!item.trim()||item.trim().length>120||/[<>]/.test(item))
+   if(typeof item!=="string"||!item.trim()||item.trim().length>120||/[<]/.test(item))
     return {ok:false,error:"Nombre de categoría no válido"};
    const categoryName=item.trim();
    const slug=categoryName.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
