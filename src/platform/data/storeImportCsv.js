@@ -39,7 +39,7 @@ const plain=value=>str(value)
  .replace(/<[^>]+>/g," ")
  .replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&lt;/gi,"<")
  .replace(/&gt;/gi,">").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'")
- .replace(/\s+/g," ").slice(0,10000);
+ .replace(/\s+/g," ").trim().slice(0,10000);
 const normalizePrice=value=>{
  const raw=str(value);
  return raw.includes(",")&&!raw.includes(".")?raw.replace(",","."):raw||"0";
