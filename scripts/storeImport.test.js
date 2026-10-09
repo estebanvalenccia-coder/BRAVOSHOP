@@ -89,3 +89,48 @@ test("Stores Hub exposes a file-based import wizard with preview and batches",as
  assert.ok(ui.includes("batch.length===25"));
  assert.ok(ui.includes("variants+product.variants.length>100"));
 });
+
+test("WooCommerce variable products import variations linked by parent SKU even if child row is first",()=>{
+ const header='ID,Type,SKU,Name,Parent,Regular price,Stock,Manage stock?,Attribute 1 name,Attribute 1 value(s),Attribute 2 name,Attribute 2 value(s)';
+ const rows=[
+  '101,variation,SHIRT-RED-S,Camiseta,,19.90,6,1,Color,Rojo,Talla,S',
+  '90,variable,SHIRT,Camiseta,,,0,0,Color,"Rojo, Azul",Talla,"S, M"',
+  '102,variation,SHIRT-BLUE-M,Camiseta,SHIRT,21.90,3,1,Color,Azul,Talla,M',
+  '110,simple,MUG,Taza,,12.50,5,1,,,,'
+ ];
+ // Woo's first child explicitly references the parent by SKU.
+ rows[0]=rows[0].replace('Camiseta,,19.90','Camiseta,SHIRT,19.90');
+ const parsed=parseStoreCatalogCsv(header+'\n'+rows.join('\n'));
+ assert.equal(parsed.source,"woocommerce");
+ assert.equal(parsed.products.length,2);
+ const shirt=parsed.products.find(p=>p.name==="Camiseta");
+ assert.ok(shirt);
+ assert.equal(shirt.variants.length,2);
+ assert.equal(shirt.variants[0].title,"Color: Rojo / Talla: S");
+ assert.equal(shirt.variants[1].title,"Color: Azul / Talla: M");
+ assert.equal(shirt.variants[1].price,"21.90");
+ assert.equal(shirt.variants[1].quantity,3);
+ assert.equal(validateImportedProducts(parsed).ok,true);
+});
+
+test("WooCommerce variation parents can be referenced using id:123",()=>{
+ const csv='ID,Type,SKU,Name,Parent,Regular price,Stock,Attribute 1 name,Attribute 1 value(s)\n'+
+ '400,variation,CAP-B,Caps,id:123,12.50,8,Color,Blue\n'+
+ '123,variable,CAPS,Caps,,,,Color,"Blue, Red"\n'+
+ '401,variation,CAP-R,Caps,id:123,14.00,5,Color,Red';
+ const result=parseStoreCatalogCsv(csv);
+ assert.equal(result.products.length,1);
+ assert.equal(result.variantCount,2);
+ assert.equal(validateImportedProducts(result).ok,true);
+});
+
+test("WooCommerce skips orphan variations and incomplete variable parents rather than inventing zero-price products",()=>{
+ const csv='ID,Type,SKU,Name,Parent,Regular price,Stock\n'+
+ '10,variable,ORPHAN,Incomplete,,,0\n'+
+ '22,variation,SKU-CHILD,Child,id:999,25.00,1\n'+
+ '30,simple,SIMPLE,Working,,15.50,2';
+ const result=parseStoreCatalogCsv(csv);
+ assert.equal(result.products.length,1);
+ assert.equal(result.products[0].name,"Working");
+ assert.equal(result.skipped,2);
+});
