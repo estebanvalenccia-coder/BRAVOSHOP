@@ -137,7 +137,7 @@ frontendsRouter.post("/stores/create",async(req,res)=>{
   theme=rows[0].theme;
   releaseVersion=rows[0].version;
  }else{
-  const builtin=getTemplate(req.body?.builtin||"premium-organic");theme=sanitizeTheme({...builtin.defaults,template:builtin.id,sections:templateSections(builtin.id)});
+  const builtin=getTemplate(req.body?.builtin||"editorial-fashion");theme=sanitizeTheme({...builtin.defaults,template:builtin.id,sections:templateSections(builtin.id)});
  }
  const plans=await sql.query("select id,trial_days from plans where slug='basic' and status='active' limit 1");
  if(!plans.length)return bad(res,"El plan Basic de BravoShop no está configurado",503);
