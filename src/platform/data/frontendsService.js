@@ -32,3 +32,7 @@ export async function listFrontendAssets(id){const data=await api("/api/admin/fr
 export async function previewFrontendBatch(id,input){return api("/api/admin/frontends/"+id+"/batch-preview",{method:"POST",body:input})}
 
 export async function restoreFrontendDraft(id,version,expectedRevision){return api("/api/admin/frontends/"+id+"/restore-draft",{method:"POST",body:{version,expectedRevision}})}
+
+export async function previewFrontendRollback(id,storeId,version){return api("/api/admin/frontends/"+id+"/stores/"+storeId+"/rollback-preview",{method:"POST",body:{version}})}
+export async function rollbackStoreFrontend(id,storeId,version,expectedCurrentVersion){return api("/api/admin/frontends/"+id+"/stores/"+storeId+"/rollback",{method:"POST",body:{version,expectedCurrentVersion}})}
+export async function listStoreFrontendRollbacks(id,storeId){return api("/api/admin/frontends/"+id+"/stores/"+storeId+"/rollback-history")}
