@@ -49,9 +49,10 @@ test("rechaza archivos ZIP con demasiadas entradas y expansión excesiva",()=>{
  assert.throws(()=>prepareFrontendZip(zip(many)),/demasiado grande/);
  assert.throws(()=>prepareFrontendZip(zip([["index.html","A".repeat(25*1024*1024),true]])),/descomprimido/);
 });
-test("no incluye imágenes que intentan escapar del directorio ZIP",()=>{
+test("no vincula imágenes con referencias que intentan escapar del directorio ZIP",()=>{
  const result=inspectFrontendZip(zip([["dist/index.html",'<title>Test</title><h1>Test</h1><img src="../secret.png">'],["secret.png",png]]));
- assert.equal(result.assets.length,0);
+ assert.equal(result.assets.length,1);
+ assert.equal(result.asset_refs.length,0);
 });
 test("no permite HTML sin index ni página ni manifiesto",()=>{
  assert.throws(()=>prepareFrontendZip(zip([["server.js","console.log(1)"]])),/No se encontró/);
