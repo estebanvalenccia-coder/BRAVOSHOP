@@ -1,6 +1,68 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";import{createCompatiblePromotionCode}from"../services/stripePromotionCode.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";import{createCompatiblePromotionCode}from"../services/stripePromotionCode.js";import{evaluatePilotStore,commercialPilotSummary}from"../services/commercialLaunch.js";
 export const adminRouter=Router();const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;adminRouter.param("id",(req,res,next,id)=>UUID.test(String(id||""))?next():res.status(404).json({error:"Recurso no encontrado"}));adminRouter.use(requireAuth,requireSuperAdmin);
 async function audit(req,action,resourceType,resourceId,details={}){const storeId=resourceType==="store"?resourceId:null;await sql`insert into audit_log(actor_user_id,actor_type,store_id,action,resource_type,resource_id,request_id,ip,user_agent,details) values(${req.user.id}::uuid,'super_admin',${storeId}::uuid,${action},${resourceType},${resourceId||null},${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},${JSON.stringify(details)}::jsonb)`}
+// Read-only pilot launch readiness for SUPER ADMINS. No publication or payment mutations.
+adminRouter.get("/launch/readiness",async(_req,res)=>{
+ const platform={
+  stripe:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET),
+  email:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),
+  media:mediaReady()
+ };
+ const [control,metrics,candidates]=await Promise.all([
+  sql`select enabled from platform_controls where key='checkout' limit 1`,
+  sql`select
+   (select count(*)::int from stores where status<>'scheduled_for_deletion') as stores_total,
+   (select count(*)::int from products where status='active') as active_products,
+   (select count(*)::int from orders where paid_at is not null and payment_provider='stripe') as paid_orders,
+   (select count(*)::int from store_payment_accounts where provider='stripe' and status='active'
+    and charges_enabled=true and payouts_enabled=true and provider_account_id is not null) as connected_stripe`,
+  sql`select s.id,s.name,s.slug,s.sector,s.status,
+    coalesce(ss.settings->>'published','false')='true' as published,
+    coalesce(st.theme->>'template','')<>'' as design_ready,
+    (select count(*)::int from products p where p.store_id=s.id and p.status='active') as active_products,
+    (select count(*)::int from product_variants v
+      join products p on p.id=v.product_id and p.store_id=v.store_id
+      left join inventory_levels il on il.variant_id=v.id
+      where v.store_id=s.id and p.status='active' and v.price>0
+      and (il.track_inventory=false or coalesce(il.quantity,0)>0)) as saleable_variants,
+    coalesce(nullif(btrim(ss.settings->>'legal_name'),''),null) is not null
+      and coalesce(nullif(btrim(ss.settings->>'tax_id'),''),null) is not null
+      and coalesce(nullif(btrim(ss.settings->>'legal_address'),''),null) is not null
+      and coalesce(nullif(btrim(ss.settings->>'legal_email'),''),null) is not null as legal_ready,
+    exists(select 1 from shipping_zones z join shipping_rates sr on sr.zone_id=z.id and sr.store_id=z.store_id
+      where z.store_id=s.id and z.active=true and sr.active=true) as shipping_ready,
+    exists(select 1 from store_payment_accounts pa where pa.store_id=s.id
+      and pa.provider='stripe' and pa.status='active'
+      and pa.provider_account_id is not null and pa.charges_enabled=true and pa.payouts_enabled=true) as connect_ready,
+    exists(select 1 from store_features f where f.store_id=s.id and f.enabled=true and f.feature_key='catalog')
+      and exists(select 1 from store_features f where f.store_id=s.id and f.enabled=true and f.feature_key='cart')
+      and exists(select 1 from store_features f where f.store_id=s.id and f.enabled=true and f.feature_key='checkout') as checkout_features_ready,
+    exists(select 1 from store_subscriptions sub where sub.store_id=s.id
+      and (sub.status='active' or (sub.status='trialing' and (sub.trial_ends_at is null or sub.trial_ends_at>now())))
+      and (sub.complimentary_reason is null or sub.complimentary_until is null or sub.complimentary_until>now())) as plan_valid
+   from stores s
+   left join store_settings ss on ss.store_id=s.id
+   left join store_theme st on st.store_id=s.id
+   where s.status<>'scheduled_for_deletion'
+   order by case when s.slug like 'smoke-%' then 1 else 0 end,
+    case when s.status in ('active','trial') then 0 else 1 end,
+    case when coalesce(ss.settings->>'published','false')='true' then 0 else 1 end,
+    s.created_at desc
+   limit 120`
+ ]);
+ platform.checkout=control.length===0||control[0].enabled===true;
+ const stores=candidates.map(row=>evaluatePilotStore(row,platform));
+ const summary=commercialPilotSummary(stores,{
+  storesTotal:metrics[0].stores_total,activeProducts:metrics[0].active_products,
+  paidOrders:metrics[0].paid_orders,connectedStripe:metrics[0].connected_stripe
+ });
+ res.set("Cache-Control","private, no-store").json({
+  summary,integrations:platform,stores,
+  notices:["Esta comprobación no realiza compras ni verifica la liquidación de un cargo real.",
+   "Para aprobar el lanzamiento comercial, completa una compra real o controlada, confirma su webhook y el pedido resultante.",
+   "La lista contiene hasta 120 tiendas candidatas; las métricas generales incluyen todas."]
+ });
+});
 adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=await Promise.all([sql`select count(*)::int as n from stores where status in ('active','trial')`,sql`select count(*)::int as n from app_users where status='active'`,sql`select count(*)::int as n from orders where created_at>=date_trunc('day',now())`,sql`select coalesce(sum(p.monthly_price),0)::numeric as n from store_subscriptions s join plans p on p.id=s.plan_id where s.status='active' and s.complimentary_reason is null`]);const controls=await sql`select key,enabled,reason,updated_at from platform_controls order by key`;res.json({metrics:{stores:stores[0].n,users:users[0].n,orders_today:orders[0].n,mrr:Number(mrr[0].n)},controls})});
 adminRouter.get("/users",async(_req,res)=>{const rows=await sql`select u.id,u.email,u.name,u.role,u.status,u.created_at,count(distinct sm.store_id)::int as stores from app_users u left join store_members sm on sm.user_id=u.id group by u.id order by u.created_at desc limit 250`;res.json({users:rows})});
 adminRouter.get("/stores",async(req,res)=>{const q=String(req.query.q||"").trim();const rows=q?await sql`select s.*,o.name as organization_name,ss.status as subscription_status,p.name as plan_name from stores s join organizations o on o.id=s.organization_id left join store_subscriptions ss on ss.store_id=s.id left join plans p on p.id=ss.plan_id where s.name ilike ${"%"+q+"%"} or s.slug ilike ${"%"+q+"%"} order by s.created_at desc limit 200`:await sql`select s.*,o.name as organization_name,ss.status as subscription_status,p.name as plan_name from stores s join organizations o on o.id=s.organization_id left join store_subscriptions ss on ss.store_id=s.id left join plans p on p.id=ss.plan_id order by s.created_at desc limit 200`;res.json({stores:rows})});
