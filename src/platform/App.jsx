@@ -1,4 +1,4 @@
-import React,{useEffect,useState}from"react";import{Store,ShieldCheck,Sparkles,Blocks,BarChart3,ArrowRight}from"lucide-react";import{Onboarding}from"./onboarding/Onboarding.jsx";import{StoreImport}from"./onboarding/StoreImport.jsx";import{MerchantAdmin}from"./admin/MerchantAdmin.jsx";import{SuperAdmin}from"./admin/SuperAdmin.jsx";import{AuthScreen}from"./auth/AuthScreen.jsx";import{Storefront}from"./storefront/Storefront.jsx";import{DemoExperience}from"./demo/DemoExperience.jsx";import{useAuth}from"./auth/AuthProvider.jsx";import{createStore,listMyStores,loadStore,syncPaymentAccount,connectPaymentAccount,acceptStoreInvitation,startBillingCheckout,redeemAccessCode,retireStore,listRetiredStores,restoreRetiredStore}from"./data/storeService.js";import{listPublicPlans}from"./data/storefrontService.js";import{STORE_TEMPLATES,TEMPLATE_IMAGE_URLS,applyTemplate}from"./config/storeTemplates.js";import{safeStorefrontImage}from"./storefront/security.js";
+import React,{useEffect,useState}from"react";import{Store,ShieldCheck,Sparkles,Blocks,BarChart3,ArrowRight}from"lucide-react";import{Onboarding}from"./onboarding/Onboarding.jsx";import{StoreImport}from"./onboarding/StoreImport.jsx";import{MerchantAdmin}from"./admin/MerchantAdmin.jsx";import{SuperAdmin}from"./admin/SuperAdmin.jsx";import{AuthScreen}from"./auth/AuthScreen.jsx";import{Storefront}from"./storefront/Storefront.jsx";import{DemoExperience}from"./demo/DemoExperience.jsx";import{useAuth}from"./auth/AuthProvider.jsx";import{createStore,listMyStores,loadStore,syncPaymentAccount,connectPaymentAccount,acceptStoreInvitation,startBillingCheckout,redeemAccessCode,retireStore,listRetiredStores,restoreRetiredStore,openAuthenticatedStorePreview}from"./data/storeService.js";import{listPublicPlans}from"./data/storefrontService.js";import{STORE_TEMPLATES,TEMPLATE_IMAGE_URLS,applyTemplate}from"./config/storeTemplates.js";import{safeStorefrontImage}from"./storefront/security.js";
 const sectors=[
 {name:"Moda",tag:"Marcas · Boutiques · Colecciones",image:"https://www.proson.gr/sites/default/files/styles/article/public/2023-06/katastima.jpg.webp?itok=FhkHaQKa"},
 {name:"Alimentación",tag:"Gourmet · Panadería · Delivery",image:"https://i.pinimg.com/originals/95/84/a7/9584a772ae3cc48c7b5da1df294a1e2a.jpg"},
@@ -48,6 +48,7 @@ function StoresHub({stores,user,onOpen,onCreate,onDelete,onImportDone,onRestored
  const[typedSlug,setTypedSlug]=useState("");
  const[busy,setBusy]=useState(false);
  const[deleteError,setDeleteError]=useState("");
+ const[previewError,setPreviewError]=useState("");
  const confirmDelete=async()=>{
   if(!deleting||typedSlug!==deleting.slug)return;
   setBusy(true);setDeleteError("");
@@ -58,7 +59,7 @@ function StoresHub({stores,user,onOpen,onCreate,onDelete,onImportDone,onRestored
  return <div className="storesHub">
   <header className="storesTop"><a className="brand" href="https://bravoshop.online">BravoShop</a><div><span>{user?.name||user?.email||"Mi cuenta"}</span><button className="ghost" onClick={()=>setShowTrash(x=>!x)}>Papelera{trash.length?" ("+trash.length+")":""}</button><button className="ghost" onClick={()=>setImporting(true)}>Importar tienda</button><button onClick={onCreate}><PlusIcon/> Nueva tienda</button></div></header>
   <main>
-   <div className="storesIntro"><span>MIS TIENDAS</span><h1>Todo tu comercio, en un solo lugar.</h1><p>Elige una tienda para entrar a su administración, revisar productos, pedidos, diseño y configuración.</p></div>
+   <div className="storesIntro"><span>MIS TIENDAS</span><h1>Todo tu comercio, en un solo lugar.</h1><p>Elige una tienda para entrar a su administración, revisar productos, pedidos, diseño y configuración.</p></div>{previewError&&<p className="errorBox" role="alert">{previewError}</p>}
    {showTrash&&<section aria-label="Papelera de tiendas" style={{border:"1px solid #d6dbd6",borderRadius:14,padding:20,margin:"20px 0",background:"#f8faf7"}}>
     <h2>Tiendas retiradas</h2>
     <p>Se conservan los datos comerciales. Recuperar una tienda la deja sin publicar y sin reactivar automáticamente la facturación ni las ventas.</p>
@@ -81,7 +82,7 @@ function StoresHub({stores,user,onOpen,onCreate,onDelete,onImportDone,onRestored
       <p>{s.settings?.headline||"Gestiona el catálogo, pedidos, diseño y configuración de esta tienda."}</p>
       <div className="storeHubActions">
        <button onClick={()=>onOpen(s)}>Administrar <ArrowRight size={16}/></button>
-       {s.settings?.published===true?<a href={"https://"+s.slug+".bravoshop.online"} target="_blank" rel="noreferrer">Ver tienda</a>:<><span className="storeUnpublished">No publicada</span>{s.settings?.preview_token&&<a href={"https://app.bravoshop.online/preview?host="+encodeURIComponent(s.slug+".bravoshop.online")+"&studio=1&preview_token="+encodeURIComponent(s.settings.preview_token)} target="_blank" rel="noreferrer">Vista previa</a>}</>}
+       {s.settings?.published===true?<a href={"https://"+s.slug+".bravoshop.online"} target="_blank" rel="noreferrer">Ver tienda</a>:<><span className="storeUnpublished">No publicada</span><button className="ghost" onClick={()=>{setPreviewError("");openAuthenticatedStorePreview(s.id).catch(e=>setPreviewError(e.message))}}>Vista previa</button></>}
        {s.role==="owner"&&<button className="ghost" style={{color:"#a33"}} onClick={()=>{setDeleting(s);setTypedSlug("");setDeleteError("")}}>Eliminar tienda</button>}
       </div>
      </div>

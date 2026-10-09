@@ -2,6 +2,26 @@ import{api}from"../../lib/api.js";
 export async function listMyStores(){const data=await api("/api/stores");return data.stores??[]}
 export async function createStore(input){const slug=(input.slug||input.name||"tienda").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");const data=await api("/api/stores",{method:"POST",body:{name:input.name,slug,sector:input.sector,theme:input.theme??{primary_color:input.color},settings:input.settings??{},features:input.features??[]},headers:input.creation_key?{"Idempotency-Key":input.creation_key}:{}});return{...data.store,role:"owner"}}
 export async function loadStore(storeId){const data=await api(`/api/stores/${storeId}`);return data.store}
+export async function getStorePreviewUrl(storeId){
+ const data=await api(`/api/stores/${storeId}/preview-link`,{method:"POST",body:{}});
+ const url=new URL(data?.url||"");
+ if(url.origin!=="https://app.bravoshop.online"||url.pathname!=="/preview"||
+   !/^[a-z0-9-]+\.bravoshop\.online$/.test(url.searchParams.get("host")||"")||
+   (url.searchParams.get("preview_token")||"").length<32)
+  throw new Error("No se pudo generar un enlace seguro para la vista previa");
+ return url.toString();
+}
+export async function openAuthenticatedStorePreview(storeId){
+ // Open synchronously during the user's click to avoid Safari popup blocking.
+ const tab=window.open("about:blank","_blank");
+ if(tab)tab.opener=null;
+ try{
+  const url=await getStorePreviewUrl(storeId);
+  if(tab&&!tab.closed)tab.location.replace(url);
+  else window.location.assign(url);
+ }catch(error){if(tab&&!tab.closed)tab.close();throw error}
+}
+
 export async function updateStore(storeId,input){return api(`/api/stores/${storeId}`,{method:"PATCH",body:input})}
 export async function retireStore(storeId,confirmSlug){return api(`/api/stores/${storeId}`,{method:"DELETE",body:{confirm_slug:confirmSlug}})}
 export async function listRetiredStores(){const data=await api("/api/stores/retired");return data.stores??[]}
