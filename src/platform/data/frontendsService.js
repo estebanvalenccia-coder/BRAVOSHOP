@@ -31,4 +31,4 @@ export async function listFrontendAssets(id){const data=await api("/api/admin/fr
 
 export async function previewFrontendBatch(id,input){return api("/api/admin/frontends/"+id+"/batch-preview",{method:"POST",body:input})}
 
-export async function restoreFrontendDraft(id,version,expectedUpdatedAt){return api("/api/admin/frontends/"+id+"/restore-draft",{method:"POST",body:{version,expectedUpdatedAt}})}
+export async function restoreFrontendDraft(id,version,expectedRevision){return api("/api/admin/frontends/"+id+"/restore-draft",{method:"POST",body:{version,expectedRevision}})}
