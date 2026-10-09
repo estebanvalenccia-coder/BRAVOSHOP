@@ -4,7 +4,7 @@ import{LiveStorefrontPreview}from"./LiveStorefrontPreview.jsx";
 import{moveSectionToIndex}from"./frontendEditorUtils.js";
 import{Plus,Upload,ArrowUp,ArrowDown,Trash2,Copy,Eye,Save,Send,Store,FileArchive,ExternalLink}from"lucide-react";
 import{STORE_TEMPLATES,applyTemplate,ADDABLE_SECTIONS}from"../config/storeTemplates.js";
-import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,restoreFrontendDraft,previewFrontendDeployment,deployFrontend,previewFrontendBatch,createPlatformStore,inspectFrontendArchive,importFrontendArchive,listFrontendAssets,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
+import{loadFrontendStudio,createFrontendDraft,saveFrontendDraft,releaseFrontend,listFrontendVersions,restoreFrontendDraft,previewFrontendRollback,rollbackStoreFrontend,listStoreFrontendRollbacks,previewFrontendDeployment,deployFrontend,previewFrontendBatch,createPlatformStore,inspectFrontendArchive,importFrontendArchive,listFrontendAssets,getSuperAdminStorePreviewLink}from"../data/frontendsService.js";
 
 const asSnapshot=d=>JSON.stringify({name:d.name,sector:d.sector,description:d.description,theme:d.theme});
 const blank=(template="premium-organic")=>({name:"Nueva plantilla",sector:"general",description:"",theme:applyTemplate(template)});
@@ -16,6 +16,7 @@ export function FrontendsStudio(){
  const[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const[inspection,setInspection]=useState(null),[archive,setArchive]=useState(null),[templateAssets,setTemplateAssets]=useState([]),[assetSection,setAssetSection]=useState("hero"),[releaseNotes,setReleaseNotes]=useState("");
  const[target,setTarget]=useState(""),[replaceExisting,setReplaceExisting]=useState(false),[preview,setPreview]=useState(null),[chosenVersion,setChosenVersion]=useState("");
+ const[rollbackVersion,setRollbackVersion]=useState(""),[rollbackPreview,setRollbackPreview]=useState(null),[rollbackHistory,setRollbackHistory]=useState([]);
  const[newStore,setNewStore]=useState({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"editorial-fashion"});
  const flash=(message)=>{setNotice(message);setError("")};
  const fail=(e)=>{setError(e.message||String(e));setNotice("")};
@@ -23,7 +24,7 @@ export function FrontendsStudio(){
  useEffect(()=>{refresh().catch(fail)},[]);
  async function choose(item){
   setSelectedSectionId("");setEditingId(item.id);setSavedRevision(item.draft_revision??null);setCleanSnapshot(asSnapshot({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme}));setAssetSection(item.draft_theme?.sections?.[0]?.id||"hero");setDraft({name:item.name,sector:item.sector,description:item.description,theme:item.draft_theme});
-  setChosenVersion(String(item.version||""));setPreview(null);setTarget("");setReplaceExisting(false);setTab("editor");
+  setChosenVersion(String(item.version||""));setPreview(null);setRollbackPreview(null);setRollbackVersion("");setRollbackHistory([]);setTarget("");setReplaceExisting(false);setTab("editor");
   try{const [versionsData,assets]=await Promise.all([listFrontendVersions(item.id),listFrontendAssets(item.id)]);setVersions(versionsData.versions||[]);setTemplateAssets(assets)}catch(e){fail(e)}
  }
  function start(template){setSelectedSectionId("");setEditingId(null);setSavedRevision(null);setCleanSnapshot("");setAssetSection("hero");setTemplateAssets([]);setDraft(blank(template));setVersions([]);setChosenVersion("");setPreview(null);setTab("editor");flash("Plantilla nueva. Guarda el borrador para empezar a versionarla.")}
@@ -72,6 +73,32 @@ export function FrontendsStudio(){
   if(!preview||preview.id!==editingId||preview.storeId!==target||preview.version!==chosenVersion||preview.replaceExisting!==replaceExisting)return fail(new Error("Realiza antes una vista previa actualizada"));
   if(!window.confirm("Se aplicará la versión "+chosenVersion+" a "+preview.store+". ¿Continuar?"))return;
   setBusy(true);try{const r=await deployFrontend(editingId,{version:Number(chosenVersion),storeIds:[target],replaceExisting});const result=r.results?.[0];if(!result?.ok)throw new Error(result?.error||"No se pudo aplicar la actualización");flash("Frontend actualizado en "+preview.store+". "+(result.protectedFields?.length||0)+" personalizaciones protegidas.");setPreview(null);await refresh()}catch(e){fail(e)}finally{setBusy(false)}
+ }
+ async function simulateRollback(){
+  if(!editingId||!target||!rollbackVersion)return fail(new Error("Elige la tienda y la versión anterior"));
+  setBusy(true);setRollbackPreview(null);
+  try{
+   const r=await previewFrontendRollback(editingId,target,Number(rollbackVersion));
+   setRollbackPreview({templateId:editingId,storeId:target,version:rollbackVersion,...r.preview});
+   flash("Restauración simulada: ninguna tienda ha sido modificada.");
+  }catch(e){fail(e)}finally{setBusy(false)}
+ }
+ async function confirmRollback(){
+  const p=rollbackPreview;
+  if(!p||p.templateId!==editingId||p.storeId!==target||p.version!==rollbackVersion)return fail(new Error("Simula de nuevo antes de restaurar"));
+  if(!window.confirm("Restaurar "+p.store+" de v"+p.fromVersion+" a v"+p.toVersion+"? Se guardará un registro y se protegerán las personalizaciones. Esta acción modifica una tienda real."))return;
+  setBusy(true);
+  try{
+   const result=await rollbackStoreFrontend(editingId,target,p.toVersion,p.fromVersion);
+   setRollbackPreview(null);setRollbackVersion("");
+   const [data,history]=await Promise.all([refresh(),listStoreFrontendRollbacks(editingId,target)]);
+   setRollbackHistory(history.history||[]);
+   flash("Restauración realizada: "+p.store+" volvió a v"+result.restoredVersion+". "+(result.protectedFields?.length||0)+" cambios personalizados conservados.");
+  }catch(e){setRollbackPreview(null);fail(e)}finally{setBusy(false)}
+ }
+ async function loadRollbackHistory(){
+  if(!editingId||!target)return;
+  try{const r=await listStoreFrontendRollbacks(editingId,target);setRollbackHistory(r.history||[])}catch(e){fail(e)}
  }
  async function createStore(){
   setBusy(true);try{const r=await createPlatformStore({...newStore,templateId:editingId&&chosenVersion?editingId:undefined});await refresh();flash("Tienda "+r.store.name+" creada en estado de prueba. El propietario asignado puede administrarla.");setNewStore({name:"",slug:"",ownerEmail:"",sector:"general",builtin:"editorial-fashion"})}catch(e){fail(e)}finally{setBusy(false)}
@@ -208,12 +235,30 @@ export function FrontendsStudio(){
   {tab==="deploy"&&<article className="panel"><h2>Versiones y actualizaciones</h2><p>Instala las nuevas versiones solo en las tiendas seleccionadas. Las secciones y propiedades personalizadas se protegen durante la actualización.</p>
    <label>Plantilla<select value={editingId||""} onChange={e=>{const t=templates.find(x=>x.id===e.target.value);if(t)choose(t).then(()=>setTab("deploy"));else setEditingId(null)}}><option value="">Selecciona una plantilla</option>{templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
    <label>Versión<select value={chosenVersion} onChange={e=>{setChosenVersion(e.target.value);setPreview(null)}}><option value="">Selecciona una versión</option>{versions.map(v=><option key={v.version} value={v.version}>v{v.version} · {v.notes||"Sin notas"}</option>)}</select></label>
-   <label>Tienda de destino<select value={target} onChange={e=>{setTarget(e.target.value);setPreview(null)}}><option value="">Selecciona una tienda</option>{stores.map(s=><option key={s.id} value={s.id}>{s.name} ({s.slug})</option>)}</select></label>
+   <label>Tienda de destino<select value={target} onChange={e=>{setTarget(e.target.value);setPreview(null);setRollbackVersion("");setRollbackPreview(null);setRollbackHistory([])}}><option value="">Selecciona una tienda</option>{stores.map(s=><option key={s.id} value={s.id}>{s.name} ({s.slug})</option>)}</select></label>
    {targetStore&&<p>Versión instalada: {targetStore.deployed_version||"ninguna"} · <button className="ghost" onClick={()=>openStorePreview(targetStore)}>Vista previa autorizada</button></p>}
    <label style={{display:"flex",alignItems:"center",gap:10}}><input type="checkbox" checked={replaceExisting} onChange={e=>{setReplaceExisting(e.target.checked);setPreview(null)}}/> Autorizar sustitución del diseño inicial o cambiar de plantilla en esta tienda</label>
    <p>La sustitución inicial requiere confirmación porque una tienda sin esta plantilla puede tener un diseño completamente personalizado.</p>
    <button disabled={busy||!editingId||!chosenVersion||!target} onClick={showPreview}><Eye size={15}/> Simular cambios</button>
    {preview&&<div className="panel" style={{marginTop:14,padding:15}}><h3>Simulación para {preview.store}</h3><p>Campos personalizados conservados: {preview.protectedFields.length}</p><ul>{preview.protectedFields.slice(0,12).map(k=><li key={k}>{k}</li>)}</ul><p>No se han modificado datos en esta simulación.</p><button disabled={busy} onClick={deploy}><Send size={15}/> Aplicar versión {chosenVersion} a esta tienda</button></div>}
+   {targetStore&&targetStore.template_id===editingId&&Number(targetStore.deployed_version)>1&&<>
+    <hr/><h3>Restaurar versión instalada en esta tienda</h3>
+    <p>Solo se permite retroceder a una versión publicada anterior de esta misma plantilla. Se comprueban borradores y personalizaciones antes de aplicar nada.</p>
+    <label>Versión anterior<select value={rollbackVersion} onChange={e=>{setRollbackVersion(e.target.value);setRollbackPreview(null)}}>
+      <option value="">Selecciona una versión anterior</option>
+      {versions.filter(v=>v.version<Number(targetStore.deployed_version)).map(v=><option key={v.version} value={v.version}>v{v.version} · {v.notes||"Sin notas"}</option>)}
+    </select></label>
+    <button disabled={busy||!rollbackVersion} onClick={simulateRollback}>Simular restauración</button>
+    {rollbackPreview&&rollbackPreview.templateId===editingId&&rollbackPreview.storeId===target&&rollbackPreview.version===rollbackVersion&&<div className="panel" style={{padding:14,marginTop:12}}>
+      <h3>Vista previa de restauración</h3><p>{rollbackPreview.store}: v{rollbackPreview.fromVersion} → v{rollbackPreview.toVersion}</p>
+      <p>{rollbackPreview.protectedFields?.length||0} personalizaciones conservadas.</p>
+      <ul>{rollbackPreview.protectedFields?.slice(0,12).map(f=><li key={f}>{f}</li>)}</ul>
+      <p>La simulación no ha modificado ninguna tienda.</p>
+      <button disabled={busy} onClick={confirmRollback}>Confirmar restauración de esta tienda</button>
+    </div>}
+    <p><button className="ghost" disabled={busy} onClick={loadRollbackHistory}>Ver restauraciones anteriores</button></p>
+    {rollbackHistory.map((h,i)=><div className="health" key={i}><b>v{h.from_version} → v{h.to_version}</b><small>{new Date(h.performed_at).toLocaleString()}</small></div>)}
+   </>}
    {versions.length>0&&<><hr/><h3>Historial de versiones</h3>{versions.map(v=><div className="health" key={v.version}><b>v{v.version}</b><span>{v.notes||"Sin notas"}</span><small>{new Date(v.published_at).toLocaleDateString()}</small></div>)}</>}
   </article>}
  </div>
