@@ -92,6 +92,18 @@ frontendsRouter.post("/:id/preview",needId,async(req,res)=>{
  if(plan.error)return bad(res,plan.error,plan.status);
  res.json({preview:{store:plan.store,theme:plan.theme,protectedFields:plan.protectedFields}});
 });
+frontendsRouter.post("/:id/batch-preview",needId,async(req,res)=>{
+ const version=Number(req.body?.version),storeIds=req.body?.storeIds;
+ if(!Number.isSafeInteger(version)||version<1||!Array.isArray(storeIds)||storeIds.length<1||storeIds.length>25||!storeIds.every(validId)||new Set(storeIds).size!==storeIds.length)
+  return bad(res,"Selecciona entre 1 y 25 tiendas diferentes y una versión válida");
+ const replace=req.body?.replaceExisting===true;
+ const results=[];
+ for(const storeId of storeIds){
+  const planned=await planDeployment(req.params.id,version,storeId,replace);
+  results.push(planned.error?{storeId,ok:false,error:planned.error}:{storeId,ok:true,store:planned.store,protectedFields:planned.protectedFields});
+ }
+ res.set("Cache-Control","private, no-store").json({version,results,allReady:results.every(x=>x.ok)});
+});
 frontendsRouter.post("/:id/deploy",needId,async(req,res)=>{
  const version=Number(req.body?.version),storeIds=req.body?.storeIds;
  if(!Number.isSafeInteger(version)||version<1||!Array.isArray(storeIds)||storeIds.length<1||storeIds.length>25||new Set(storeIds).size!==storeIds.length||!storeIds.every(validId))return bad(res,"Selecciona de 1 a 25 tiendas y una versión válida");
