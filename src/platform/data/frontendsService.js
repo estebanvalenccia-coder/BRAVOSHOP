@@ -2,7 +2,7 @@ import{api}from"../../lib/api.js";
 export async function loadFrontendStudio(){return api("/api/admin/frontends")}
 export async function createFrontendDraft(input){return api("/api/admin/frontends",{method:"POST",body:input})}
 export async function saveFrontendDraft(id,input){return api("/api/admin/frontends/"+id,{method:"PATCH",body:input})}
-export async function releaseFrontend(id,notes){return api("/api/admin/frontends/"+id+"/release",{method:"POST",body:{notes}})}
+export async function releaseFrontend(id,notes,expectedRevision){return api("/api/admin/frontends/"+id+"/release",{method:"POST",body:{notes,expectedRevision}})}
 export async function listFrontendVersions(id){return api("/api/admin/frontends/"+id+"/versions")}
 export async function previewFrontendDeployment(id,input){return api("/api/admin/frontends/"+id+"/preview",{method:"POST",body:input})}
 export async function deployFrontend(id,input){return api("/api/admin/frontends/"+id+"/deploy",{method:"POST",body:input})}
@@ -30,3 +30,5 @@ export async function importFrontendArchive(file){
 export async function listFrontendAssets(id){const data=await api("/api/admin/frontends/"+id+"/assets");return data.assets??[]}
 
 export async function previewFrontendBatch(id,input){return api("/api/admin/frontends/"+id+"/batch-preview",{method:"POST",body:input})}
+
+export async function restoreFrontendDraft(id,version,expectedRevision){return api("/api/admin/frontends/"+id+"/restore-draft",{method:"POST",body:{version,expectedRevision}})}
