@@ -29,7 +29,7 @@ export function CommercialLaunch(){
   </section>
   <article className="panel" style={{marginTop:14}}>
    <h2>Estado del lanzamiento</h2>
-   <p>{m.connectedStripe===0?"Ninguna tienda tiene todavía Stripe Connect completamente habilitado. Esto impide verificar un cobro real.":"Hay al menos una cuenta Stripe Connect operativa; falta comprobar la compra real, el webhook y el pedido."}</p>
+   <p>{!data?"Consultando las condiciones comerciales…":m.connectedStripe===0?"Ninguna tienda tiene todavía Stripe Connect completamente habilitado. Esto impide verificar un cobro real.":"Hay al menos una cuenta Stripe Connect operativa; falta comprobar la compra real, el webhook y el pedido."}</p>
    <div style={{display:"flex",flexWrap:"wrap",gap:12}}>
     <span><b>Stripe plataforma:</b> {platform.stripe?"Configurado":"Pendiente"}</span>
     <span><b>Emails:</b> {platform.email?"Configurados":"Pendientes"}</span>
