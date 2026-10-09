@@ -321,3 +321,22 @@ body{background:#f7f4ed;color:#17221c}
 
 /* Draft publication is intentionally separate from storefront visibility. */
 .designDraftStatus{display:flex;gap:9px;flex-wrap:wrap;align-items:center;background:#eef4ef;border:1px solid #c4d9c9;border-radius:12px;padding:12px 18px;margin:12px 0;color:#214b34}.designDraftStatus span{font-size:12px}.designRevisionPanel{margin:8px 0 18px;padding:10px;border:1px solid #dae1dc;border-radius:10px}.designRevisionPanel summary{cursor:pointer;font-weight:700}.designRevisionRow{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #e8ebe9;font-size:12px}.designRevisionRow button{border:1px solid #cdd8d0;background:#fff;color:#315b42;padding:6px 9px;border-radius:7px;cursor:pointer}
+
+/* BravoShop Control: opt-in per-section columns. Original templates are unchanged. */
+@media(min-width:701px){
+ .shopV2 .shopPromises[data-bravo-grid-columns]{grid-template-columns:repeat(var(--bravo-benefit-columns,3),minmax(0,1fr))}
+ .shopV2 .shopCategoryRail[data-bravo-grid-columns] .premiumCategoryGrid{grid-template-columns:repeat(var(--bravo-category-columns,4),minmax(0,1fr))}
+ .shopV2 .shopCatalogV2[data-bravo-grid-columns] .storeGrid{grid-template-columns:repeat(var(--product-columns,4),minmax(0,1fr))}
+ .shopV2 .shopEditorial[data-bravo-grid-columns],
+ .shopV2 .customImageText[data-bravo-grid-columns]{grid-template-columns:repeat(var(--bravo-split-columns,2),minmax(0,1fr))}
+}
+@media(max-width:700px){
+ .shopV2 .shopPromises[data-bravo-grid-columns],
+ .shopV2 .shopEditorial[data-bravo-grid-columns],
+ .shopV2 .customImageText[data-bravo-grid-columns]{grid-template-columns:1fr}
+ .shopV2 .shopCategoryRail[data-bravo-grid-columns] .premiumCategoryGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .shopV2 .shopCatalogV2[data-bravo-grid-columns] .storeGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:480px){
+ .shopV2 .shopCatalogV2[data-bravo-grid-columns] .storeGrid{grid-template-columns:1fr}
+}
