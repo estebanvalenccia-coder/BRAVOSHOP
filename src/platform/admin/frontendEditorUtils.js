@@ -18,3 +18,14 @@ export function moveSectionToIndex(sections,movingId,index){
  result.splice(index,0,item);
  return result;
 }
+
+// Moves a visible block while retaining hidden blocks in their original slots.
+export function moveVisibleSection(sections,id,direction){
+ if(!Array.isArray(sections)||![1,-1].includes(direction))return sections;
+ const slots=sections.flatMap((s,i)=>s.visible===false?[]:[i]);
+ const from=slots.findIndex(i=>sections[i].id===id),to=from+direction;
+ if(from<0||to<0||to>=slots.length)return sections;
+ const copy=[...sections];
+ [copy[slots[from]],copy[slots[to]]]=[copy[slots[to]],copy[slots[from]]];
+ return copy;
+}
