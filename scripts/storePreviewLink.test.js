@@ -63,3 +63,12 @@ test("merchant Home, design iframe and Stores Hub use server-issued links instea
  assert.ok(!admin.includes('encodeURIComponent(store.settings?.preview_token||"")'));
  assert.ok(!hub.includes('encodeURIComponent(s.settings.preview_token)'));
 });
+
+test("preview link SQL uses explicit text types for PostgreSQL polymorphic JSON constructors",async()=>{
+ const source=await readFile(new URL("../server/routes/stores.js",import.meta.url),"utf8");
+ const start=source.indexOf('storesRouter.post("/:storeId/preview-link"');
+ const end=source.indexOf('storesRouter.get("/:storeId"',start);
+ const route=source.slice(start,end);
+ assert.ok(route.includes("jsonb_build_object('published',false,'preview_token',${candidate}::text)"));
+ assert.ok(!route.includes("jsonb_build_object('published',false,'preview_token',${candidate})"));
+});
