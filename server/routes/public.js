@@ -1,6 +1,7 @@
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{normalizePublicHost,selectPublicStoreHost}from"../security/publicHost.js";import{isPreviewContentRequest}from"../security/publicPreviewRoutes.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
 import{requiresCurrencyMinorUnitUpgrade,isValidTwoDecimalStripeAmount,meetsStripeMinimumCharge,merchantStripeAccountReady,checkoutControlEnabled}from"../services/paymentCurrency.js";
 import{validateCheckoutAddress}from"../services/checkoutAddress.js";
+import{checkStoreLegalReadiness}from"../../src/shared/storeLegalReadiness.js";
 export const publicRouter=Router();
 publicRouter.get("/plans",async(_req,res)=>{const rows=await sql`select name,slug,monthly_price,annual_price,currency,trial_days,metadata from plans where status=\'active\' and is_public=true order by coalesce(monthly_price,999999),name`;res.json({plans:rows})});
 publicRouter.param("token",(req,res,next,token)=>{
@@ -83,7 +84,7 @@ publicRouter.get("/store",requirePublicStore,async(req,res)=>{
  ]);
  const payment=payments[0],settings=req.publicStore.settings||{};
  const checkoutEnabled=!controls.length||controls[0].enabled===true;
- const legalReady=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
+ const legalReady=checkStoreLegalReadiness(settings,{requiresShipping:req.publicStore.sector!=="services"}).ready;
  const notificationsReady=Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM);
  const shippingReady=req.publicStore.sector==="services"||Number(shipping[0]?.value||0)>0;
  const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
@@ -216,7 +217,7 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
 	if(!checkoutControlEnabled(controls))return res.status(503).json({error:"Checkout temporalmente desactivado"});
 	const settings=req.publicStore.settings||{};
- const legalReady=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
+ const legalReady=checkStoreLegalReadiness(settings,{requiresShipping:req.publicStore.sector!=="services"}).ready;
  if(!legalReady)return res.status(503).json({error:"Completa la información legal antes de aceptar pedidos"});
  if(!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)return res.status(503).json({error:"El servicio de confirmaciones por email todavía no está configurado"});
  if(req.publicStore.sector!=="services"){
