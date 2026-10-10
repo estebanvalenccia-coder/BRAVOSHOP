@@ -138,7 +138,9 @@ test("public checkout enforces the same commercial readiness shown by merchant a
  const start=source.indexOf('publicRouter.post("/checkout"');
  const end=source.indexOf('publicRouter.get("/recovery/:token"',start);
  const block=source.slice(start,end);
- assert.ok(block.includes('["legal_name","tax_id","legal_address","legal_email"]'));
+ assert.ok(block.includes('checkStoreLegalReadiness(settings,'));
+ const {checkStoreLegalReadiness}=await import("../src/shared/storeLegalReadiness.js");
+ assert.equal(checkStoreLegalReadiness({legal_name:"Shop",tax_id:"B1",legal_address:"Street",legal_email:"a@b.test"}).ready,false);
  assert.ok(block.includes("RESEND_API_KEY"));
  assert.ok(block.includes("BRAVOSHOP_EMAIL_FROM"));
  assert.ok(block.includes('req.publicStore.sector!=="services"'));
