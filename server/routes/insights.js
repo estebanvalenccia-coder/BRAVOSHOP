@@ -3,6 +3,8 @@ import { sql } from "../db/neon.js";
 import { requireAuth, requireStore } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/permissions.js";
 
+import {checkStoreLegalReadiness} from "../../src/shared/storeLegalReadiness.js";
+
 export const insightsRouter = Router({ mergeParams: true });
 insightsRouter.use(requireAuth, requireStore);
 
@@ -51,7 +53,7 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
         sql`select enabled from platform_controls where key='checkout' limit 1`
 	]);
 	const settings=legal[0]?.settings||{};
-	const legalComplete=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
+	const legalComplete=checkStoreLegalReadiness(settings,{requiresShipping:legal[0]?.sector!=="services"}).ready;
 	res.json({
 		metrics: {
 			sales: Number(sales[0].value),

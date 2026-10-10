@@ -30,7 +30,11 @@ adminRouter.get("/launch/readiness",async(_req,res)=>{
     coalesce(nullif(btrim(ss.settings->>'legal_name'),''),null) is not null
       and coalesce(nullif(btrim(ss.settings->>'tax_id'),''),null) is not null
       and coalesce(nullif(btrim(ss.settings->>'legal_address'),''),null) is not null
-      and coalesce(nullif(btrim(ss.settings->>'legal_email'),''),null) is not null as legal_ready,
+      and coalesce(nullif(btrim(ss.settings->>'legal_email'),''),null) is not null
+      and (ss.settings->>'legal_email') ~* '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'
+      and coalesce(nullif(btrim(ss.settings->>'privacy_notes'),''),null) is not null
+      and coalesce(nullif(btrim(ss.settings->>'returns_policy'),''),null) is not null
+      and (s.sector='services' or coalesce(nullif(btrim(ss.settings->>'shipping_policy'),''),null) is not null) as legal_ready,
     exists(select 1 from shipping_zones z join shipping_rates sr on sr.zone_id=z.id and sr.store_id=z.store_id
       where z.store_id=s.id and z.active=true and sr.active=true) as shipping_ready,
     exists(select 1 from store_payment_accounts pa where pa.store_id=s.id
