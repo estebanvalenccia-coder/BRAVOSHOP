@@ -1,5 +1,6 @@
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{normalizePublicHost,selectPublicStoreHost}from"../security/publicHost.js";import{isPreviewContentRequest}from"../security/publicPreviewRoutes.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
 import{requiresCurrencyMinorUnitUpgrade,isValidTwoDecimalStripeAmount,meetsStripeMinimumCharge,merchantStripeAccountReady,checkoutControlEnabled}from"../services/paymentCurrency.js";
+import{validateCheckoutAddress}from"../services/checkoutAddress.js";
 export const publicRouter=Router();
 publicRouter.get("/plans",async(_req,res)=>{const rows=await sql`select name,slug,monthly_price,annual_price,currency,trial_days,metadata from plans where status=\'active\' and is_public=true order by coalesce(monthly_price,999999),name`;res.json({plans:rows})});
 publicRouter.param("token",(req,res,next,token)=>{
@@ -226,6 +227,11 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const paymentAccount=paymentRows[0];
 	const platformPaymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET);
 	if(!platformPaymentsReady||!merchantStripeAccountReady(paymentAccount))return res.status(503).json({error:"La tienda todavía no está lista para aceptar pagos"});
+	const delivery=validateCheckoutAddress(req.body.shipping_address,{
+  requiresShipping:req.publicStore.sector!=="services"
+ });
+ if(!delivery.ok)return res.status(422).json({error:delivery.error});
+ req.body.shipping_address=delivery.address;
 	const normalized=[];
 	let subtotalCents=0;
 	for(const item of req.body.items){
