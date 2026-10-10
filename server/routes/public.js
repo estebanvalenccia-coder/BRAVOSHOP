@@ -384,10 +384,11 @@ publicRouter.get("/recovery/:token",checkoutLimiter,requirePublicStore,async(req
 publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
  const rows=await sql`
   select c.id,c.store_id,c.status,c.currency,c.total,
-   s.status as store_status,pa.provider,pa.status as account_status,
+   s.status as store_status,s.sector,ss.settings as store_settings,pa.provider,pa.status as account_status,
    pa.charges_enabled,pa.payouts_enabled,pa.provider_account_id
   from checkout_sessions c
   join stores s on s.id=c.store_id
+  left join store_settings ss on ss.store_id=c.store_id
   left join store_payment_accounts pa on pa.store_id=c.store_id
   where c.token=${req.params.token}::uuid and (c.expires_at>now() or c.status='completed')
   limit 1`;
@@ -413,6 +414,12 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
   return res.status(503).json({error:"La tienda ha desactivado temporalmente el checkout"});
  if(!["active","trial"].includes(c.store_status))
   return res.status(423).json({error:"Tienda no disponible"});
+ if(c.store_settings?.published!==true)
+  return res.status(423).json({error:"Esta tienda ya no está publicada"});
+ if(!checkStoreLegalReadiness(c.store_settings,{requiresShipping:c.sector!=="services"}).ready)
+  return res.status(503).json({error:"La tienda debe completar la información legal y las políticas antes de cobrar"});
+ if(!process.env.RESEND_API_KEY||!process.env.BRAVOSHOP_EMAIL_FROM)
+  return res.status(503).json({error:"Las confirmaciones por correo no están disponibles"});
  if(!merchantStripeAccountReady({...c,status:c.account_status}))
   return res.status(503).json({error:"La cuenta Stripe ya no está habilitada para cobros y transferencias"});
  if(!process.env.STRIPE_SECRET_KEY)
