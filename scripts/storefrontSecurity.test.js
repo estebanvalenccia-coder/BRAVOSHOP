@@ -244,7 +244,10 @@ test("guest checkout requires a valid normalized email for transactional updates
  assert.ok(validate.includes('if(typeof req.body.email!=="string")'));
  assert.ok(validate.includes("req.body.email=req.body.email.trim().toLowerCase()"));
  assert.ok(validate.includes("El email de contacto es obligatorio"));
- assert.ok(ui.includes("email.trim())&&address.name"));
+ assert.ok(ui.includes("canStartCheckout(email,address,requiresShipping)"));
+ const {canStartCheckout}=await import("../src/platform/storefront/checkoutForm.js");
+ assert.equal(canStartCheckout("buyer@example.com",{name:"Cliente"},false),true);
+ assert.equal(canStartCheckout("invalid",{name:"Cliente"},false),false);
 });
 
 test("public checkout rejects negative or unsafe source prices before pricing cart totals",async()=>{
