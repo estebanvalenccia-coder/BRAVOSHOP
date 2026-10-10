@@ -8,6 +8,6 @@ export function checkStoreLegalReadiness(input={}, {requiresShipping=true}={}){
  const settings=input&&typeof input==="object"&&!Array.isArray(input)?input:{};
  const fields=[...LEGAL_IDENTITY_FIELDS,...LEGAL_POLICY_FIELDS,...(requiresShipping?[SHIPPING_POLICY_FIELD]:[])];
  const missing=fields.filter(key=>typeof settings[key]!=="string"||!settings[key].trim());
- if(!missing.includes("legal_email")&&!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(settings.legal_email.trim()))missing.push("legal_email");
+ if(!missing.includes("legal_email")&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.legal_email.trim()))missing.push("legal_email");
  return{ready:missing.length===0,completed:fields.length-missing.length,total:fields.length,missing,fields};
 }
