@@ -23,8 +23,10 @@ adminRouter.get("/launch/readiness",async(_req,res)=>{
     (select count(*)::int from product_variants v
       join products p on p.id=v.product_id and p.store_id=v.store_id
       left join inventory_levels il on il.variant_id=v.id
-      where v.store_id=s.id and p.status='active' and v.price>0
-      and (il.track_inventory=false or coalesce(il.quantity,0)>0)) as saleable_variants,
+      where v.store_id=s.id and p.status='active' and v.active=true
+      and coalesce(v.price,p.price)>0
+      and (coalesce(il.track_inventory,true)=false or coalesce(il.allow_backorder,false)=true
+        or coalesce(il.quantity,0)-coalesce(il.reserved,0)>0)) as saleable_variants,
     coalesce(nullif(btrim(ss.settings->>'legal_name'),''),null) is not null
       and coalesce(nullif(btrim(ss.settings->>'tax_id'),''),null) is not null
       and coalesce(nullif(btrim(ss.settings->>'legal_address'),''),null) is not null
