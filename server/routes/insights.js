@@ -32,13 +32,23 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
 		order by created_at desc
 		limit 6
 	`;
-	const [payment,shipping,domain,legal,activeProducts,pendingOrders]=await Promise.all([
-		sql`select charges_enabled,payouts_enabled,status from store_payment_accounts where store_id=${req.storeId}::uuid limit 1`,
-		sql`select count(distinct z.id)::int as value from shipping_zones z join shipping_rates r on r.zone_id=z.id and r.active=true where z.store_id=${req.storeId}::uuid and z.active=true`,
+	const [payment,shipping,domain,legal,activeProducts,pendingOrders,saleableVariants,checkoutModules,checkoutControls]=await Promise.all([
+		sql`select provider,provider_account_id,charges_enabled,payouts_enabled,status from store_payment_accounts where store_id=${req.storeId}::uuid limit 1`,
+		sql`select count(distinct z.id)::int as value from shipping_zones z join shipping_rates r on r.zone_id=z.id and r.store_id=z.store_id and r.active=true where z.store_id=${req.storeId}::uuid and z.active=true`,
 		sql`select count(*)::int as value from domains where store_id=${req.storeId}::uuid and status='verified'`,
 		sql`select ss.settings,s.status,s.slug,s.sector from stores s left join store_settings ss on ss.store_id=s.id where s.id=${req.storeId}::uuid limit 1`,
 		sql`select count(*)::int as value from products where store_id=${req.storeId}::uuid and status='active'`,
-		sql`select count(*)::int as value from orders where store_id=${req.storeId}::uuid and coalesce(fulfillment_status,'unfulfilled') in ('unfulfilled','preparing')`
+		sql`select count(*)::int as value from orders where store_id=${req.storeId}::uuid and coalesce(fulfillment_status,'unfulfilled') in ('unfulfilled','preparing')`,
+        sql`select count(*)::int as value from product_variants v
+          join products p on p.id=v.product_id and p.store_id=v.store_id
+          left join inventory_levels il on il.variant_id=v.id
+          where v.store_id=${req.storeId}::uuid and p.status='active' and v.active=true
+          and coalesce(v.price,p.price)>0
+          and (coalesce(il.track_inventory,true)=false or coalesce(il.allow_backorder,false)=true
+            or coalesce(il.quantity,0)-coalesce(il.reserved,0)>0)`,
+        sql`select count(distinct feature_key)::int as value from store_features
+          where store_id=${req.storeId}::uuid and enabled=true and feature_key in ('catalog','cart','checkout')`,
+        sql`select enabled from platform_controls where key='checkout' limit 1`
 	]);
 	const settings=legal[0]?.settings||{};
 	const legalComplete=["legal_name","tax_id","legal_address","legal_email"].every(k=>String(settings[k]||"").trim());
@@ -52,7 +62,7 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
 			low_stock_threshold: lowStockThreshold,
 		},
 		recent_orders: recent,
-		operations:{store_status:legal[0]?.status||"draft",slug:legal[0]?.slug||null,active_products:activeProducts[0].value,pending_orders:pendingOrders[0].value,payments_ready:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET&&payment[0]?.charges_enabled&&payment[0]?.payouts_enabled&&payment[0]?.status==="active"),payouts_ready:Boolean(payment[0]?.payouts_enabled),shipping_ready:legal[0]?.sector==="services"||shipping[0].value>0,custom_domain_ready:domain[0].value>0,legal_ready:legalComplete,notifications_ready:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),published:settings.published===true},
+		operations:{store_status:legal[0]?.status||"draft",slug:legal[0]?.slug||null,active_products:activeProducts[0].value,saleable_variants:saleableVariants[0].value,pending_orders:pendingOrders[0].value,payments_ready:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET&&payment[0]?.charges_enabled&&payment[0]?.payouts_enabled&&payment[0]?.status==="active"&&payment[0]?.provider==="stripe"&&payment[0]?.provider_account_id),payouts_ready:Boolean(payment[0]?.payouts_enabled),shipping_ready:legal[0]?.sector==="services"||shipping[0].value>0,custom_domain_ready:domain[0].value>0,legal_ready:legalComplete,notifications_ready:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),checkout_features_ready:checkoutModules[0].value===3,checkout_enabled:checkoutControls.length===0||checkoutControls[0].enabled===true,published:settings.published===true},
 	});
 });
 
