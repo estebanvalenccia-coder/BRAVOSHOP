@@ -1,4 +1,4 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";import{createCompatiblePromotionCode}from"../services/stripePromotionCode.js";import{evaluatePilotStore,commercialPilotSummary,evaluatePilotEvidence}from"../services/commercialLaunch.js";
+import{Router}from"express";import{randomUUID,createHash}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";import{createCompatiblePromotionCode}from"../services/stripePromotionCode.js";import{evaluatePilotStore,commercialPilotSummary,evaluatePilotEvidence}from"../services/commercialLaunch.js";
 export const adminRouter=Router();const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;adminRouter.param("id",(req,res,next,id)=>UUID.test(String(id||""))?next():res.status(404).json({error:"Recurso no encontrado"}));adminRouter.use(requireAuth,requireSuperAdmin);
 async function audit(req,action,resourceType,resourceId,details={}){const storeId=resourceType==="store"?resourceId:null;await sql`insert into audit_log(actor_user_id,actor_type,store_id,action,resource_type,resource_id,request_id,ip,user_agent,details) values(${req.user.id}::uuid,'super_admin',${storeId}::uuid,${action},${resourceType},${resourceId||null},${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},${JSON.stringify(details)}::jsonb)`}
 // Read-only pilot launch readiness for SUPER ADMINS. No publication or payment mutations.
@@ -262,6 +262,139 @@ adminRouter.delete("/users/:id",async(req,res)=>{
   res.json({ok:true,deleted_user:deleted[0]});
 });
 adminRouter.get("/users",async(_req,res)=>{const rows=await sql`select u.id,u.email,u.name,u.role,u.status,u.created_at,count(distinct sm.store_id)::int as stores from app_users u left join store_members sm on sm.user_id=u.id group by u.id order by u.created_at desc limit 250`;res.json({users:rows})});
+
+function bulkSelection(body){
+ const selected=body?.selection;
+ if(!selected||!["all","selected"].includes(selected.scope))return{error:"Selecciona tiendas"};
+ const ids=selected.scope==="selected"?selected.ids:[];
+ const excluded=selected.scope==="all"?(selected.excluded_ids||[]):[];
+ if(!Array.isArray(ids)||!Array.isArray(excluded)||ids.length>10000||excluded.length>10000||
+   ids.some(id=>typeof id!=="string"||!UUID.test(id))||excluded.some(id=>typeof id!=="string"||!UUID.test(id))||
+   (selected.scope==="selected"&&ids.length===0))return{error:"Selección inválida"};
+ return{scope:selected.scope,ids:[...new Set(ids)],excluded:[...new Set(excluded)]};
+}
+async function bulkStoreSelectionPreview(selection){
+ const {scope,ids,excluded}=selection;
+ const rows=await sql`select s.id,s.slug,s.status,s.updated_at,sm.user_id as owner_id,
+  exists(select 1 from store_subscriptions v where v.store_id=s.id and v.provider_subscription_id is not null and v.status not in ('canceled','expired','incomplete_expired')) as billing,
+  exists(select 1 from order_refunds v where v.store_id=s.id and v.status in ('pending','processing')) as refunds_pending,
+  exists(select 1 from orders v where v.store_id=s.id and (v.refund_reserved_total>0 or (v.payment_status in ('paid','partially_refunded') and v.fulfillment_status not in ('delivered','fulfilled','canceled','cancelled')))) as orders_pending,
+  exists(select 1 from checkout_sessions v where v.store_id=s.id and v.completed_order_id is null and v.provider_payment_id is not null and v.status not in ('payment_failed','expired')) as payments_pending,
+  exists(select 1 from orders v where v.store_id=s.id) as orders,
+  exists(select 1 from checkout_sessions v where v.store_id=s.id) as checkouts,
+  exists(select 1 from customers v where v.store_id=s.id) as customers,
+  exists(select 1 from order_refunds v where v.store_id=s.id) as refunds,
+  exists(select 1 from stripe_webhook_events v where v.store_id=s.id) as webhooks,
+  exists(select 1 from notification_outbox v where v.store_id=s.id) as notifications,
+  exists(select 1 from newsletter_subscribers v where v.store_id=s.id) as subscribers,
+  exists(select 1 from media_assets v where v.store_id=s.id) as media,
+  exists(select 1 from media_upload_intents v where v.store_id=s.id) as uploads,
+  exists(select 1 from store_payment_accounts v where v.store_id=s.id and v.provider_account_id is not null) as stripe,
+  exists(select 1 from store_subscriptions v where v.store_id=s.id and (v.provider_customer_id is not null or v.provider_subscription_id is not null or v.provider_checkout_session_id is not null)) as billing_records,
+  exists(select 1 from domains v where v.store_id=s.id and v.kind='custom') as domains
+ from stores s left join lateral (
+  select user_id from store_members where store_id=s.id and role='owner' and status='active'
+   order by created_at limit 1
+ ) sm on true
+ where (${scope}='all' or s.id=any(${ids}::uuid[])) and not(s.id=any(${excluded}::uuid[]))
+ order by s.id`;
+ if(rows.length>10000)throw Object.assign(new Error("Más de 10.000 tiendas: utiliza una selección menor"),{status:413});
+ const retireable=rows.filter(s=>s.status!=="scheduled_for_deletion"&&s.owner_id&&!s.billing&&!s.refunds_pending&&!s.orders_pending&&!s.payments_pending);
+ const safety=["orders","checkouts","customers","refunds","webhooks","notifications","subscribers","media","uploads","stripe","billing_records","domains"];
+ const purgeable=rows.filter(s=>s.status==="scheduled_for_deletion"&&safety.every(k=>!s[k]));
+ const fingerprint=createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+ return{total:rows.length,fingerprint,can_retire:retireable.length,can_purge:purgeable.length,
+  already_retired:rows.filter(s=>s.status==="scheduled_for_deletion").length,
+  retire_ids:retireable.map(s=>s.id),purge_ids:purgeable.map(s=>s.id)};
+}
+adminRouter.post("/stores/bulk/preview",async(req,res)=>{
+ const selection=bulkSelection(req.body);
+ if(selection.error)return res.status(400).json({error:selection.error});
+ const {retire_ids,purge_ids,...preview}=await bulkStoreSelectionPreview(selection);
+ res.set("Cache-Control","no-store").json({preview});
+});
+adminRouter.post("/stores/bulk/execute",async(req,res)=>{
+ const selection=bulkSelection(req.body);
+ if(selection.error)return res.status(400).json({error:selection.error});
+ const action=req.body?.action;
+ if(!["retire","purge"].includes(action))return res.status(400).json({error:"Acción desconocida"});
+ const confirmation=action==="retire"?"RETIRAR TIENDAS SELECCIONADAS":"ELIMINAR DEFINITIVAMENTE";
+ if(req.body?.confirmation!==confirmation)return res.status(400).json({error:"Confirma escribiendo la frase exacta"});
+ const reason=typeof req.body?.reason==="string"?req.body.reason.trim():"";
+ if(reason.length<10||reason.length>500)return res.status(400).json({error:"Motivo requerido (10–500 caracteres)"});
+ const current=await bulkStoreSelectionPreview(selection);
+ if(!current.total||current.fingerprint!==req.body?.fingerprint)
+  return res.status(409).json({error:"Las tiendas o sus condiciones han cambiado. Vuelve a revisar la selección antes de proceder."});
+ const ids=action==="retire"?current.retire_ids:current.purge_ids;
+ if(!ids.length)return res.status(409).json({error:"Ninguna tienda cumple los requisitos para esta operación"});
+ if(action==="retire"){
+  const result=await sql`with chosen as materialized (
+   select s.id,s.slug,m.user_id from stores s join lateral(
+    select user_id from store_members where store_id=s.id and role='owner' and status='active'
+    order by created_at limit 1
+   ) m on true where s.id=any(${ids}::uuid[]) order by s.id
+  ), changed as materialized (
+   select id,slug,bravoshop_retire_store(id,user_id,slug) as outcome from chosen
+  ), recorded as (
+   insert into audit_log(actor_user_id,actor_type,store_id,action,resource_type,resource_id,request_id,ip,user_agent,details)
+   select ${req.user.id}::uuid,'super_admin',id,'store.admin_retired','store',id::text,
+    ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
+    jsonb_build_object('slug',slug,'reason',${reason},'bulk',true)
+   from changed where outcome->>'ok'='true' returning resource_id
+  )
+  select (select count(*)::int from recorded) as changed,
+   (select count(*)::int from changed where outcome->>'ok'<>'true') as refused`;
+  return res.json({ok:true,action,changed:result[0].changed,refused:result[0].refused,
+   protected:current.total-current.can_retire,selected:current.total});
+ }
+ try{
+  const result=await sql.transaction([
+   sql`select id from stores where id=any(${ids}::uuid[]) for update`,
+   sql`delete from inventory_movements im where im.store_id=any(${ids}::uuid[])
+    and exists(select 1 from stores s where s.id=im.store_id and s.status='scheduled_for_deletion'
+     and not exists(select 1 from orders v where v.store_id=s.id)
+     and not exists(select 1 from checkout_sessions v where v.store_id=s.id)
+     and not exists(select 1 from customers v where v.store_id=s.id)
+     and not exists(select 1 from order_refunds v where v.store_id=s.id)
+     and not exists(select 1 from stripe_webhook_events v where v.store_id=s.id)
+     and not exists(select 1 from notification_outbox v where v.store_id=s.id)
+     and not exists(select 1 from newsletter_subscribers v where v.store_id=s.id)
+     and not exists(select 1 from media_assets v where v.store_id=s.id)
+     and not exists(select 1 from media_upload_intents v where v.store_id=s.id)
+     and not exists(select 1 from store_payment_accounts v where v.store_id=s.id and v.provider_account_id is not null)
+     and not exists(select 1 from store_subscriptions v where v.store_id=s.id and (v.provider_customer_id is not null or v.provider_subscription_id is not null or v.provider_checkout_session_id is not null))
+     and not exists(select 1 from domains v where v.store_id=s.id and v.kind='custom'))`,
+   sql`with removed as (
+    delete from stores s where s.id=any(${ids}::uuid[]) and s.status='scheduled_for_deletion'
+     and not exists(select 1 from orders v where v.store_id=s.id)
+     and not exists(select 1 from checkout_sessions v where v.store_id=s.id)
+     and not exists(select 1 from customers v where v.store_id=s.id)
+     and not exists(select 1 from order_refunds v where v.store_id=s.id)
+     and not exists(select 1 from stripe_webhook_events v where v.store_id=s.id)
+     and not exists(select 1 from notification_outbox v where v.store_id=s.id)
+     and not exists(select 1 from newsletter_subscribers v where v.store_id=s.id)
+     and not exists(select 1 from media_assets v where v.store_id=s.id)
+     and not exists(select 1 from media_upload_intents v where v.store_id=s.id)
+     and not exists(select 1 from store_payment_accounts v where v.store_id=s.id and v.provider_account_id is not null)
+     and not exists(select 1 from store_subscriptions v where v.store_id=s.id and (v.provider_customer_id is not null or v.provider_subscription_id is not null or v.provider_checkout_session_id is not null))
+     and not exists(select 1 from domains v where v.store_id=s.id and v.kind='custom')
+    returning s.id,s.slug
+   ), recorded as (
+    insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
+    select ${req.user.id}::uuid,'super_admin','store.permanently_deleted','deleted_store',r.id::text,
+     ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
+     jsonb_build_object('slug',r.slug,'reason',${reason},'bulk',true)
+    from removed r returning resource_id
+   ) select count(*)::int as changed from recorded`
+  ]);
+  return res.json({ok:true,action,changed:result[2][0].changed,
+   protected:current.total-current.can_purge,selected:current.total});
+ }catch(err){
+  if(err?.code==="23503")return res.status(409).json({error:"Relaciones protegidas impiden el borrado. No se ha aplicado este lote."});
+  throw err;
+ }
+});
+
 adminRouter.get("/stores",async(req,res)=>{
  const q=String(req.query.q||"").trim().slice(0,100);
  const state=String(req.query.state||"all");
