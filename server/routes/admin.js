@@ -1,8 +1,12 @@
-import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";import{createCompatiblePromotionCode}from"../services/stripePromotionCode.js";import{evaluatePilotStore,commercialPilotSummary}from"../services/commercialLaunch.js";
+import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{requireAuth}from"../middleware/auth.js";import{requireSuperAdmin}from"../middleware/superAdmin.js";import{mediaReady}from"../services/mediaSigner.js";import{railwayDomainsReady}from"../services/railwayDomains.js";import{createCompatiblePromotionCode}from"../services/stripePromotionCode.js";import{evaluatePilotStore,commercialPilotSummary,evaluatePilotEvidence}from"../services/commercialLaunch.js";
 export const adminRouter=Router();const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;adminRouter.param("id",(req,res,next,id)=>UUID.test(String(id||""))?next():res.status(404).json({error:"Recurso no encontrado"}));adminRouter.use(requireAuth,requireSuperAdmin);
 async function audit(req,action,resourceType,resourceId,details={}){const storeId=resourceType==="store"?resourceId:null;await sql`insert into audit_log(actor_user_id,actor_type,store_id,action,resource_type,resource_id,request_id,ip,user_agent,details) values(${req.user.id}::uuid,'super_admin',${storeId}::uuid,${action},${resourceType},${resourceId||null},${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},${JSON.stringify(details)}::jsonb)`}
 // Read-only pilot launch readiness for SUPER ADMINS. No publication or payment mutations.
-adminRouter.get("/launch/readiness",async(_req,res)=>{
+adminRouter.get("/launch/readiness",async(req,res)=>{
+ const rawQuery=req.query?.q;
+ if(rawQuery!==undefined&&(typeof rawQuery!=="string"||rawQuery.length>100))return res.status(400).json({error:"Búsqueda de comercio no válida"});
+ const search=String(rawQuery||"").trim();
+ const pattern="%"+search+"%";
  const platform={
   stripe:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET),
   email:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),
@@ -17,6 +21,16 @@ adminRouter.get("/launch/readiness",async(_req,res)=>{
    (select count(*)::int from store_payment_accounts where provider='stripe' and status='active'
     and charges_enabled=true and payouts_enabled=true and provider_account_id is not null) as connected_stripe`,
   sql`select s.id,s.name,s.slug,s.sector,s.status,
+    pilot_order.id as pilot_paid_order_id,
+    exists(select 1 from stripe_webhook_events wh where wh.store_id=s.id
+      and wh.payment_intent_id=pilot_order.provider_payment_id
+      and wh.event_type='payment_intent.succeeded' and wh.status='processed') as pilot_webhook_processed,
+    exists(select 1 from notification_outbox outbox where outbox.store_id=s.id
+      and outbox.order_id=pilot_order.id and outbox.type='order.confirmed'
+      and outbox.status='sent') as pilot_email_sent,
+    exists(select 1 from order_refunds refund where refund.store_id=s.id
+      and refund.order_id=pilot_order.id and refund.status='succeeded'
+      and refund.provider_refund_id is not null) as pilot_refund_success,
     coalesce(ss.settings->>'published','false')='true' as published,
     coalesce(st.theme->>'template','')<>'' as design_ready,
     (select count(*)::int from products p where p.store_id=s.id and p.status='active') as active_products,
@@ -49,7 +63,17 @@ adminRouter.get("/launch/readiness",async(_req,res)=>{
    from stores s
    left join store_settings ss on ss.store_id=s.id
    left join store_theme st on st.store_id=s.id
+   left join lateral (
+    select o.id,o.provider_payment_id
+    from orders o
+    where o.store_id=s.id and o.payment_provider='stripe'
+      and o.provider_payment_id is not null and o.paid_at is not null
+      and o.payment_status in ('paid','partially_refunded','refunded')
+    order by o.paid_at desc
+    limit 1
+   ) pilot_order on true
    where s.status<>'scheduled_for_deletion'
+    and (${search}='' or s.name ilike ${pattern} or s.slug ilike ${pattern} or s.id::text=${search})
    order by case when s.slug like 'smoke-%' then 1 else 0 end,
     case when s.status in ('active','trial') then 0 else 1 end,
     case when coalesce(ss.settings->>'published','false')='true' then 0 else 1 end,
@@ -57,16 +81,16 @@ adminRouter.get("/launch/readiness",async(_req,res)=>{
    limit 120`
  ]);
  platform.checkout=control.length===0||control[0].enabled===true;
- const stores=candidates.map(row=>evaluatePilotStore(row,platform));
+ const stores=candidates.map(row=>({...evaluatePilotStore(row,platform),pilotEvidence:evaluatePilotEvidence(row)}));
  const summary=commercialPilotSummary(stores,{
   storesTotal:metrics[0].stores_total,activeProducts:metrics[0].active_products,
   paidOrders:metrics[0].paid_orders,connectedStripe:metrics[0].connected_stripe
  });
  res.set("Cache-Control","private, no-store").json({
-  summary,integrations:platform,stores,
+  summary,integrations:platform,stores,searchQuery:search,sampleLimit:120,
   notices:["Esta comprobación no realiza compras ni verifica la liquidación de un cargo real.",
    "Para aprobar el lanzamiento comercial, completa una compra real o controlada, confirma su webhook y el pedido resultante.",
-   "La lista contiene hasta 120 tiendas candidatas; las métricas generales incluyen todas."]
+   "La lista contiene hasta 120 tiendas candidatas. Puedes buscar cualquier tienda por nombre, subdominio o ID; las métricas generales incluyen todas."]
  });
 });
 adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=await Promise.all([sql`select count(*)::int as n from stores where status in ('active','trial')`,sql`select count(*)::int as n from app_users where status='active'`,sql`select count(*)::int as n from orders where created_at>=date_trunc('day',now())`,sql`select coalesce(sum(p.monthly_price),0)::numeric as n from store_subscriptions s join plans p on p.id=s.plan_id where s.status='active' and s.complimentary_reason is null`]);const controls=await sql`select key,enabled,reason,updated_at from platform_controls order by key`;res.json({metrics:{stores:stores[0].n,users:users[0].n,orders_today:orders[0].n,mrr:Number(mrr[0].n)},controls})});
