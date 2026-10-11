@@ -1,6 +1,6 @@
 import React,{useEffect,useState}from"react";
 import{Search,ExternalLink,Settings2,Trash2,RotateCcw,ShieldAlert,ShieldCheck,Archive,RefreshCw,X,ChevronLeft,ChevronRight}from"lucide-react";
-import{queryAdminStores,retireAdminStore,restoreAdminStore,checkAdminStoreDeletion,deleteAdminStorePermanently,updateStoreStatus,assignStorePlan}from"../data/superAdminService.js";
+import{queryAdminStores,retireAdminStore,restoreAdminStore,checkAdminStoreDeletion,deleteAdminStorePermanently,getPlatformCleanupPreview,bulkDeletePlatformStores,updateStoreStatus,assignStorePlan}from"../data/superAdminService.js";
 import"./AdminStores.css";
 
 const STATUSES={active:"Activa",trial:"Prueba",unpaid:"Impago",suspended:"Suspendida",maintenance:"Mantenimiento",scheduled_for_deletion:"Retirada"};
@@ -22,6 +22,23 @@ export function AdminStores(){
  const[chosen,setChosen]=useState(null),[operation,setOperation]=useState("");
  const[reason,setReason]=useState(""),[typedSlug,setTypedSlug]=useState(""),[typedPhrase,setTypedPhrase]=useState(""),[plan,setPlan]=useState("basic");
  const[check,setCheck]=useState(null),[checking,setChecking]=useState(false),[busy,setBusy]=useState(false),[dialogError,setDialogError]=useState("");
+ const[bulkOpen,setBulkOpen]=useState(false),[bulkPreview,setBulkPreview]=useState(null),[bulkPhrase,setBulkPhrase]=useState("");
+ const[bulkBusy,setBulkBusy]=useState(false),[bulkChecking,setBulkChecking]=useState(false),[bulkError,setBulkError]=useState("");
+ const openBulk=()=>{
+   setNotice("");setBulkOpen(true);setBulkPhrase("");setBulkPreview(null);setBulkError("");setBulkChecking(true);
+   getPlatformCleanupPreview().then(data=>setBulkPreview(data.stores)).catch(e=>setBulkError(e.message)).finally(()=>setBulkChecking(false));
+ };
+ const deleteBulk=async()=>{
+   if(!bulkPreview?.eligible||bulkBusy||bulkPhrase!=="ELIMINAR TODAS LAS TIENDAS")return;
+   setBulkBusy(true);setBulkError("");
+   try{
+     const result=await bulkDeletePlatformStores(bulkPreview);
+     setBulkOpen(false);setBulkPhrase("");setBulkPreview(null);setPage(1);setRefresh(x=>x+1);
+     setNotice("Se han eliminado "+result.deleted+" tiendas retiradas aptas. Las demás tiendas y los historiales protegidos se han conservado.");
+   }catch(e){setBulkError(e.message)}
+   finally{setBulkBusy(false)}
+ };
+
  useEffect(()=>{
   let live=true;setLoading(true);setError("");
   queryAdminStores({q:query,state:filter,page}).then(data=>{
@@ -69,7 +86,10 @@ export function AdminStores(){
  };
  return <>
   <header><div><small>CONTROL DE COMERCIOS</small><h1>Tiendas</h1><p className="adminLead">Consulta el escaparate público y administra el acceso, la retirada y la recuperación de tiendas.</p></div>
-  <button className="ghost" type="button" onClick={()=>setRefresh(x=>x+1)} disabled={loading}><RefreshCw size={16}/> Actualizar</button></header>
+  <div className="astHeaderActions">
+    <button type="button" className="astBulkDeleteButton" onClick={openBulk}><Trash2 size={16}/> Eliminar todas</button>
+    <button className="ghost" type="button" onClick={()=>setRefresh(x=>x+1)} disabled={loading}><RefreshCw size={16}/> Actualizar</button>
+  </div></header>
   <div className="astNotice"><ShieldCheck size={18}/><p><b>Acceso respetuoso con la privacidad.</b> Solo se abre el escaparate público; no se inicia sesión en cuentas ajenas. Retirar no equivale a borrar definitivamente.</p></div>
   {notice&&<div role="status" className="astSuccess">{notice}</div>}
   {error&&<div role="alert" className="errorBox">{error} <button type="button" className="ghost" onClick={()=>setRefresh(x=>x+1)}>Reintentar</button></div>}
@@ -91,6 +111,27 @@ export function AdminStores(){
   {loading&&<div className="astEmpty" role="status">Cargando comercios…</div>}
   </div>
   <div className="astPager"><button type="button" className="ghost" disabled={loading||page<=1} onClick={()=>setPage(x=>x-1)}><ChevronLeft size={15}/> Anterior</button><span>{page} / {pageCount}</span><button type="button" className="ghost" disabled={loading||page>=pageCount} onClick={()=>setPage(x=>x+1)}>Siguiente <ChevronRight size={15}/></button></div>
+
+  {bulkOpen&&<div className="astOverlay">
+   <section className="astDialog" role="dialog" aria-modal="true" aria-label="Eliminar todas las tiendas aptas">
+    <div className="astDialogHeader"><div><small>BORRADO MASIVO · BRAVOSHOP CONTROL</small><h2>Eliminar todas las tiendas aptas</h2></div><button type="button" aria-label="Cerrar" disabled={bulkBusy} onClick={()=>setBulkOpen(false)}><X size={19}/></button></div>
+    <div className="astForm">
+     <p>Esta acción incluye todas las tiendas de la plataforma, no solo la página o filtro actual. Solo se eliminarán definitivamente las tiendas ya retiradas y sin pedidos, clientes, cobros, archivos o historiales protegidos.</p>
+     {bulkChecking?<p role="status">Comprobando las tiendas…</p>:bulkPreview?<div className="astDeletionCheck">
+      <strong>Total: {bulkPreview.total} tiendas · Eliminables: {bulkPreview.eligible} · Protegidas: {bulkPreview.total-bulkPreview.eligible}</strong>
+      <p>Las tiendas activas o con obligaciones pendientes seguirán intactas. Si quieres eliminarlas, primero debes revisarlas y retirarlas individualmente.</p>
+     </div>:null}
+     <label>Escribe exactamente <b>ELIMINAR TODAS LAS TIENDAS</b>
+      <input value={bulkPhrase} onChange={e=>setBulkPhrase(e.target.value)} autoComplete="off" disabled={bulkBusy||bulkChecking} placeholder="ELIMINAR TODAS LAS TIENDAS"/>
+     </label>
+     {bulkError&&<p role="alert" className="astError">{bulkError}</p>}
+     <div className="astFormActions">
+      <button type="button" className="ghost" disabled={bulkBusy} onClick={()=>setBulkOpen(false)}>Cancelar</button>
+      <button type="button" className="astCommitDanger" onClick={deleteBulk} disabled={bulkBusy||bulkChecking||!bulkPreview?.eligible||bulkPhrase!=="ELIMINAR TODAS LAS TIENDAS"}>{bulkBusy?"Eliminando…":"Eliminar todas las aptas"}</button>
+     </div>
+    </div>
+   </section>
+  </div>}
   {chosen&&<div className="astOverlay" onMouseDown={e=>{if(e.target===e.currentTarget&&!busy)setChosen(null)}}>
    <section className="astDialog" role="dialog" aria-modal="true" aria-label={"Gestionar tienda "+chosen.name}>
     <div className="astDialogHeader"><div><small>BRAVOSHOP CONTROL · TIENDAS</small><h2>{chosen.name}</h2><p>{chosen.slug} · {STATUSES[chosen.status]||chosen.status}</p></div><button type="button" aria-label="Cerrar" disabled={busy} onClick={()=>setChosen(null)}><X size={19}/></button></div>
