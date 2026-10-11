@@ -34,4 +34,4 @@ export async function syncPlatformPromotion(id){const data=await api("/api/admin
 
 export async function deactivatePlatformPromotion(id){const data=await api("/api/admin/promotions/"+encodeURIComponent(id)+"/deactivate",{method:"POST",body:{}});return data.promotion}
 
-export async function getCommercialLaunchReadiness(){return api("/api/admin/launch/readiness")}
+export async function getCommercialLaunchReadiness(query=""){return api("/api/admin/launch/readiness"+(query?"?q="+encodeURIComponent(query):""))}
