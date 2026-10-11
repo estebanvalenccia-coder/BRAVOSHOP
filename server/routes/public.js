@@ -388,7 +388,7 @@ publicRouter.get("/recovery/:token",checkoutLimiter,requirePublicStore,async(req
 });
 publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
  const rows=await sql`
-  select c.id,c.store_id,c.status,c.currency,c.total,
+  select c.id,c.store_id,c.status,c.currency,c.total,c.shipping_rate_id,c.shipping_address,
    s.status as store_status,s.sector,ss.settings as store_settings,pa.provider,pa.status as account_status,
    pa.charges_enabled,pa.payouts_enabled,pa.provider_account_id
   from checkout_sessions c
@@ -429,6 +429,24 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
   return res.status(503).json({error:"La cuenta Stripe ya no está habilitada para cobros y transferencias"});
  if(!process.env.STRIPE_SECRET_KEY)
   return res.status(503).json({error:"Proveedor de pagos pendiente de configuración"});
+ // A previously quoted shipping rate may have been disabled or its destination
+ // removed before the buyer attempts payment. Revalidate before reserving stock
+ // or creating a Stripe PaymentIntent (also protects no-charge orders).
+ if(c.sector!=="services"){
+  const country=String(c.shipping_address?.country||"").trim().toUpperCase();
+  if(!/^[A-Z]{2}$/.test(country)||!c.shipping_rate_id)
+   return res.status(409).json({error:"La entrega de este pedido ya no es válida. Vuelve al carrito para recalcular los envíos."});
+  const validRate=await sql`
+   select 1 from shipping_rates r
+   join shipping_zones z on z.id=r.zone_id and z.store_id=r.store_id
+   where r.store_id=${c.store_id}::uuid
+    and r.id=${c.shipping_rate_id}::uuid
+    and z.active=true and r.active=true
+    and ${country}=any(z.countries)
+   limit 1`;
+  if(!validRate.length)
+   return res.status(409).json({error:"La opción de entrega ha dejado de estar disponible. Vuelve al carrito para actualizar el envío."});
+ }
  await sql`select bravoshop_release_expired_inventory_reservations()`;
  const reservation=await sql`select bravoshop_reserve_checkout_inventory(${c.id}::uuid) as reserved`;
  if(!reservation[0]?.reserved)
