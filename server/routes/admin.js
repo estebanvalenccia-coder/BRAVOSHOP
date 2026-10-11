@@ -197,7 +197,7 @@ async function getStorePurgeCheck(id){
  exists(select 1 from newsletter_subscribers n where n.store_id=s.id) as subscribers,
  exists(select 1 from media_assets m where m.store_id=s.id) as media,
  exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null) as stripe_account,
- exists(select 1 from store_subscriptions ss where ss.store_id=s.id and ss.provider_subscription_id is not null) as stripe_subscription,
+ exists(select 1 from store_subscriptions ss where ss.store_id=s.id and (ss.provider_subscription_id is not null or ss.provider_customer_id is not null)) as stripe_subscription,
  exists(select 1 from domains d where d.store_id=s.id and d.kind='custom') as custom_domain
  from stores s where s.id=${id}::uuid limit 1`;
  const store=rows[0];
@@ -234,7 +234,7 @@ adminRouter.delete("/stores/:id/permanent",async(req,res)=>{
    and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
    and not exists(select 1 from media_assets m where m.store_id=s.id)
    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
-   and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and ss.provider_subscription_id is not null)
+   and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and (ss.provider_subscription_id is not null or ss.provider_customer_id is not null))
    and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom')
    returning s.id,s.slug`;
   if(!rows.length)return res.status(409).json({error:"La tienda cambió o ya no cumple los requisitos del borrado. Actualiza y vuelve a comprobar."});
