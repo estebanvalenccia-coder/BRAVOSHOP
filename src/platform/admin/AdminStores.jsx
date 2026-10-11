@@ -1,6 +1,6 @@
 import React,{useEffect,useState}from"react";
 import{Search,ExternalLink,Settings2,Trash2,RotateCcw,ShieldAlert,ShieldCheck,Archive,RefreshCw,X,ChevronLeft,ChevronRight}from"lucide-react";
-import{queryAdminStores,retireAdminStore,restoreAdminStore,checkAdminStoreDeletion,deleteAdminStorePermanently,getPlatformCleanupPreview,bulkDeletePlatformStores,updateStoreStatus,assignStorePlan}from"../data/superAdminService.js";
+import{queryAdminStores,retireAdminStore,restoreAdminStore,checkAdminStoreDeletion,deleteAdminStorePermanently,listAllAdminStoreIds,batchActionAdminStores,updateStoreStatus,assignStorePlan}from"../data/superAdminService.js";
 import"./AdminStores.css";
 
 const STATUSES={active:"Activa",trial:"Prueba",unpaid:"Impago",suspended:"Suspendida",maintenance:"Mantenimiento",scheduled_for_deletion:"Retirada"};
@@ -22,21 +22,77 @@ export function AdminStores(){
  const[chosen,setChosen]=useState(null),[operation,setOperation]=useState("");
  const[reason,setReason]=useState(""),[typedSlug,setTypedSlug]=useState(""),[typedPhrase,setTypedPhrase]=useState(""),[plan,setPlan]=useState("basic");
  const[check,setCheck]=useState(null),[checking,setChecking]=useState(false),[busy,setBusy]=useState(false),[dialogError,setDialogError]=useState("");
- const[bulkOpen,setBulkOpen]=useState(false),[bulkPreview,setBulkPreview]=useState(null),[bulkPhrase,setBulkPhrase]=useState("");
- const[bulkBusy,setBulkBusy]=useState(false),[bulkChecking,setBulkChecking]=useState(false),[bulkError,setBulkError]=useState("");
- const openBulk=()=>{
-   setNotice("");setBulkOpen(true);setBulkPhrase("");setBulkPreview(null);setBulkError("");setBulkChecking(true);
-   getPlatformCleanupPreview().then(data=>setBulkPreview(data.stores)).catch(e=>setBulkError(e.message)).finally(()=>setBulkChecking(false));
+
+ const[selectedIds,setSelectedIds]=useState([]);
+ const[allSelected,setAllSelected]=useState(false);
+ const[selectingAll,setSelectingAll]=useState(false);
+ const[selectionError,setSelectionError]=useState("");
+ const[batchMode,setBatchMode]=useState("");
+ const[batchPhrase,setBatchPhrase]=useState("");
+ const[batchReason,setBatchReason]=useState("");
+ const[batchBusy,setBatchBusy]=useState(false);
+ const[batchProgress,setBatchProgress]=useState(null);
+ const[batchError,setBatchError]=useState("");
+ const[batchReport,setBatchReport]=useState([]);
+ const allOnPage=items.length>0&&items.every(store=>selectedIds.includes(store.id));
+ const toggleOne=id=>{
+   setSelectedIds(current=>current.includes(id)?current.filter(x=>x!==id):[...current,id]);
+   setAllSelected(false);
  };
- const deleteBulk=async()=>{
-   if(!bulkPreview?.eligible||bulkBusy||bulkPhrase!=="ELIMINAR TODAS LAS TIENDAS")return;
-   setBulkBusy(true);setBulkError("");
+ const togglePage=()=>{
+   if(allOnPage)setSelectedIds(previous=>previous.filter(id=>!items.some(store=>store.id===id)));
+   else setSelectedIds(previous=>[...new Set([...previous,...items.map(store=>store.id)])]);
+   setAllSelected(false);
+ };
+ const toggleAllExisting=async()=>{
+   if(allSelected){setSelectedIds([]);setAllSelected(false);setSelectionError("");return}
+   setSelectingAll(true);setSelectionError("");
    try{
-     const result=await bulkDeletePlatformStores(bulkPreview);
-     setBulkOpen(false);setBulkPhrase("");setBulkPreview(null);setPage(1);setRefresh(x=>x+1);
-     setNotice("Se han eliminado "+result.deleted+" tiendas retiradas aptas. Las demás tiendas y los historiales protegidos se han conservado.");
-   }catch(e){setBulkError(e.message)}
-   finally{setBulkBusy(false)}
+     const data=await listAllAdminStoreIds();
+     if(!Array.isArray(data.stores))throw Error("No se pudo obtener la lista completa de tiendas");
+     setSelectedIds(data.stores.map(store=>store.id));
+     setAllSelected(true);
+   }catch(err){setSelectionError(err.message)}
+   finally{setSelectingAll(false)}
+ };
+ const openSelected=action=>{
+   if(!selectedIds.length||batchBusy)return;
+   setBatchMode(action);setBatchPhrase("");setBatchReason("");setBatchError("");setBatchProgress(null);setBatchReport([]);
+ };
+ const closeSelected=()=>{if(batchBusy)return;setBatchMode("");setBatchError("");setBatchPhrase("");setBatchReason("")};
+ const executeSelected=async()=>{
+   const phrase=batchMode==="retire"?"RETIRAR SELECCIONADAS":"ELIMINAR SELECCIONADAS";
+   if(!selectedIds.length||batchBusy||batchPhrase!==phrase||batchReason.trim().length<10)return;
+   const ids=[...selectedIds],results=[];
+   setBatchBusy(true);setBatchError("");
+   setBatchProgress({done:0,total:ids.length});
+   try{
+     for(let offset=0;offset<ids.length;offset+=15){
+       const group=ids.slice(offset,offset+15);
+       const response=await batchActionAdminStores(group,batchMode,batchReason.trim(),phrase);
+       if(!Array.isArray(response.details))throw Error("No se recibió el resultado del lote");
+       results.push(...response.details);
+       setBatchProgress({done:results.length,total:ids.length});
+     }
+     const removed=results.filter(x=>x.status==="deleted").map(x=>x.id);
+     setSelectedIds(previous=>previous.filter(id=>!removed.includes(id)));
+     setAllSelected(false);
+     setBatchMode("");
+     setBatchPhrase("");
+     const deleted=removed.length;
+     const retired=results.filter(x=>x.status==="retired").length;
+     const blocked=results.filter(x=>x.status==="blocked").length;
+     setBatchReport(results.filter(x=>x.status==="blocked"));
+     setNotice("Procesadas "+results.length+" tiendas: "+retired+" retiradas, "+deleted+" eliminadas y "+blocked+" bloqueadas."+(blocked?" Revisa las causas debajo.":""));
+     setRefresh(x=>x+1);
+   }catch(err){
+     const removed=results.filter(x=>x.status==="deleted").map(x=>x.id);
+     setSelectedIds(previous=>previous.filter(id=>!removed.includes(id)));
+     setAllSelected(false);
+     setBatchReport(results.filter(x=>x.status==="blocked"));
+     setBatchError(err.message+"; se procesaron "+results.length+" de "+ids.length+" tiendas. Revisa el listado antes de reintentar.");
+     setRefresh(x=>x+1);
+   }finally{setBatchBusy(false)}
  };
 
  useEffect(()=>{
@@ -87,7 +143,8 @@ export function AdminStores(){
  return <>
   <header><div><small>CONTROL DE COMERCIOS</small><h1>Tiendas</h1><p className="adminLead">Consulta el escaparate público y administra el acceso, la retirada y la recuperación de tiendas.</p></div>
   <div className="astHeaderActions">
-    <button type="button" className="astBulkDeleteButton" onClick={openBulk}><Trash2 size={16}/> Eliminar todas</button>
+    <label className="astGlobalSelect"><input type="checkbox" checked={allSelected} disabled={selectingAll||loading||batchBusy} onChange={toggleAllExisting}/>{selectingAll?"Seleccionando…":"Seleccionar todas las existentes"}</label>
+    <button type="button" className="astBulkDeleteButton" disabled={!selectedIds.length} onClick={()=>openSelected("purge")}><Trash2 size={16}/> Eliminar seleccionadas</button>
     <button className="ghost" type="button" onClick={()=>setRefresh(x=>x+1)} disabled={loading}><RefreshCw size={16}/> Actualizar</button>
   </div></header>
   <div className="astNotice"><ShieldCheck size={18}/><p><b>Acceso respetuoso con la privacidad.</b> Solo se abre el escaparate público; no se inicia sesión en cuentas ajenas. Retirar no equivale a borrar definitivamente.</p></div>
@@ -95,9 +152,22 @@ export function AdminStores(){
   {error&&<div role="alert" className="errorBox">{error} <button type="button" className="ghost" onClick={()=>setRefresh(x=>x+1)}>Reintentar</button></div>}
   <div className="astTools"><form onSubmit={e=>{e.preventDefault();setQuery(search.trim());setPage(1)}}><Search size={18}/><input aria-label="Buscar tienda" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar tienda o subdominio"/><button type="submit">Buscar</button></form>
   <nav aria-label="Filtrar tiendas">{choices.map(([key,label])=><button key={key} type="button" aria-pressed={filter===key} className={filter===key?"active":""} onClick={()=>{setFilter(key);setPage(1)}}>{label}</button>)}</nav></div>
+  {selectionError&&<div className="errorBox" role="alert">{selectionError}</div>}
+  <div className="astSelectionBar">
+    <label><input type="checkbox" checked={allOnPage} disabled={loading||!items.length||batchBusy} onChange={togglePage}/> Marcar esta página</label>
+    <span><strong>{selectedIds.length.toLocaleString("es-ES")}</strong> tiendas seleccionadas de toda la plataforma</span>
+    <button type="button" disabled={!selectedIds.length||batchBusy} onClick={()=>openSelected("retire")}><Archive size={15}/> Retirar seleccionadas</button>
+    <button type="button" className="astClearSelection" disabled={!selectedIds.length||batchBusy} onClick={()=>{setSelectedIds([]);setAllSelected(false)}}>Limpiar selección</button>
+  </div>
+  {batchReport.length>0&&<div className="astBatchReport" role="status">
+    <strong>{batchReport.length} tiendas no pudieron procesarse:</strong>
+    <ul>{batchReport.slice(0,12).map((item,i)=><li key={item.id+":"+i}>{items.find(x=>x.id===item.id)?.slug||item.id}: {item.reason}</li>)}</ul>
+    {batchReport.length>12&&<p>Y {batchReport.length-12} tiendas adicionales. Puedes revisarlas individualmente desde Gestionar.</p>}
+  </div>}
   <div className="astSummary"><span>{loading?"Cargando…":total.toLocaleString("es-ES")+" tiendas en esta vista"}</span><span>Página {page} de {pageCount}</span></div>
-  <div className="astTableWrap"><table className="astTable"><thead><tr><th>Tienda</th><th>Plan</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+  <div className="astTableWrap"><table className="astTable"><thead><tr><th className="astCheckColumn"><input type="checkbox" aria-label="Seleccionar todas las tiendas existentes" title="Seleccionar todas las tiendas de la plataforma" checked={allSelected} disabled={selectingAll||loading||batchBusy} onChange={toggleAllExisting}/></th><th>Tienda</th><th>Plan</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
    {items.map(store=><tr key={store.id}>
+    <td className="astCheckColumn"><input type="checkbox" aria-label={"Seleccionar tienda "+store.name+" "+store.slug} checked={selectedIds.includes(store.id)} disabled={batchBusy||selectingAll} onChange={()=>toggleOne(store.id)}/></td>
     <td><strong>{store.name}</strong><small>{store.slug}</small></td>
     <td><span>{store.plan_name||"Sin plan"}</span><small>{store.subscription_status||"Sin suscripción"}</small></td>
     <td><span className={"astStatus "+store.status}>{STATUSES[store.status]||store.status}</span></td>
@@ -112,22 +182,27 @@ export function AdminStores(){
   </div>
   <div className="astPager"><button type="button" className="ghost" disabled={loading||page<=1} onClick={()=>setPage(x=>x-1)}><ChevronLeft size={15}/> Anterior</button><span>{page} / {pageCount}</span><button type="button" className="ghost" disabled={loading||page>=pageCount} onClick={()=>setPage(x=>x+1)}>Siguiente <ChevronRight size={15}/></button></div>
 
-  {bulkOpen&&<div className="astOverlay">
-   <section className="astDialog" role="dialog" aria-modal="true" aria-label="Eliminar todas las tiendas aptas">
-    <div className="astDialogHeader"><div><small>BORRADO MASIVO · BRAVOSHOP CONTROL</small><h2>Eliminar todas las tiendas aptas</h2></div><button type="button" aria-label="Cerrar" disabled={bulkBusy} onClick={()=>setBulkOpen(false)}><X size={19}/></button></div>
+
+  {batchMode&&<div className="astOverlay">
+   <section className="astDialog" role="dialog" aria-modal="true" aria-label={batchMode==="retire"?"Retirar tiendas seleccionadas":"Eliminar tiendas seleccionadas"}>
+    <div className="astDialogHeader">
+     <div><small>ACCIÓN MASIVA · BRAVOSHOP CONTROL</small><h2>{batchMode==="retire"?"Retirar tiendas seleccionadas":"Eliminar tiendas seleccionadas"}</h2></div>
+     <button type="button" aria-label="Cerrar" disabled={batchBusy} onClick={closeSelected}><X size={19}/></button>
+    </div>
     <div className="astForm">
-     <p>Esta acción incluye todas las tiendas de la plataforma, no solo la página o filtro actual. Solo se eliminarán definitivamente las tiendas ya retiradas y sin pedidos, clientes, cobros, archivos o historiales protegidos.</p>
-     {bulkChecking?<p role="status">Comprobando las tiendas…</p>:bulkPreview?<div className="astDeletionCheck">
-      <strong>Total: {bulkPreview.total} tiendas · Eliminables: {bulkPreview.eligible} · Protegidas: {bulkPreview.total-bulkPreview.eligible}</strong>
-      <p>Las tiendas activas o con obligaciones pendientes seguirán intactas. Si quieres eliminarlas, primero debes revisarlas y retirarlas individualmente.</p>
-     </div>:null}
-     <label>Escribe exactamente <b>ELIMINAR TODAS LAS TIENDAS</b>
-      <input value={bulkPhrase} onChange={e=>setBulkPhrase(e.target.value)} autoComplete="off" disabled={bulkBusy||bulkChecking} placeholder="ELIMINAR TODAS LAS TIENDAS"/>
+     <p><strong>{selectedIds.length} tiendas seleccionadas.</strong> Esta acción incluye todas las páginas que hayas marcado, incluso las tiendas que no se ven ahora mismo.</p>
+     {batchMode==="retire"?<p>Se intentará retirar las tiendas seleccionadas de forma recuperable. Las tiendas con suscripciones activas, entregas o pagos pendientes seguirán protegidas.</p>:<p>El borrado definitivo solo se aplicará a tiendas previamente retiradas, sin historial de pedidos, clientes, pagos o archivos protegidos. Las demás se omitirán con el motivo correspondiente. Esta acción no se puede deshacer.</p>}
+     {batchBusy&&batchProgress&&<div role="status" className="astDeletionCheck">Procesando {batchProgress.done} de {batchProgress.total} tiendas. Mantén abierta esta ventana.</div>}
+     <label>Motivo obligatorio (mínimo 10 caracteres)
+      <textarea rows={3} maxLength={500} value={batchReason} disabled={batchBusy} onChange={e=>setBatchReason(e.target.value)} placeholder="Motivo administrativo de la selección"/>
      </label>
-     {bulkError&&<p role="alert" className="astError">{bulkError}</p>}
+     <label>Escribe exactamente <b>{batchMode==="retire"?"RETIRAR SELECCIONADAS":"ELIMINAR SELECCIONADAS"}</b>
+      <input value={batchPhrase} disabled={batchBusy} onChange={e=>setBatchPhrase(e.target.value)} autoComplete="off" placeholder={batchMode==="retire"?"RETIRAR SELECCIONADAS":"ELIMINAR SELECCIONADAS"}/>
+     </label>
+     {batchError&&<p className="astError" role="alert">{batchError}</p>}
      <div className="astFormActions">
-      <button type="button" className="ghost" disabled={bulkBusy} onClick={()=>setBulkOpen(false)}>Cancelar</button>
-      <button type="button" className="astCommitDanger" onClick={deleteBulk} disabled={bulkBusy||bulkChecking||!bulkPreview?.eligible||bulkPhrase!=="ELIMINAR TODAS LAS TIENDAS"}>{bulkBusy?"Eliminando…":"Eliminar todas las aptas"}</button>
+      <button type="button" className="ghost" disabled={batchBusy} onClick={closeSelected}>Cancelar</button>
+      <button type="button" className={batchMode==="retire"?"astCommit":"astCommitDanger"} disabled={batchBusy||batchReason.trim().length<10||batchPhrase!==(batchMode==="retire"?"RETIRAR SELECCIONADAS":"ELIMINAR SELECCIONADAS")} onClick={executeSelected}>{batchBusy?"Procesando…":batchMode==="retire"?"Retirar seleccionadas":"Eliminar definitivamente seleccionadas"}</button>
      </div>
     </div>
    </section>
