@@ -40,7 +40,7 @@ insightsRouter.get("/dashboard", requirePermission("analytics.read"), async (req
 		sql`select count(*)::int as value from domains where store_id=${req.storeId}::uuid and status='verified'`,
 		sql`select ss.settings,s.status,s.slug,s.sector from stores s left join store_settings ss on ss.store_id=s.id where s.id=${req.storeId}::uuid limit 1`,
 		sql`select count(*)::int as value from products where store_id=${req.storeId}::uuid and status='active'`,
-		sql`select count(*)::int as value from orders where store_id=${req.storeId}::uuid and coalesce(fulfillment_status,'unfulfilled') in ('unfulfilled','preparing')`,
+		sql`select count(*)::int as value from orders where store_id=${req.storeId}::uuid and payment_status in ('paid','partially_refunded') and status<>'cancelled' and coalesce(fulfillment_status,'unfulfilled') in ('unfulfilled','preparing')`,
         sql`select count(*)::int as value from product_variants v
           join products p on p.id=v.product_id and p.store_id=v.store_id
           left join inventory_levels il on il.variant_id=v.id
