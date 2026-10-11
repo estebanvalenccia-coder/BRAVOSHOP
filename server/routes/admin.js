@@ -242,70 +242,47 @@ adminRouter.get("/users/selection",async(req,res)=>{
   res.set("Cache-Control","no-store").json({users:rows,total:rows.length});
 });
 adminRouter.post("/users/batch-delete",async(req,res)=>{
-  const {ids,confirmation}=req.body||{};
-  const reason=typeof req.body?.reason==="string"?req.body.reason.trim().slice(0,500):"";
-  if(confirmation!=="ELIMINAR USUARIOS SELECCIONADOS")
-    return res.status(400).json({error:"Debes confirmar el borrado escribiendo la frase indicada"});
-  if(reason.length<10)return res.status(400).json({error:"Escribe un motivo de al menos 10 caracteres"});
-  if(!Array.isArray(ids)||ids.length<1||ids.length>15||new Set(ids).size!==ids.length||
-     ids.some(id=>typeof id!=="string"||!UUID.test(id)))
-    return res.status(400).json({error:"Selecciona de 1 a 15 usuarios válidos por lote"});
-  const details=[];
-  for(const id of ids){
-    try{
-      const users=await sql`select id,email,role from app_users where id=${id}::uuid limit 1`;
-      const user=users[0];
-      if(!user){details.push({id,status:"missing",reason:"La cuenta ya no existe"});continue}
-      if(user.role!=="merchant"||user.id===req.user.id){
-        details.push({id,status:"blocked",reason:"Cuenta administrativa protegida"});continue;
-      }
-      const rows=await sql`with removed as (
-        delete from app_users u where u.id=${id}::uuid and u.role='merchant' and u.id<>${req.user.id}::uuid
-          and not exists(select 1 from store_members m where m.user_id=u.id)
-        returning u.id,u.email
-      ), recorded as (
-        insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
-        select ${req.user.id}::uuid,'super_admin','user.deleted','deleted_user',removed.id::text,
-               ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
-               jsonb_build_object('email',removed.email,'bulk',true,'reason',${reason}::text)
-        from removed returning resource_id
-      )
-      select removed.id from removed join recorded on recorded.resource_id=removed.id::text`;
-      details.push(rows.length?{id,status:"deleted"}:{id,status:"blocked",reason:"Tiene tiendas asociadas; elimina las tiendas o revoca su acceso primero"});
-    }catch(error){
-      console.error("Admin batch user deletion failed",{id,code:error.code});
-      details.push(error.code==="23503"
-        ?{id,status:"blocked",reason:"Existen referencias protegidas a la cuenta"}
-        :{id,status:"error",reason:"Error técnico al procesar el usuario"});
-    }
+ const {ids,confirmation}=req.body||{};
+ const unlinkStores=req.body?.unlink_stores===true;
+ const requiredPhrase=unlinkStores?"DESVINCULAR Y ELIMINAR USUARIOS":"ELIMINAR USUARIOS SELECCIONADOS";
+ const reason=typeof req.body?.reason==="string"?req.body.reason.trim().slice(0,500):"";
+ if(confirmation!==requiredPhrase || (unlinkStores&&req.body?.acknowledge_unowned_stores!==true))
+  return res.status(400).json({error:"Confirma explícitamente la eliminación y sus consecuencias para las tiendas"});
+ if(reason.length<10)return res.status(400).json({error:"Escribe un motivo de al menos 10 caracteres"});
+ if(!Array.isArray(ids)||ids.length<1||ids.length>15||new Set(ids).size!==ids.length||
+   ids.some(id=>typeof id!=="string"||!UUID.test(id)))
+  return res.status(400).json({error:"Selecciona de 1 a 15 usuarios válidos por lote"});
+ const details=[];
+ for(const id of ids){
+  try{
+   const rows=await sql`select bravoshop_admin_remove_merchant_account(${id}::uuid,${req.user.id}::uuid,${reason}::text,${unlinkStores}::boolean,true) as outcome`;
+   const result=rows[0]?.outcome||{};
+   details.push({id,status:result.status||"error",reason:result.reason||null,
+    unlinked_memberships:Number(result.unlinked_memberships||0),
+    suspended_stores:Number(result.suspended_stores||0)});
+  }catch(error){
+   console.error("Admin batch user deletion failed",{id,code:error.code});
+   details.push({id,status:error.code==="23503"?"blocked":"error",
+    reason:error.code==="23503"?"Existen referencias protegidas a la cuenta":"Error técnico al procesar el usuario"});
   }
-  res.set("Cache-Control","no-store").json({ok:true,details});
+ }
+ res.set("Cache-Control","no-store").json({ok:true,details});
 });
 adminRouter.delete("/users/:id",async(req,res)=>{
-  const id=req.params.id;
-  const email=typeof req.body?.confirm_email==="string"?req.body.confirm_email.trim():"";
-  const rows=await sql`select id,email,role from app_users where id=${id}::uuid limit 1`;
-  if(!rows.length)return res.status(404).json({error:"Usuario no encontrado"});
-  const user=rows[0];
-  if(user.role!=="merchant"||user.id===req.user.id)return res.status(403).json({error:"Las cuentas administrativas y la cuenta propia no se pueden eliminar"});
-  if(email!==user.email)return res.status(400).json({error:"Confirma el correo exacto del usuario"});
-  const deleted=await sql`
-    with removed as (
-      delete from app_users u where u.id=${id}::uuid and u.email=${email}
-        and u.role='merchant' and u.id<>${req.user.id}::uuid
-        and not exists(select 1 from store_members m where m.user_id=u.id)
-      returning u.id,u.email,u.name
-    ), recorded as (
-      insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
-      select ${req.user.id}::uuid,'super_admin','user.deleted','deleted_user',removed.id::text,
-             ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
-             jsonb_build_object('email',removed.email,'bulk',false)
-      from removed returning resource_id
-    )
-    select removed.id,removed.email from removed join recorded on recorded.resource_id=removed.id::text
-  `;
-  if(!deleted.length)return res.status(409).json({error:"No puedes borrar un usuario que todavía pertenece a alguna tienda. Elimina antes esas tiendas o revoca su acceso."});
-  res.json({ok:true,deleted_user:deleted[0]});
+ const id=req.params.id;
+ const email=typeof req.body?.confirm_email==="string"?req.body.confirm_email.trim():"";
+ const unlinkStores=req.body?.unlink_stores===true;
+ if(unlinkStores && req.body?.acknowledge_unowned_stores!==true)
+  return res.status(400).json({error:"Confirma primero las consecuencias para las tiendas"});
+ const rows=await sql`select id,email,role from app_users where id=${id}::uuid limit 1`;
+ if(!rows.length)return res.status(404).json({error:"Usuario no encontrado"});
+ const user=rows[0];
+ if(user.role!=="merchant"||user.id===req.user.id)return res.status(403).json({error:"Las cuentas administrativas y la cuenta propia no se pueden eliminar"});
+ if(email!==user.email)return res.status(400).json({error:"Confirma el correo exacto del usuario"});
+ const outcome=await sql`select bravoshop_admin_remove_merchant_account(${id}::uuid,${req.user.id}::uuid,'Baja individual confirmada por el administrador'::text,${unlinkStores}::boolean,false) as outcome`;
+ const result=outcome[0]?.outcome;
+ if(result?.status!=="deleted")return res.status(result?.status==="missing"?404:409).json({error:result?.reason||"No se pudo eliminar la cuenta"});
+ res.set("Cache-Control","no-store").json({ok:true,deleted_user:{id,email},unlinked_memberships:result.unlinked_memberships,suspended_stores:result.suspended_stores});
 });
 adminRouter.get("/users",async(_req,res)=>{const rows=await sql`select u.id,u.email,u.name,u.role,u.status,u.created_at,count(distinct sm.store_id)::int as stores from app_users u left join store_members sm on sm.user_id=u.id group by u.id order by u.created_at desc limit 250`;res.json({users:rows})});
 adminRouter.get("/stores",async(req,res)=>{

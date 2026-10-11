@@ -101,7 +101,8 @@ function Users(){
  const[items,setItems]=useState([]),[selected,setSelected]=useState([]),[allSelected,setAllSelected]=useState(false),[selecting,setSelecting]=useState(false);
  const[error,setError]=useState(""),[notice,setNotice]=useState(""),[blocked,setBlocked]=useState([]),[failed,setFailed]=useState([]);
  const[mode,setMode]=useState(""),[target,setTarget]=useState(null),[phrase,setPhrase]=useState(""),[reason,setReason]=useState("");
- const[busy,setBusy]=useState(false),[progress,setProgress]=useState(null),[dialogError,setDialogError]=useState("");
+ const[busy,setBusy]=useState(false),[progress,setProgress]=useState(null),[dialogError,setDialogError]=useState(""),[unlinkStores,setUnlinkStores]=useState(false);
+ const batchPhrase=unlinkStores?"DESVINCULAR Y ELIMINAR USUARIOS":"ELIMINAR USUARIOS SELECCIONADOS;
  const load=()=>listPlatformUsers().then(setItems).catch(e=>setError(e.message));
  useEffect(()=>{load()},[]);
  const visible=items.filter(u=>u.role==="merchant").map(u=>u.id);
@@ -117,14 +118,14 @@ function Users(){
  };
  const open=(which,user=null)=>{
    if(busy)return;
-   setMode(which);setTarget(user);setPhrase("");setReason("");setProgress(null);setDialogError("");
+   setMode(which);setTarget(user);setPhrase("");setReason("");setProgress(null);setDialogError("");setUnlinkStores(false);
  };
  const deleteBatch=async()=>{
-   if(busy||!selected.length||phrase!=="ELIMINAR USUARIOS SELECCIONADOS"||reason.trim().length<10)return;
+   if(busy||!selected.length||phrase!==batchPhrase||reason.trim().length<10)return;
    setBusy(true);setDialogError("");setBlocked([]);setFailed([]);const ids=[...selected],results=[];setProgress({done:0,total:ids.length});
    try{
      for(let i=0;i<ids.length;i+=15){
-       const response=await batchDeletePlatformUsers(ids.slice(i,i+15),reason.trim());
+       const response=await batchDeletePlatformUsers(ids.slice(i,i+15),reason.trim(),unlinkStores);
        if(!Array.isArray(response.details))throw Error("Resultado del lote no disponible");
        results.push(...response.details);
        setProgress({done:results.length,total:ids.length});
@@ -133,7 +134,9 @@ function Users(){
      const failures=results.filter(d=>d.status==="blocked");
      const technicalErrors=results.filter(d=>d.status==="error");
      setSelected(v=>v.filter(id=>!removed.includes(id)));setAllSelected(false);setBlocked(failures);setFailed(technicalErrors);
-     setNotice(removed.length+" usuarios eliminados, "+failures.length+" protegidos o asociados a tiendas, "+technicalErrors.length+" errores técnicos.");
+     const detached=results.filter(d=>d.status==="deleted").reduce((n,d)=>n+Number(d.unlinked_memberships||0),0);
+     const suspended=results.filter(d=>d.status==="deleted").reduce((n,d)=>n+Number(d.suspended_stores||0),0);
+     setNotice(removed.length+" usuarios eliminados, "+detached+" accesos desvinculados, "+suspended+" tiendas suspendidas, "+failures.length+" bloqueados por seguridad y "+technicalErrors.length+" errores técnicos.");
      setMode("");await load();
    }catch(e){
      const removed=results.filter(d=>d.status==="deleted").map(d=>d.id);
@@ -147,8 +150,8 @@ function Users(){
    if(!target||busy||phrase!==target.email||target.role!=="merchant")return;
    setBusy(true);setDialogError("");
    try{
-     await deletePlatformUser(target.id,phrase);
-     setSelected(v=>v.filter(id=>id!==target.id));setNotice("Usuario eliminado.");setMode("");await load();
+     const result=await deletePlatformUser(target.id,phrase,unlinkStores);
+     setSelected(v=>v.filter(id=>id!==target.id));setNotice("Usuario eliminado. "+Number(result.unlinked_memberships||0)+" accesos desvinculados; "+Number(result.suspended_stores||0)+" tiendas suspendidas.");setMode("");await load();
    }catch(e){setDialogError(e.message)}
    finally{setBusy(false)}
  };
@@ -162,7 +165,7 @@ function Users(){
     <strong>{selected.length} seleccionados</strong>
     <button type="button" className="ghost" disabled={!selected.length||busy} onClick={()=>{setSelected([]);setAllSelected(false)}}>Desmarcar</button>
    </div>
-   <p className="adminBatchHint">La selección general incluye todas las cuentas de comerciantes, también las que no aparecen en esta página. Se protegerán siempre los administradores y los usuarios con tiendas vinculadas.</p>
+   <p className="adminBatchHint">La selección general incluye todas las cuentas de comerciantes, también las que no aparecen en esta página. Se protegerán siempre los administradores. Para eliminar comerciantes con tiendas, activa la desvinculación explícita. Las tiendas sin otro propietario se suspenden; las que tengan obligaciones comerciales quedan protegidas.</p>
    {notice&&<div role="status" className="astSuccess">{notice}</div>}
    {error&&<div role="alert" className="errorBox">{error}</div>}
    {blocked.length>0&&<div role="status" className="adminBatchBlocked"><strong>{blocked.length} usuarios protegidos o con tiendas asociadas:</strong><ul>{blocked.slice(0,10).map(d=><li key={d.id}>{d.reason||d.id}</li>)}</ul>{blocked.length>10&&<p>Y {blocked.length-10} más.</p>}</div>}
@@ -172,22 +175,24 @@ function Users(){
     {items.map(u=><div className="productRow userAdminSelectCols" key={u.id}>
      <input type="checkbox" aria-label={"Seleccionar "+(u.name||u.email)} checked={selected.includes(u.id)} disabled={u.role!=="merchant"||busy} onChange={()=>toggleOne(u.id)}/>
      <div><b>{u.name||u.email}</b><small>{u.email} · {u.role}</small></div><span>{u.stores}</span><span>{u.status}</span>
-     <button type="button" className="storeDeleteButton" disabled={u.role!=="merchant"||Number(u.stores)>0||busy} onClick={()=>open("one",u)}><Trash2 size={14}/> Eliminar</button>
+     <button type="button" className="storeDeleteButton" disabled={u.role!=="merchant"||busy} onClick={()=>open("one",u)}><Trash2 size={14}/> Eliminar</button>
     </div>)}
     {!items.length&&!error&&<div className="empty">No se encontraron usuarios.</div>}
    </div>
    {mode&&<div className="storeDeleteBackdrop"><div className="storeDeleteDialog adminBatchDialog" role="dialog" aria-modal="true" aria-label="Confirmar eliminación de usuarios">
     <h2>{mode==="batch"?"Eliminar usuarios seleccionados":"Eliminar usuario"}</h2>
-    <p>{mode==="batch"?`Vas a procesar ${selected.length} cuentas, incluso fuera de esta página. Las cuentas con tiendas vinculadas o administrativas no se eliminarán.`:`Se eliminará la cuenta de ${target?.email}. Esta acción es irreversible.`}</p>
+    <p>{mode==="batch"?"Vas a procesar "+selected.length+" cuentas, incluidas las que no aparecen en esta página.":"Se eliminará definitivamente la cuenta "+target?.email+"."} Las cuentas administrativas siempre están protegidas.</p>
+    <label className="adminBatchUnlinkChoice"><input type="checkbox" checked={unlinkStores} disabled={busy} onChange={e=>{setUnlinkStores(e.target.checked);setPhrase("");}}/> Desvincular también los usuarios que tienen tiendas asociadas</label>
+    {unlinkStores&&<div className="storeDeleteWarning" role="alert">Las tiendas NO se eliminarán. Las tiendas que se queden sin propietario se suspenderán y dejarán de estar publicadas. Las tiendas con pedidos, cobros o suscripciones conectadas que puedan quedarse sin propietario permanecerán protegidas hasta transferir la propiedad o resolver esas obligaciones.</div>}
     {busy&&progress&&<p role="status">Procesados {progress.done} de {progress.total}</p>}
     {dialogError&&<div role="alert" className="errorBox">{dialogError}</div>}
     <form onSubmit={e=>{e.preventDefault();mode==="batch"?deleteBatch():deleteOne()}}>
      {mode==="batch"&&<><label htmlFor="users-batch-reason">Motivo (mínimo 10 caracteres)</label><textarea id="users-batch-reason" rows={3} maxLength={500} value={reason} disabled={busy} onChange={e=>setReason(e.target.value)}/></>}
-     <label htmlFor="users-delete-phrase">Escribe <b>{mode==="batch"?"ELIMINAR USUARIOS SELECCIONADOS":target?.email}</b></label>
+     <label htmlFor="users-delete-phrase">Escribe <b>{mode==="batch"?batchPhrase:target?.email}</b></label>
      <input id="users-delete-phrase" value={phrase} onChange={e=>setPhrase(e.target.value)} disabled={busy} autoComplete="off"/>
      <div className="storeDeleteDialogActions">
       <button type="button" className="ghost" disabled={busy} onClick={()=>setMode("")}>Cancelar</button>
-      <button type="submit" className="storeDeleteConfirm" disabled={busy||phrase!==(mode==="batch"?"ELIMINAR USUARIOS SELECCIONADOS":target?.email)||(mode==="batch"&&reason.trim().length<10)}>{busy?"Procesando…":"Eliminar"}</button>
+      <button type="submit" className="storeDeleteConfirm" disabled={busy||phrase!==(mode==="batch"?batchPhrase:target?.email)||(mode==="batch"&&reason.trim().length<10)}>{busy?"Procesando…":"Eliminar"}</button>
      </div>
     </form>
    </div></div>}
