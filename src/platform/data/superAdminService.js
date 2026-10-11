@@ -6,7 +6,7 @@ export async function retireAdminStore(id,input){return api("/api/admin/stores/"
 export async function restoreAdminStore(id,input){return api("/api/admin/stores/"+encodeURIComponent(id)+"/restore",{method:"POST",body:input})}
 export async function checkAdminStoreDeletion(id){return api("/api/admin/stores/"+encodeURIComponent(id)+"/deletion-check")}
 export async function deleteAdminStorePermanently(id,input){return api("/api/admin/stores/"+encodeURIComponent(id)+"/permanent",{method:"DELETE",body:input})}
-export async function updateStoreStatus(id,status){const data=await api("/api/admin/stores/"+id,{method:"PATCH",body:{status}});return data.store}
+export async function updateStoreStatus(id,status,reason=""){const data=await api("/api/admin/stores/"+id,{method:"PATCH",body:{status,reason}});return data.store}
 export async function permanentlyDeleteStore(id,confirmSlug){return api("/api/admin/stores/"+encodeURIComponent(id),{method:"DELETE",body:{confirm_slug:confirmSlug}})}
 export async function listControls(){const data=await api("/api/admin/controls");return data.controls??[]}
 export async function updateControl(key,enabled,reason=""){const data=await api("/api/admin/controls/"+encodeURIComponent(key),{method:"PUT",body:{enabled,reason}});return data.control}
