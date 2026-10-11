@@ -1,6 +1,7 @@
 import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"../db/neon.js";import{normalizePublicHost,selectPublicStoreHost}from"../security/publicHost.js";import{isPreviewContentRequest}from"../security/publicPreviewRoutes.js";import Stripe from"stripe";import{checkoutLimiter,newsletterLimiter}from"../middleware/rateLimit.js";
 import{requiresCurrencyMinorUnitUpgrade,isValidTwoDecimalStripeAmount,meetsStripeMinimumCharge,merchantStripeAccountReady,checkoutControlEnabled}from"../services/paymentCurrency.js";
 import{validateCheckoutAddress}from"../services/checkoutAddress.js";
+import{existingCheckoutIntentDecision}from"../services/existingCheckoutIntent.js";
 import{checkStoreLegalReadiness}from"../../src/shared/storeLegalReadiness.js";
 import{coreCommerceFeaturesEnabled,publicCheckoutReadiness}from"../../src/shared/commerceReadiness.js";
 export const publicRouter=Router();
@@ -390,7 +391,7 @@ publicRouter.get("/recovery/:token",checkoutLimiter,requirePublicStore,async(req
 });
 publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
  const rows=await sql`
-  select c.id,c.store_id,c.status,c.currency,c.total,c.shipping_rate_id,c.shipping_address,c.shipping_total,
+  select c.id,c.store_id,c.status,c.currency,c.total,c.provider_payment_id,c.shipping_rate_id,c.shipping_address,c.shipping_total,
    s.status as store_status,s.sector,ss.settings as store_settings,pa.provider,pa.status as account_status,
    pa.charges_enabled,pa.payouts_enabled,pa.provider_account_id
   from checkout_sessions c
@@ -478,6 +479,22 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
  if(!claim[0]?.claimed)
   return res.status(409).json({error:"El pago ya se está preparando; inténtalo de nuevo en unos segundos"});
  const stripe=new Stripe(process.env.STRIPE_SECRET_KEY);
+ // The first request may have saved a PaymentIntent since the initial checkout
+ // snapshot. Reload after the atomic claim to avoid creating a second one.
+ const existing=await sql`select provider_payment_id from checkout_sessions
+  where id=${c.id}::uuid and store_id=${c.store_id}::uuid
+   and completed_order_id is null limit 1`;
+ if(!existing.length)return res.status(409).json({error:"El estado del checkout ha cambiado. Comprueba tu pedido"});
+ if(existing[0].provider_payment_id){
+  // Scoped to the connected merchant account; only the original checkout's
+  // amount, currency and metadata are accepted before exposing its secret.
+  const intent=await stripe.paymentIntents.retrieve(existing[0].provider_payment_id,{},{
+   stripeAccount:c.provider_account_id
+  });
+  const decision=existingCheckoutIntentDecision(intent,{...c,provider_payment_id:existing[0].provider_payment_id});
+  if(decision.action==="resume")return res.json({provider:"stripe",client_secret:decision.client_secret,status:decision.status});
+  return res.status(409).json({error:decision.message});
+ }
  let intent;
  try{
   intent=await stripe.paymentIntents.create({
