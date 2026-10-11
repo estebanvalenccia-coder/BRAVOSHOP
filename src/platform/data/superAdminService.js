@@ -1,6 +1,8 @@
 import{api}from"../../lib/api.js";
 export async function getPlatformSummary(){return api("/api/admin/summary")}
 export async function listPlatformStores(q=""){const data=await api("/api/admin/stores"+(q?"?q="+encodeURIComponent(q):""));return data.stores??[]}
+export async function listAllAdminStoreIds(){return api("/api/admin/stores/selection")}
+export async function batchActionAdminStores(ids,action,reason,confirmation){return api("/api/admin/stores/batch-action",{method:"POST",body:{ids,action,reason,confirmation}})}
 export async function queryAdminStores({q="",state="all",page=1}={}){const p=new URLSearchParams({q,state,page:String(page)});return api("/api/admin/stores?"+p)}
 export async function retireAdminStore(id,input){return api("/api/admin/stores/"+encodeURIComponent(id)+"/retire",{method:"POST",body:input})}
 export async function restoreAdminStore(id,input){return api("/api/admin/stores/"+encodeURIComponent(id)+"/restore",{method:"POST",body:input})}

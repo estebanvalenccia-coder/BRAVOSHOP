@@ -283,6 +283,12 @@ adminRouter.get("/stores",async(req,res)=>{
  order by s.created_at desc,s.id desc limit 30 offset ${offset}`;
  res.set("Cache-Control","no-store").json({stores:rows.map(({total,...store})=>store),total:rows[0]?.total??0,page,limit:30});
 });
+adminRouter.get("/stores/selection",async(_req,res)=>{
+  // Full-platform selection is separate from the paginated list. Never truncate silently.
+  const rows=await sql`select id,slug,status from stores order by created_at desc,id desc limit 2001`;
+  if(rows.length>2000)return res.status(413).json({error:"Hay más de 2.000 tiendas. Utiliza filtros y selecciones más pequeñas."});
+  res.set("Cache-Control","no-store").json({stores:rows,total:rows.length});
+});
 adminRouter.patch("/stores/:id",async(req,res)=>{
  const allowed=new Set(["active","trial","suspended","unpaid","maintenance"]);
  const {status}=req.body||{};
@@ -411,6 +417,61 @@ adminRouter.delete("/stores/:id/permanent",async(req,res)=>{
   if(err.code==="23503")return res.status(409).json({error:"La tienda tiene registros relacionados que impiden borrarla. Consérvala retirada y solicita revisión de datos."});
   throw err;
  }
+});
+adminRouter.post("/stores/batch-action",async(req,res)=>{
+  const action=req.body?.action;
+  const expected=action==="retire"?"RETIRAR SELECCIONADAS":action==="purge"?"ELIMINAR SELECCIONADAS":null;
+  if(!expected||req.body?.confirmation!==expected)return res.status(400).json({error:"La confirmación escrita no coincide con la acción solicitada"});
+  const reason=typeof req.body?.reason==="string"?req.body.reason.trim().slice(0,500):"";
+  if(reason.length<10)return res.status(400).json({error:"Indica un motivo administrativo de al menos 10 caracteres"});
+  const ids=req.body?.ids;
+  if(!Array.isArray(ids)||ids.length<1||ids.length>15||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=="string"||!UUID.test(id)))
+    return res.status(400).json({error:"Selecciona entre 1 y 15 tiendas por lote"});
+  const details=[];
+  for(const id of ids){
+    try{
+      if(action==="retire"){
+        const store=await storeOwnerForAdmin(id);
+        if(!store){details.push({id,status:"blocked",reason:"Tienda no encontrada"});continue}
+        if(store.status==="scheduled_for_deletion"){details.push({id,status:"already_retired"});continue}
+        if(!store.owner_id){details.push({id,status:"blocked",reason:retiredMessages.owner_required});continue}
+        const rows=await sql`select bravoshop_retire_store(${store.id}::uuid,${store.owner_id}::uuid,${store.slug}) as result`;
+        const result=rows[0]?.result||{};
+        if(!result.ok){details.push({id,status:"blocked",reason:retiredMessages[result.reason]||"No se puede retirar esta tienda"});continue}
+        await audit(req,"store.admin_retired","store",id,{slug:store.slug,reason,bulk:true});
+        details.push({id,status:"retired"});
+        continue;
+      }
+      const check=await getStorePurgeCheck(id);
+      if(!check){details.push({id,status:"blocked",reason:"Tienda no encontrada"});continue}
+      if(!check.eligible){details.push({id,status:"blocked",reason:check.blockers.join("; ")});continue}
+      const deleted=await sql`delete from stores s
+        where s.id=${id}::uuid and s.slug=${check.slug} and s.status='scheduled_for_deletion'
+        and not exists(select 1 from orders o where o.store_id=s.id)
+        and not exists(select 1 from checkout_sessions c where c.store_id=s.id)
+        and not exists(select 1 from customers c where c.store_id=s.id)
+        and not exists(select 1 from order_refunds r where r.store_id=s.id)
+        and not exists(select 1 from stripe_webhook_events w where w.store_id=s.id)
+        and not exists(select 1 from notification_outbox n where n.store_id=s.id)
+        and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
+        and not exists(select 1 from media_assets m where m.store_id=s.id)
+        and not exists(select 1 from media_upload_intents m where m.store_id=s.id)
+        and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+        and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+           (ss.provider_subscription_id is not null or ss.provider_customer_id is not null or ss.provider_checkout_session_id is not null))
+        and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom')
+        returning s.id`;
+      if(!deleted.length){details.push({id,status:"blocked",reason:"La tienda ya no reúne los requisitos para eliminarse"});continue}
+      try{await audit(req,"store.permanently_deleted","deleted_store",id,{slug:check.slug,reason,bulk:true})}
+      catch(error){console.error("Bulk store deletion audit failed",error)}
+      details.push({id,status:"deleted"});
+    }catch(error){
+      if(error.code==="23503"){details.push({id,status:"blocked",reason:"Hay registros asociados protegidos"});continue}
+      console.error("Store batch action failed",{id,action,error});
+      details.push({id,status:"blocked",reason:"Error del servidor al procesar esta tienda"});
+    }
+  }
+  res.set("Cache-Control","no-store").json({ok:true,details});
 });
 adminRouter.get("/controls",async(_req,res)=>{const rows=await sql`select * from platform_controls order by key`;res.json({controls:rows})});
 adminRouter.put("/controls/:key",async(req,res)=>{const{enabled,reason}=req.body||{};const rows=await sql`insert into platform_controls(key,enabled,reason,updated_at) values(${req.params.key},${Boolean(enabled)},${reason||null},now()) on conflict(key) do update set enabled=excluded.enabled,reason=excluded.reason,updated_at=now() returning *`;await audit(req,"platform.control.updated","platform_control",req.params.key,{enabled:Boolean(enabled),reason:reason||null});res.json({control:rows[0]})});
