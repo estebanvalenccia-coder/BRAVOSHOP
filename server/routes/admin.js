@@ -97,6 +97,41 @@ adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=awai
 adminRouter.get("/users",async(_req,res)=>{const rows=await sql`select u.id,u.email,u.name,u.role,u.status,u.created_at,count(distinct sm.store_id)::int as stores from app_users u left join store_members sm on sm.user_id=u.id group by u.id order by u.created_at desc limit 250`;res.json({users:rows})});
 adminRouter.get("/stores",async(req,res)=>{const q=String(req.query.q||"").trim();const rows=q?await sql`select s.*,o.name as organization_name,ss.status as subscription_status,p.name as plan_name from stores s join organizations o on o.id=s.organization_id left join store_subscriptions ss on ss.store_id=s.id left join plans p on p.id=ss.plan_id where s.name ilike ${"%"+q+"%"} or s.slug ilike ${"%"+q+"%"} order by s.created_at desc limit 200`:await sql`select s.*,o.name as organization_name,ss.status as subscription_status,p.name as plan_name from stores s join organizations o on o.id=s.organization_id left join store_subscriptions ss on ss.store_id=s.id left join plans p on p.id=ss.plan_id order by s.created_at desc limit 200`;res.json({stores:rows})});
 adminRouter.patch("/stores/:id",async(req,res)=>{const allowed=new Set(["active","trial","suspended","unpaid","maintenance","scheduled_for_deletion"]);const{status}=req.body||{};if(!allowed.has(status))return res.status(400).json({error:"Estado no permitido"});const rows=await sql`update stores set status=${status},updated_at=now() where id=${req.params.id}::uuid returning *`;if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});await audit(req,"store.status.updated","store",req.params.id,{status});res.json({store:rows[0]})});
+const STORE_ID_PATTERN=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+adminRouter.delete("/stores/:id",async(req,res)=>{
+  const id=String(req.params.id||"");
+  if(!STORE_ID_PATTERN.test(id))return res.status(400).json({error:"Identificador de tienda no válido"});
+  const rows=await sql`select id,name,slug,status from stores where id=${id}::uuid limit 1`;
+  if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});
+  const store=rows[0];
+  if(req.body?.confirm_slug!==store.slug)return res.status(400).json({error:"Escribe el subdominio exacto para confirmar la eliminación"});
+  if(store.status!=="scheduled_for_deletion")return res.status(409).json({error:"Marca primero la tienda como Pendiente de borrado"});
+  const [orders,connectedAccounts,providerPayments,billedSubscriptions,media]=await Promise.all([
+    sql`select 1 from orders where store_id=${id}::uuid limit 1`,
+    sql`select 1 from store_payment_accounts where store_id=${id}::uuid and provider_account_id is not null limit 1`,
+    sql`select 1 from checkout_sessions where store_id=${id}::uuid and provider_payment_id is not null limit 1`,
+    sql`select 1 from store_subscriptions where store_id=${id}::uuid and provider_subscription_id is not null limit 1`,
+    sql`select 1 from media_assets where store_id=${id}::uuid limit 1`
+  ]);
+  if(orders.length||connectedAccounts.length||providerPayments.length||billedSubscriptions.length)
+    return res.status(409).json({error:"No se puede eliminar definitivamente una tienda con pedidos, pagos o suscripciones conectadas. Revisa antes las obligaciones económicas y de retención."});
+  if(media.length)return res.status(409).json({error:"La tienda tiene archivos multimedia. Elimínalos desde su biblioteca antes del borrado definitivo para evitar archivos huérfanos."});
+  const result=await sql.transaction([
+    sql`delete from inventory_movements where store_id=${id}::uuid`,
+    sql`delete from stores where id=${id}::uuid and slug=${store.slug} and status='scheduled_for_deletion'
+      and not exists(select 1 from orders where store_id=${id}::uuid)
+      and not exists(select 1 from store_payment_accounts where store_id=${id}::uuid and provider_account_id is not null)
+      and not exists(select 1 from checkout_sessions where store_id=${id}::uuid and provider_payment_id is not null)
+      and not exists(select 1 from store_subscriptions where store_id=${id}::uuid and provider_subscription_id is not null)
+      and not exists(select 1 from media_assets where store_id=${id}::uuid)
+      returning id,name,slug`
+  ]);
+  const deleted=result[1]?.[0];
+  if(!deleted)return res.status(409).json({error:"La tienda ha cambiado durante el borrado. Actualiza la lista y vuelve a intentarlo."});
+  try{await audit(req,"store.deleted","deleted_store",id,{name:deleted.name,slug:deleted.slug})}
+  catch(error){console.error("Store deletion audit failed",error)}
+  res.json({ok:true,deleted_store:deleted});
+});
 adminRouter.get("/controls",async(_req,res)=>{const rows=await sql`select * from platform_controls order by key`;res.json({controls:rows})});
 adminRouter.put("/controls/:key",async(req,res)=>{const{enabled,reason}=req.body||{};const rows=await sql`insert into platform_controls(key,enabled,reason,updated_at) values(${req.params.key},${Boolean(enabled)},${reason||null},now()) on conflict(key) do update set enabled=excluded.enabled,reason=excluded.reason,updated_at=now() returning *`;await audit(req,"platform.control.updated","platform_control",req.params.key,{enabled:Boolean(enabled),reason:reason||null});res.json({control:rows[0]})});
 adminRouter.get("/plans",async(_req,res)=>{const rows=await sql`select * from plans order by monthly_price nulls last,name`;res.json({plans:rows})});
