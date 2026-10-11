@@ -205,6 +205,8 @@ publicRouter.get("/products",requirePublicStore,async(req,res)=>{
 publicRouter.get("/categories",requirePublicStore,async(req,res)=>{const rows=await sql`select c.id,c.name,c.slug,c.description,c.position,count(pc.product_id) filter(where p.status='active')::int as product_count,(select m.public_url from product_categories pc2 join products p2 on p2.id=pc2.product_id and p2.store_id=c.store_id and p2.status='active' join product_media pm on pm.product_id=p2.id and pm.store_id=c.store_id join media_assets m on m.id=pm.media_id and m.store_id=c.store_id and m.visibility='public' where pc2.category_id=c.id and pc2.store_id=c.store_id order by pm.is_primary desc,pm.position,p2.published_at desc nulls last limit 1) as image_url from categories c left join product_categories pc on pc.category_id=c.id and pc.store_id=c.store_id left join products p on p.id=pc.product_id and p.store_id=c.store_id where c.store_id=${req.publicStore.id}::uuid and c.active=true group by c.id order by c.position,c.name`;res.json({categories:rows})});
 publicRouter.get("/products/:slug",requirePublicStore,async(req,res)=>{const rows=await sql`select id,name,slug,description,price,product_type,vendor,metadata,seo from products where store_id=${req.publicStore.id}::uuid and slug=${req.params.slug} and status='active' limit 1`;if(!rows.length)return res.status(404).json({error:"Producto no encontrado"});const variants=await sql`select v.id,v.title,coalesce(v.price,p.price) as price,v.compare_at_price,v.options,v.sku,case when coalesce(i.track_inventory,true)=false or coalesce(i.allow_backorder,false) then true else coalesce(i.quantity,0)-coalesce(i.reserved,0)>0 end as in_stock from product_variants v join products p on p.id=v.product_id left join inventory_levels i on i.variant_id=v.id where v.product_id=${rows[0].id}::uuid and v.store_id=${req.publicStore.id}::uuid and p.store_id=${req.publicStore.id}::uuid and v.active=true order by v.created_at`;const media=await sql`select m.public_url,m.alt_text,pm.position,pm.is_primary from product_media pm join media_assets m on m.id=pm.media_id where pm.product_id=${rows[0].id}::uuid and pm.store_id=${req.publicStore.id}::uuid and m.store_id=${req.publicStore.id}::uuid and m.visibility='public' order by pm.is_primary desc,pm.position`;const categories=await sql`select c.id,c.name,c.slug from categories c join product_categories pc on pc.category_id=c.id and pc.store_id=c.store_id where pc.product_id=${rows[0].id}::uuid and pc.store_id=${req.publicStore.id}::uuid and c.store_id=${req.publicStore.id}::uuid and c.active=true order by c.position,c.name`;const related=await sql`select p.id,p.name,p.slug,p.price,p.product_type,p.vendor,(select m.public_url from product_media pm2 join media_assets m on m.id=pm2.media_id where pm2.product_id=p.id and pm2.store_id=p.store_id and m.store_id=p.store_id and m.visibility='public' order by pm2.is_primary desc,pm2.position limit 1) as image_url from products p where p.store_id=${req.publicStore.id}::uuid and p.status='active' and p.id<>${rows[0].id}::uuid and (exists(select 1 from product_categories candidate_pc join product_categories current_pc on current_pc.category_id=candidate_pc.category_id and current_pc.store_id=candidate_pc.store_id where candidate_pc.product_id=p.id and candidate_pc.store_id=${req.publicStore.id}::uuid and current_pc.product_id=${rows[0].id}::uuid and current_pc.store_id=${req.publicStore.id}::uuid) or (${rows[0].product_type||null} is not null and p.product_type=${rows[0].product_type||null})) order by p.created_at desc limit 4`;res.json({product:{...rows[0],variants,media,categories,related}})});
 publicRouter.get("/shipping-rates",requirePublicStore,async(req,res)=>{
+ // Services do not have physical delivery; ignore any zones left from an older sector.
+ if(req.publicStore.sector==="services")return res.json({rates:[]});
  const country=String(req.query.country||"").trim().toUpperCase();
  const subtotal=Number(req.query.subtotal||0);
  if(!/^[A-Z]{2}$/.test(country)||!Number.isFinite(subtotal)||subtotal<0)return res.status(400).json({error:"País o subtotal no válido"});
@@ -271,9 +273,9 @@ publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
 	const address=req.body.shipping_address;
 	const country=String(address.country||"").trim().toUpperCase();
 	const zones=await sql`select count(*)::int as n from shipping_zones where store_id=${req.publicStore.id}::uuid and active=true`;
-	if(zones[0].n>0&&!/^[A-Z]{2}$/.test(country))return res.status(400).json({error:"Indica un país de entrega válido"});
+	if(req.publicStore.sector!=="services"&&zones[0].n>0&&!/^[A-Z]{2}$/.test(country))return res.status(400).json({error:"Indica un país de entrega válido"});
 	let shippingCents=0,shippingRateId=null,shippingRateName=null;
-	if(country){
+	if(country&&req.publicStore.sector!=="services"){
 		const requestedRate=req.body.shipping_rate_id||null;
 		const rates=await sql`
 			select r.id,r.name,r.price,r.free_over
@@ -388,7 +390,7 @@ publicRouter.get("/recovery/:token",checkoutLimiter,requirePublicStore,async(req
 });
 publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
  const rows=await sql`
-  select c.id,c.store_id,c.status,c.currency,c.total,c.shipping_rate_id,c.shipping_address,
+  select c.id,c.store_id,c.status,c.currency,c.total,c.shipping_rate_id,c.shipping_address,c.shipping_total,
    s.status as store_status,s.sector,ss.settings as store_settings,pa.provider,pa.status as account_status,
    pa.charges_enabled,pa.payouts_enabled,pa.provider_account_id
   from checkout_sessions c
@@ -429,6 +431,10 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
   return res.status(503).json({error:"La cuenta Stripe ya no está habilitada para cobros y transferencias"});
  if(!process.env.STRIPE_SECRET_KEY)
   return res.status(503).json({error:"Proveedor de pagos pendiente de configuración"});
+ // A store that switched from physical goods to services must not charge
+ // a shipping fee frozen in a stale checkout session.
+ if(c.sector==="services"&&(Number(c.shipping_total)!==0||c.shipping_rate_id))
+  return res.status(409).json({error:"La tienda ya no requiere envío. Vuelve al carrito para actualizar el total."});
  // A previously quoted shipping rate may have been disabled or its destination
  // removed before the buyer attempts payment. Revalidate before reserving stock
  // or creating a Stripe PaymentIntent (also protects no-charge orders).
