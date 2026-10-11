@@ -2,6 +2,7 @@ import{Router}from"express";import{randomUUID}from"node:crypto";import{sql}from"
 import{requiresCurrencyMinorUnitUpgrade,isValidTwoDecimalStripeAmount,meetsStripeMinimumCharge,merchantStripeAccountReady,checkoutControlEnabled}from"../services/paymentCurrency.js";
 import{validateCheckoutAddress}from"../services/checkoutAddress.js";
 import{checkStoreLegalReadiness}from"../../src/shared/storeLegalReadiness.js";
+import{coreCommerceFeaturesEnabled,publicCheckoutReadiness}from"../../src/shared/commerceReadiness.js";
 export const publicRouter=Router();
 publicRouter.get("/plans",async(_req,res)=>{const rows=await sql`select name,slug,monthly_price,annual_price,currency,trial_days,metadata from plans where status=\'active\' and is_public=true order by coalesce(monthly_price,999999),name`;res.json({plans:rows})});
 publicRouter.param("token",(req,res,next,token)=>{
@@ -39,6 +40,10 @@ const reservedSubdomains=new Set(["www","api","admin","app","support","status","
 const publicSettingKeys=["currency","locale","headline","subheadline","about","store_description","contact_email","contact_phone","seo_title","seo_description","legal_name","legal_email","legal_phone","tax_id","legal_address","privacy_email","privacy_notes","shipping_policy","returns_days","returns_policy"];
 function publicSettings(settings={}){return Object.fromEntries(publicSettingKeys.filter(key=>Object.hasOwn(settings,key)).map(key=>[key,settings[key]]))}
 async function publicFeatureEnabled(storeId,key){const rows=await sql`select 1 from store_features where store_id=${storeId}::uuid and feature_key=${key} and enabled=true limit 1`;return rows.length>0}
+async function publicCommerceFeaturesEnabled(storeId){
+ const rows=await sql`select feature_key,enabled from store_features where store_id=${storeId}::uuid and enabled=true and feature_key in ('catalog','cart','checkout')`;
+ return coreCommerceFeaturesEnabled(rows);
+}
 async function resolveStore(hostInput){
 	const host=normalizePublicHost(hostInput);if(!host)return null;
 	if(host.endsWith(".bravoshop.online")){
@@ -88,8 +93,8 @@ publicRouter.get("/store",requirePublicStore,async(req,res)=>{
  const notificationsReady=Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM);
  const shippingReady=req.publicStore.sector==="services"||Number(shipping[0]?.value||0)>0;
  const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET&&payment?.provider==="stripe"&&payment?.status==="active"&&payment?.provider_account_id&&payment?.charges_enabled&&payment?.payouts_enabled);
- const checkoutReady=Boolean(!req.previewStore&&checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady);
- res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,preview:Boolean(req.previewStore),theme:req.publicStore.theme||{},settings:publicSettings(settings),features,commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady}}});
+ const {checkout_ready:checkoutReady,checkout_features_ready:checkoutFeaturesReady}=publicCheckoutReadiness({preview:req.previewStore,features,checkoutEnabled,legalReady,notificationsReady,shippingReady,paymentsReady});
+ res.json({store:{name:req.publicStore.name,slug:req.publicStore.slug,sector:req.publicStore.sector,preview:Boolean(req.previewStore),theme:req.publicStore.theme||{},settings:publicSettings(settings),features,commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady,checkout_features_ready:checkoutFeaturesReady,checkout_enabled:checkoutEnabled}}});
 });
 publicRouter.post("/newsletter/subscribe",newsletterLimiter,requirePublicStore,async(req,res)=>{
  const email=String(req.body?.email||"").trim().toLowerCase();
@@ -122,7 +127,7 @@ publicRouter.post("/newsletter/unsubscribe/:token",newsletterLimiter,async(req,r
  res.json({ok:true});
 });
 publicRouter.get("/payment-config",requirePublicStore,async(req,res)=>{
- if(!await publicFeatureEnabled(req.publicStore.id,"checkout"))return res.status(503).json({error:"El checkout está desactivado"});
+ if(!await publicCommerceFeaturesEnabled(req.publicStore.id))return res.status(503).json({error:"El checkout está desactivado"});
  const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
  if(!checkoutControlEnabled(controls))return res.status(503).json({error:"Checkout temporalmente desactivado"});
  const rows=await sql`select provider,status,provider_account_id,charges_enabled,payouts_enabled from store_payment_accounts where store_id=${req.publicStore.id}::uuid limit 1`;
@@ -213,7 +218,7 @@ publicRouter.get("/shipping-rates",requirePublicStore,async(req,res)=>{
  res.json({rates:rows.map(r=>({...r,effective_price:r.free_over!==null&&subtotal>=Number(r.free_over)?0:Number(r.price)}))});
 });
 publicRouter.post("/checkout",requirePublicStore,async(req,res)=>{
-	if(!await publicFeatureEnabled(req.publicStore.id,"checkout"))return res.status(503).json({error:"La tienda no tiene el checkout activado"});
+	if(!await publicCommerceFeaturesEnabled(req.publicStore.id))return res.status(503).json({error:"La tienda no tiene el checkout activado"});
 	const controls=await sql`select enabled from platform_controls where key='checkout' limit 1`;
 	if(!checkoutControlEnabled(controls))return res.status(503).json({error:"Checkout temporalmente desactivado"});
 	const settings=req.publicStore.settings||{};
@@ -410,7 +415,7 @@ publicRouter.post("/checkout/:token/payment",checkoutLimiter,async(req,res)=>{
  if(!meetsStripeMinimumCharge(Math.round(Number(c.total)*100),c.currency))return res.status(422).json({error:"Total inferior al mínimo de Stripe. Crea un carrito con otro importe"});
  const billingState=await sql`select bravoshop_refresh_store_billing(${c.store_id}::uuid) as status`;
  c.store_status=billingState[0]?.status||c.store_status;
- if(!await publicFeatureEnabled(c.store_id,"checkout"))
+ if(!await publicCommerceFeaturesEnabled(c.store_id))
   return res.status(503).json({error:"La tienda ha desactivado temporalmente el checkout"});
  if(!["active","trial"].includes(c.store_status))
   return res.status(423).json({error:"Tienda no disponible"});
