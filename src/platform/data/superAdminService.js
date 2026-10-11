@@ -32,6 +32,8 @@ export async function bulkDeletePlatformStores(preview){return api("/api/admin/c
 export async function bulkDeletePlatformUsers(preview){return api("/api/admin/cleanup/users",{method:"POST",body:{confirmation:"ELIMINAR TODOS LOS USUARIOS",expected_total:preview.total,expected_eligible:preview.eligible}})}
 export async function deletePlatformUser(id,email){return api("/api/admin/users/"+encodeURIComponent(id),{method:"DELETE",body:{confirm_email:email}})}
 
+export async function listAllPlatformUserIds(){return api("/api/admin/users/selection")}
+export async function batchDeletePlatformUsers(ids,reason){return api("/api/admin/users/batch-delete",{method:"POST",body:{ids,reason,confirmation:"ELIMINAR USUARIOS SELECCIONADOS"}})}
 export async function listPlatformUsers(){const data=await api("/api/admin/users");return data.users??[]}
 
 export async function listPlatformModules(){const data=await api("/api/admin/modules");return data.modules??[]}
