@@ -95,42 +95,155 @@ adminRouter.get("/launch/readiness",async(req,res)=>{
 });
 adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=await Promise.all([sql`select count(*)::int as n from stores where status in ('active','trial')`,sql`select count(*)::int as n from app_users where status='active'`,sql`select count(*)::int as n from orders where created_at>=date_trunc('day',now())`,sql`select coalesce(sum(p.monthly_price),0)::numeric as n from store_subscriptions s join plans p on p.id=s.plan_id where s.status='active' and s.complimentary_reason is null`]);const controls=await sql`select key,enabled,reason,updated_at from platform_controls order by key`;res.json({metrics:{stores:stores[0].n,users:users[0].n,orders_today:orders[0].n,mrr:Number(mrr[0].n)},controls})});
 adminRouter.get("/users",async(_req,res)=>{const rows=await sql`select u.id,u.email,u.name,u.role,u.status,u.created_at,count(distinct sm.store_id)::int as stores from app_users u left join store_members sm on sm.user_id=u.id group by u.id order by u.created_at desc limit 250`;res.json({users:rows})});
-adminRouter.get("/stores",async(req,res)=>{const q=String(req.query.q||"").trim();const rows=q?await sql`select s.*,o.name as organization_name,ss.status as subscription_status,p.name as plan_name from stores s join organizations o on o.id=s.organization_id left join store_subscriptions ss on ss.store_id=s.id left join plans p on p.id=ss.plan_id where s.name ilike ${"%"+q+"%"} or s.slug ilike ${"%"+q+"%"} order by s.created_at desc limit 200`:await sql`select s.*,o.name as organization_name,ss.status as subscription_status,p.name as plan_name from stores s join organizations o on o.id=s.organization_id left join store_subscriptions ss on ss.store_id=s.id left join plans p on p.id=ss.plan_id order by s.created_at desc limit 200`;res.json({stores:rows})});
-adminRouter.patch("/stores/:id",async(req,res)=>{const allowed=new Set(["active","trial","suspended","unpaid","maintenance","scheduled_for_deletion"]);const{status}=req.body||{};if(!allowed.has(status))return res.status(400).json({error:"Estado no permitido"});const rows=await sql`update stores set status=${status},updated_at=now() where id=${req.params.id}::uuid returning *`;if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});await audit(req,"store.status.updated","store",req.params.id,{status});res.json({store:rows[0]})});
-const STORE_ID_PATTERN=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-adminRouter.delete("/stores/:id",async(req,res)=>{
-  const id=String(req.params.id||"");
-  if(!STORE_ID_PATTERN.test(id))return res.status(400).json({error:"Identificador de tienda no válido"});
-  const rows=await sql`select id,name,slug,status from stores where id=${id}::uuid limit 1`;
-  if(!rows.length)return res.status(404).json({error:"Tienda no encontrada"});
-  const store=rows[0];
-  if(req.body?.confirm_slug!==store.slug)return res.status(400).json({error:"Escribe el subdominio exacto para confirmar la eliminación"});
-  if(store.status!=="scheduled_for_deletion")return res.status(409).json({error:"Marca primero la tienda como Pendiente de borrado"});
-  const [orders,connectedAccounts,providerPayments,billedSubscriptions,media]=await Promise.all([
-    sql`select 1 from orders where store_id=${id}::uuid limit 1`,
-    sql`select 1 from store_payment_accounts where store_id=${id}::uuid and provider_account_id is not null limit 1`,
-    sql`select 1 from checkout_sessions where store_id=${id}::uuid and provider_payment_id is not null limit 1`,
-    sql`select 1 from store_subscriptions where store_id=${id}::uuid and provider_subscription_id is not null limit 1`,
-    sql`select 1 from media_assets where store_id=${id}::uuid limit 1`
-  ]);
-  if(orders.length||connectedAccounts.length||providerPayments.length||billedSubscriptions.length)
-    return res.status(409).json({error:"No se puede eliminar definitivamente una tienda con pedidos, pagos o suscripciones conectadas. Revisa antes las obligaciones económicas y de retención."});
-  if(media.length)return res.status(409).json({error:"La tienda tiene archivos multimedia. Elimínalos desde su biblioteca antes del borrado definitivo para evitar archivos huérfanos."});
-  const result=await sql.transaction([
-    sql`delete from inventory_movements where store_id=${id}::uuid`,
-    sql`delete from stores where id=${id}::uuid and slug=${store.slug} and status='scheduled_for_deletion'
-      and not exists(select 1 from orders where store_id=${id}::uuid)
-      and not exists(select 1 from store_payment_accounts where store_id=${id}::uuid and provider_account_id is not null)
-      and not exists(select 1 from checkout_sessions where store_id=${id}::uuid and provider_payment_id is not null)
-      and not exists(select 1 from store_subscriptions where store_id=${id}::uuid and provider_subscription_id is not null)
-      and not exists(select 1 from media_assets where store_id=${id}::uuid)
-      returning id,name,slug`
-  ]);
-  const deleted=result[1]?.[0];
-  if(!deleted)return res.status(409).json({error:"La tienda ha cambiado durante el borrado. Actualiza la lista y vuelve a intentarlo."});
-  try{await audit(req,"store.deleted","deleted_store",id,{name:deleted.name,slug:deleted.slug})}
-  catch(error){console.error("Store deletion audit failed",error)}
-  res.json({ok:true,deleted_store:deleted});
+adminRouter.get("/stores",async(req,res)=>{
+ const q=String(req.query.q||"").trim().slice(0,100);
+ const state=String(req.query.state||"all");
+ if(!["all","live","suspended","retired"].includes(state))return res.status(400).json({error:"Filtro no válido"});
+ const raw=Number.parseInt(req.query.page,10);
+ const page=Number.isSafeInteger(raw)&&raw>0?Math.min(raw,10000):1;
+ const pattern="%"+q+"%",offset=(page-1)*30;
+ const rows=await sql`select s.id,s.name,s.slug,s.status,s.created_at,s.updated_at,
+ o.name as organization_name,ss.status as subscription_status,p.name as plan_name,
+ count(*) over()::int as total
+ from stores s join organizations o on o.id=s.organization_id
+ left join store_subscriptions ss on ss.store_id=s.id
+ left join plans p on p.id=ss.plan_id
+ where (s.name ilike ${pattern} or s.slug ilike ${pattern})
+ and (${state}='all'
+  or (${state}='retired' and s.status='scheduled_for_deletion')
+  or (${state}='suspended' and s.status in ('suspended','maintenance'))
+  or (${state}='live' and s.status not in ('scheduled_for_deletion','suspended','maintenance')))
+ order by s.created_at desc,s.id desc limit 30 offset ${offset}`;
+ res.set("Cache-Control","no-store").json({stores:rows.map(({total,...store})=>store),total:rows[0]?.total??0,page,limit:30});
+});
+adminRouter.patch("/stores/:id",async(req,res)=>{
+ const allowed=new Set(["active","trial","suspended","unpaid","maintenance"]);
+ const {status}=req.body||{};
+ if(!allowed.has(status))return res.status(400).json({error:"Estado no permitido. Usa la retirada protegida para dar de baja una tienda."});
+ const reason=String(req.body?.reason||"").trim().slice(0,500);
+ if(["suspended","maintenance"].includes(status)&&reason.length<8)
+  return res.status(400).json({error:"Indica el motivo de la restricción (mínimo 8 caracteres)."});
+ const rows=await sql`update stores set status=${status},updated_at=now()
+ where id=${req.params.id}::uuid and status<>'scheduled_for_deletion' returning id,status`;
+ if(!rows.length)return res.status(409).json({error:"Tienda no encontrada o retirada; recupérala antes de modificar su estado."});
+ await audit(req,"store.status.updated","store",req.params.id,{status,reason});
+ res.json({store:rows[0]});
+});
+
+const retiredMessages={
+ not_found:"Tienda no encontrada",
+ owner_required:"Esta tienda no tiene propietario activo; requiere revisión manual",
+ confirmation_mismatch:"El subdominio confirmado no coincide",
+ billing_active:"Existe una suscripción de Stripe vigente: cancélala y respeta el periodo contratado",
+ refunds_pending:"Hay reembolsos pendientes",
+ orders_pending:"Hay pedidos pendientes de entrega o reembolso",
+ payments_pending:"Hay pagos en curso"
+};
+function deletionRequest(req){
+ const slug=req.body?.confirm_slug;
+ const reason=typeof req.body?.reason==="string"?req.body.reason.trim().slice(0,500):"";
+ if(typeof slug!=="string"||slug.length>100||reason.length<10)
+  return{error:"Confirma el subdominio exacto e indica un motivo de al menos 10 caracteres"};
+ return{slug,reason};
+}
+async function storeOwnerForAdmin(id){
+ const rows=await sql`select s.id,s.slug,s.name,s.status,sm.user_id as owner_id
+ from stores s left join lateral (
+  select user_id from store_members
+  where store_id=s.id and role='owner' and status='active'
+  order by created_at limit 1
+ ) sm on true
+ where s.id=${id}::uuid limit 1`;
+ return rows[0]||null;
+}
+// Keep the exact merchant safeguards: active Stripe subscriptions, pending refunds,
+// undelivered paid orders and in-flight payments block administrative retirement too.
+adminRouter.post("/stores/:id/retire",async(req,res)=>{
+ const input=deletionRequest(req);
+ if(input.error)return res.status(400).json({error:input.error});
+ const store=await storeOwnerForAdmin(req.params.id);
+ if(!store)return res.status(404).json({error:"Tienda no encontrada"});
+ if(store.slug!==input.slug)return res.status(400).json({error:"El subdominio no coincide"});
+ if(!store.owner_id)return res.status(409).json({error:retiredMessages.owner_required});
+ const rows=await sql`select bravoshop_retire_store(${store.id}::uuid,${store.owner_id}::uuid,${input.slug}) as result`;
+ const result=rows[0]?.result||{};
+ if(!result.ok)return res.status(409).json({error:retiredMessages[result.reason]||"No se puede retirar la tienda",code:result.reason});
+ await audit(req,"store.admin_retired","store",store.id,{slug:store.slug,reason:input.reason,already_retired:Boolean(result.already_retired)});
+ res.json({ok:true,status:"scheduled_for_deletion",message:"Tienda retirada del público y de la lista activa. Se conserva el historial legal."});
+});
+adminRouter.post("/stores/:id/restore",async(req,res)=>{
+ const input=deletionRequest(req);
+ if(input.error)return res.status(400).json({error:input.error});
+ const store=await storeOwnerForAdmin(req.params.id);
+ if(!store)return res.status(404).json({error:"Tienda no encontrada"});
+ if(store.slug!==input.slug)return res.status(400).json({error:"El subdominio no coincide"});
+ if(!store.owner_id)return res.status(409).json({error:retiredMessages.owner_required});
+ const rows=await sql`select bravoshop_restore_store(${store.id}::uuid,${store.owner_id}::uuid,${input.slug}) as result`;
+ const result=rows[0]?.result||{};
+ if(!result.ok)return res.status(409).json({error:result.reason==="not_retired"?"La tienda ya no está retirada":retiredMessages[result.reason]||"No se puede recuperar",code:result.reason});
+ await audit(req,"store.admin_restored","store",store.id,{slug:store.slug,reason:input.reason,status:"unpaid"});
+ res.json({ok:true,status:"unpaid",message:"Tienda recuperada sin publicarse y sin reactivar pagos."});
+});
+// An irreversible purge is only permitted for a retired store with no
+// commercial/financial/customer history or externally stored media.
+async function getStorePurgeCheck(id){
+ const rows=await sql`select s.id,s.name,s.slug,s.status,
+ exists(select 1 from orders o where o.store_id=s.id) as orders,
+ exists(select 1 from checkout_sessions c where c.store_id=s.id) as checkouts,
+ exists(select 1 from customers c where c.store_id=s.id) as customers,
+ exists(select 1 from order_refunds r where r.store_id=s.id) as refunds,
+ exists(select 1 from stripe_webhook_events w where w.store_id=s.id) as webhooks,
+ exists(select 1 from notification_outbox n where n.store_id=s.id) as notifications,
+ exists(select 1 from newsletter_subscribers n where n.store_id=s.id) as subscribers,
+ exists(select 1 from media_assets m where m.store_id=s.id) as media,
+ exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null) as stripe_account,
+ exists(select 1 from store_subscriptions ss where ss.store_id=s.id and ss.provider_subscription_id is not null) as stripe_subscription,
+ exists(select 1 from domains d where d.store_id=s.id and d.kind='custom') as custom_domain
+ from stores s where s.id=${id}::uuid limit 1`;
+ const store=rows[0];
+ if(!store)return null;
+ const labels={orders:"Pedidos registrados",checkouts:"Sesiones de compra",customers:"Datos de clientes",refunds:"Reembolsos",webhooks:"Eventos de pago",notifications:"Notificaciones",subscribers:"Suscriptores",media:"Archivos almacenados",stripe_account:"Cuenta Stripe conectada",stripe_subscription:"Historial de suscripción Stripe",custom_domain:"Dominio personalizado"};
+ const blockers=Object.entries(labels).filter(([key])=>store[key]===true).map(([,label])=>label);
+ if(store.status!=="scheduled_for_deletion")blockers.unshift("La tienda debe retirarse primero");
+ return{id:store.id,name:store.name,slug:store.slug,status:store.status,eligible:blockers.length===0,blockers};
+}
+adminRouter.get("/stores/:id/deletion-check",async(req,res)=>{
+ const result=await getStorePurgeCheck(req.params.id);
+ if(!result)return res.status(404).json({error:"Tienda no encontrada"});
+ res.set("Cache-Control","no-store").json(result);
+});
+adminRouter.delete("/stores/:id/permanent",async(req,res)=>{
+ const input=deletionRequest(req);
+ if(input.error)return res.status(400).json({error:input.error});
+ if(req.body?.confirmation!=="ELIMINAR DEFINITIVAMENTE")return res.status(400).json({error:"Escribe ELIMINAR DEFINITIVAMENTE"});
+ const check=await getStorePurgeCheck(req.params.id);
+ if(!check)return res.status(404).json({error:"Tienda no encontrada"});
+ if(input.slug!==check.slug)return res.status(400).json({error:"El subdominio no coincide"});
+ if(!check.eligible)return res.status(409).json({error:"Esta tienda tiene datos u obligaciones que impiden el borrado definitivo",blockers:check.blockers});
+ await audit(req,"store.permanent_deletion.requested","store",check.id,{slug:check.slug,reason:input.reason});
+ try{
+  // Recheck every blocker in the DELETE statement to avoid stale preflight results.
+  const rows=await sql`delete from stores s
+   where s.id=${check.id}::uuid and s.slug=${input.slug} and s.status='scheduled_for_deletion'
+   and not exists(select 1 from orders o where o.store_id=s.id)
+   and not exists(select 1 from checkout_sessions c where c.store_id=s.id)
+   and not exists(select 1 from customers c where c.store_id=s.id)
+   and not exists(select 1 from order_refunds r where r.store_id=s.id)
+   and not exists(select 1 from stripe_webhook_events w where w.store_id=s.id)
+   and not exists(select 1 from notification_outbox n where n.store_id=s.id)
+   and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
+   and not exists(select 1 from media_assets m where m.store_id=s.id)
+   and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+   and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and ss.provider_subscription_id is not null)
+   and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom')
+   returning s.id,s.slug`;
+  if(!rows.length)return res.status(409).json({error:"La tienda cambió o ya no cumple los requisitos del borrado. Actualiza y vuelve a comprobar."});
+  await audit(req,"store.permanently_deleted","deleted_store",check.id,{slug:check.slug,reason:input.reason});
+  res.json({ok:true,deleted:true,slug:check.slug});
+ }catch(err){
+  if(err.code==="23503")return res.status(409).json({error:"La tienda tiene registros relacionados que impiden borrarla. Consérvala retirada y solicita revisión de datos."});
+  throw err;
+ }
 });
 adminRouter.get("/controls",async(_req,res)=>{const rows=await sql`select * from platform_controls order by key`;res.json({controls:rows})});
 adminRouter.put("/controls/:key",async(req,res)=>{const{enabled,reason}=req.body||{};const rows=await sql`insert into platform_controls(key,enabled,reason,updated_at) values(${req.params.key},${Boolean(enabled)},${reason||null},now()) on conflict(key) do update set enabled=excluded.enabled,reason=excluded.reason,updated_at=now() returning *`;await audit(req,"platform.control.updated","platform_control",req.params.key,{enabled:Boolean(enabled),reason:reason||null});res.json({control:rows[0]})});
