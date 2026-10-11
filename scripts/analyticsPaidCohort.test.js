@@ -18,6 +18,6 @@ test("30-day products, statuses and recurring customers share paid-only cohort",
  assert.ok(queries[2].includes("group by fulfillment_status"));
  assert.ok(queries[3].includes("group by lower(btrim(customer_email)) having count(*)>1"));
  assert.ok(queries[3].includes("btrim(customer_email)<>''"));
- assert.ok(queries[1].includes("group by oi.title"));
+ assert.ok(queries[1].includes("group by oi.product_id,oi.title"));
  assert.ok(block.includes("repeat_customers:repeatCustomers[0].value"));
 });
