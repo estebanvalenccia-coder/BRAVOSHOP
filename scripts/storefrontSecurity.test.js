@@ -47,7 +47,7 @@ test("storefront checkout requires public commerce readiness",async()=>{
  const source=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
  const publicSource=await readFile(new URL("../server/routes/public.js",import.meta.url),"utf8");
  assert.ok(source.includes('store.commerce?.checkout_ready===true'));
- assert.ok(publicSource.includes('commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady}'));
+ assert.ok(publicSource.includes('commerce:{checkout_ready:checkoutReady,legal_ready:legalReady,shipping_ready:shippingReady,notifications_ready:notificationsReady,payments_ready:paymentsReady,checkout_features_ready:checkoutFeaturesReady,checkout_enabled:checkoutEnabled}'));
  assert.ok(publicSource.includes('process.env.STRIPE_WEBHOOK_SECRET'));
 });
 
@@ -76,7 +76,7 @@ test("public storefront hides checkout when platform checkout control is disable
  const block=source.slice(start,end);
  assert.ok(block.includes("platform_controls where key='checkout'"));
  assert.ok(block.includes("const checkoutEnabled=!controls.length||controls[0].enabled===true"));
- assert.ok(block.includes("const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET"));assert.ok(block.includes("const checkoutReady=Boolean(!req.previewStore&&checkoutEnabled&&legalReady&&notificationsReady&&shippingReady&&paymentsReady)"));
+ assert.ok(block.includes("const paymentsReady=Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET"));assert.ok(block.includes("publicCheckoutReadiness({preview:req.previewStore,features,checkoutEnabled,legalReady,notificationsReady,shippingReady,paymentsReady})"));
 });
 
 test("featured catalog keeps the canonical catalog anchor for legacy themes",async()=>{
@@ -173,7 +173,9 @@ test("draft preview never invents saleable products or unlocks checkout",async()
  const front=await readFile(new URL("../src/platform/storefront/Storefront.jsx",import.meta.url),"utf8");
  const {demoCatalogForTemplate}=await import("../src/platform/config/demoCatalog.js");
  assert.ok(backend.includes("preview:Boolean(req.previewStore)"));
- assert.ok(backend.includes("!req.previewStore&&checkoutEnabled"));
+ assert.ok(backend.includes("preview:req.previewStore,features,checkoutEnabled"));
+  const helper=await readFile(new URL("../src/shared/commerceReadiness.js",import.meta.url),"utf8");
+  assert.ok(helper.includes("!preview&&checkoutFeaturesReady&&checkoutEnabled"));
  assert.ok(front.includes('store.preview===true&&!products.length'));
  assert.ok(front.includes("no pueden comprarse"));
  assert.ok(front.includes("demoCatalogForTemplate(template)"));
