@@ -7,7 +7,94 @@ import React,{useEffect,useState}from"react";import{LayoutDashboard,Store,Users 
 const menu=[[LayoutDashboard,"Resumen","summary"],[Store,"Tiendas","stores"],[UsersIcon,"Usuarios","users"],[CreditCard,"Planes y precios","plans"],[Ticket,"Promociones","promotions"],[Blocks,"Módulos","modules"],[Palette,"Plantillas","templates"],[Palette,"Centro de Frontends","frontends"],[Activity,"Lanzamiento beta","launch"],[Brain,"Accesos y código máster","ai"],[Landmark,"Pagos y Stripe Connect","payments"],[Globe2,"Dominios","domains"],[Activity,"Estado del sistema","health"],[Flag,"Feature Flags","flags"],[ShieldAlert,"Emergencias","controls"],[ScrollText,"Auditoría","audit"],[Settings,"Configuración","settings"]];
 export function SuperAdmin({onExit}){const[section,setSection]=useState("summary");return <div className="adminShell super"><aside><div className="adminLogo">BravoShop <small>CONTROL</small></div><nav>{menu.map(([I,t,k])=><button key={k} className={section===k?"active":""} onClick={()=>setSection(k)}><I size={18}/>{t}</button>)}</nav><button className="asideExit" onClick={onExit}>← Salir del control</button></aside><main className="adminMain"><AdminSection section={section} onNavigate={setSection}/></main></div>}
 function AdminSection({section,onNavigate}){if(section==="summary")return <Summary/>;if(section==="stores")return <Stores/>;if(section==="users")return <Users/>;if(section==="health")return <Health/>;if(section==="launch")return <CommercialLaunch/>;if(section==="templates")return <Templates/>;if(section==="frontends")return <FrontendsStudio/>;if(section==="modules")return <Modules onNavigate={onNavigate}/>;if(section==="domains")return <Domains/>;if(section==="settings")return <PlatformSettings/>;if(section==="plans")return <Plans/>;if(section==="promotions")return <Promotions/>;if(section==="ai")return <AiAccess/>;if(section==="payments")return <Payments/>;if(section==="flags")return <Flags/>;if(section==="controls")return <Controls/>;if(section==="audit")return <Audit/>;return <><header><div><small>BRAVOSHOP CONTROL PLANE</small><h1>{menu.find(x=>x[2]===section)?.[1]||section}</h1></div></header><article className="panel"><h3>Módulo preparado</h3><p>Este área forma parte del Control Plane y se conectará a los datos y permisos correspondientes sin afectar a las tiendas.</p></article></>}
-function Payments(){const[accounts,setAccounts]=useState([]);const[refunds,setRefunds]=useState([]);const[q,setQ]=useState("");const[error,setError]=useState("");const load=()=>Promise.all([listPlatformPaymentAccounts(q),listPlatformRefunds()]).then(([a,r])=>{setAccounts(a);setRefunds(r)}).catch(e=>setError(e.message));useEffect(()=>{load()},[]);const badge=s=>s==="active"?"Activo":s==="onboarding"?"Onboarding":s==="restricted"?"Restringido":"Sin conectar";return <><header><div><small>STRIPE CONNECT</small><h1>Pagos y cuentas conectadas</h1><p className="adminLead">Supervisa el estado de Stripe Connect de cada comerciante y los reembolsos procesados en toda la plataforma.</p></div><div className="adminSearch"><Search size={16}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&load()} placeholder="Buscar tienda…"/></div></header>{error&&<div className="errorBox">{error}</div>}<div className="productTable"><div className="tableHead storeAdminCols"><span>Tienda</span><span>Cuenta Stripe</span><span>Estado</span></div>{accounts.map(a=><div className="productRow storeAdminCols" key={a.store_id}><div><b>{a.store_name}</b><small>{a.slug}</small></div><span>{a.provider_account_id||"Sin conectar"}</span><span className={"statusPill "+(a.status||"not_connected")}>{badge(a.status)}{a.charges_enabled?" · cobros ✓":""}{a.payouts_enabled?" · pagos ✓":""}</span></div>)}{!accounts.length&&!error&&<div className="empty">Todavía no hay tiendas con Stripe Connect configurado.</div>}</div><article className="panel auditList"><h3>Reembolsos recientes</h3>{refunds.map(r=><div className="auditRow" key={r.id}><div><b>{r.store_name} · {r.order_number||r.order_id}</b><small>{r.amount} {r.currency} · {r.status} · {r.reason||"Sin motivo"}</small></div><time>{new Date(r.created_at).toLocaleString()}</time></div>)}{!refunds.length&&<div className="empty">Aún no se han procesado reembolsos.</div>}</article></>}
+function Payments(){
+ const[accounts,setAccounts]=useState([]),[refunds,setRefunds]=useState([]),[q,setQ]=useState("");
+ const[error,setError]=useState(""),[notice,setNotice]=useState("");
+ const[selected,setSelected]=useState([]),[allSelected,setAllSelected]=useState(false),[selecting,setSelecting]=useState(false);
+ const[modal,setModal]=useState(false),[phrase,setPhrase]=useState(""),[reason,setReason]=useState("");
+ const[busy,setBusy]=useState(false),[progress,setProgress]=useState(null),[dialogError,setDialogError]=useState(""),[blocked,setBlocked]=useState([]);
+ const load=()=>Promise.all([listPlatformPaymentAccounts(q),listPlatformRefunds()]).then(([a,r])=>{setAccounts(a);setRefunds(r)}).catch(e=>setError(e.message));
+ useEffect(()=>{load()},[]);
+ const badge=s=>s==="active"?"Activo":s==="onboarding"?"Onboarding":s==="restricted"?"Restringido":"Sin conectar";
+ const visible=accounts.map(a=>a.store_id);
+ const allVisible=visible.length>0&&visible.every(id=>selected.includes(id));
+ const toggleOne=id=>{setSelected(v=>v.includes(id)?v.filter(x=>x!==id):[...v,id]);setAllSelected(false)};
+ const toggleVisible=()=>{setSelected(v=>allVisible?v.filter(id=>!visible.includes(id)):[...new Set([...v,...visible])]);setAllSelected(false)};
+ const toggleAll=async()=>{
+  if(allSelected){setSelected([]);setAllSelected(false);return}
+  setSelecting(true);setError("");
+  try{const data=await listAllAdminStoreIds();setSelected((data.stores||[]).map(x=>x.id));setAllSelected(true)}
+  catch(e){setError(e.message)}
+  finally{setSelecting(false)}
+ };
+ const open=(ids=selected)=>{if(!ids.length)return;setSelected(ids);setModal(true);setPhrase("");setReason("");setDialogError("");setProgress(null)};
+ const execute=async()=>{
+  if(busy||!selected.length||phrase!=="ELIMINAR TIENDAS SELECCIONADAS"||reason.trim().length<10)return;
+  const ids=[...selected],results=[];setBusy(true);setDialogError("");setProgress({done:0,total:ids.length});
+  try{
+   for(let i=0;i<ids.length;i+=15){
+    const response=await batchActionAdminStores(ids.slice(i,i+15),"purge",reason.trim(),"ELIMINAR SELECCIONADAS");
+    if(!Array.isArray(response.details))throw Error("No llegaron los resultados del lote");
+    results.push(...response.details);setProgress({done:results.length,total:ids.length});
+   }
+   const removed=results.filter(x=>x.status==="deleted").map(x=>x.id);
+   const failures=results.filter(x=>x.status==="blocked");
+   setSelected(v=>v.filter(id=>!removed.includes(id)));setAllSelected(false);setBlocked(failures);
+   setNotice(removed.length+" tiendas eliminadas; "+failures.length+" protegidas. Las operaciones de Stripe se conservan.");
+   setModal(false);await load();
+  }catch(e){
+   const removed=results.filter(x=>x.status==="deleted").map(x=>x.id);
+   setSelected(v=>v.filter(id=>!removed.includes(id)));setAllSelected(false);
+   setBlocked(results.filter(x=>x.status==="blocked"));
+   setDialogError(e.message+". Procesadas "+results.length+" de "+ids.length+" tiendas. Revisa antes de repetir.");
+   await load();
+  }finally{setBusy(false)}
+ };
+ return <>
+  <header><div><small>STRIPE CONNECT</small><h1>Pagos y cuentas conectadas</h1><p className="adminLead">Supervisa el estado de Stripe Connect de cada comerciante y los reembolsos procesados en toda la plataforma.</p></div>
+   <div className="adminSearch"><Search size={16}/><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&load()} placeholder="Buscar tienda…"/></div>
+  </header>
+  <div className="adminBatchToolbar">
+   <label><input type="checkbox" checked={allSelected} disabled={selecting||busy} onChange={toggleAll}/>{selecting?"Seleccionando…":"Seleccionar todas las tiendas"}</label>
+   <label><input type="checkbox" checked={allVisible} disabled={!visible.length||busy} onChange={toggleVisible}/> Marcar visibles</label>
+   <strong>{selected.length} seleccionadas</strong>
+   <button type="button" className="storeDeleteButton" disabled={!selected.length||busy} onClick={()=>open()}><Trash2 size={15}/> Eliminar seleccionadas</button>
+   <button type="button" className="ghost" disabled={!selected.length||busy} onClick={()=>{setSelected([]);setAllSelected(false)}}>Desmarcar</button>
+  </div>
+  <p className="adminBatchHint">Las filas «Sin conectar» representan tiendas, no cuentas Stripe. Esta acción elimina la tienda solo si ya está retirada y no tiene registros económicos protegidos. No desconecta Stripe.</p>
+  {error&&<div className="errorBox" role="alert">{error}</div>}
+  {notice&&<div className="astSuccess" role="status">{notice}</div>}
+  {blocked.length>0&&<div className="adminBatchBlocked" role="status"><strong>{blocked.length} tiendas no eliminadas:</strong><ul>{blocked.slice(0,10).map(x=><li key={x.id}>{x.reason||x.id}</li>)}</ul>{blocked.length>10&&<p>Y {blocked.length-10} más.</p>}</div>}
+  <div className="productTable storeAdminTable">
+   <div className="tableHead paymentAdminSelectCols"><span>☑</span><span>Tienda</span><span>Cuenta Stripe</span><span>Estado</span><span>Acciones</span></div>
+   {accounts.map(a=><div className="productRow paymentAdminSelectCols" key={a.store_id}>
+    <input type="checkbox" aria-label={"Seleccionar "+a.store_name+" "+a.slug} checked={selected.includes(a.store_id)} disabled={busy} onChange={()=>toggleOne(a.store_id)}/>
+    <div><b>{a.store_name}</b><small>{a.slug}</small></div>
+    <span>{a.provider_account_id||"Sin conectar"}</span>
+    <span className={"statusPill "+(a.status||"not_connected")}>{badge(a.status)}{a.charges_enabled?" · cobros ✓":""}{a.payouts_enabled?" · pagos ✓":""}</span>
+    <button type="button" className="storeDeleteButton" disabled={busy} onClick={()=>open([a.store_id])}><Trash2 size={14}/> Eliminar tienda</button>
+   </div>)}
+   {!accounts.length&&!error&&<div className="empty">No hay tiendas en esta vista.</div>}
+  </div>
+  <article className="panel auditList"><h3>Reembolsos recientes</h3>{refunds.map(r=><div className="auditRow" key={r.id}><div><b>{r.store_name} · {r.order_number||r.order_id}</b><small>{r.amount} {r.currency} · {r.status} · {r.reason||"Sin motivo"}</small></div><time>{new Date(r.created_at).toLocaleString()}</time></div>)}{!refunds.length&&<div className="empty">Aún no se han procesado reembolsos.</div>}</article>
+  {modal&&<div className="storeDeleteBackdrop"><div className="storeDeleteDialog adminBatchDialog" role="dialog" aria-modal="true" aria-label="Eliminar tiendas seleccionadas">
+   <h2>Eliminar tiendas seleccionadas</h2>
+   <p>Has seleccionado <strong>{selected.length}</strong> tiendas. Se intentará eliminar únicamente las ya retiradas y sin pedidos, pagos, clientes ni históricos protegidos. <b>No borra cuentas Stripe.</b></p>
+   {busy&&progress&&<p role="status">Procesadas {progress.done} de {progress.total}</p>}
+   {dialogError&&<div className="errorBox" role="alert">{dialogError}</div>}
+   <form onSubmit={e=>{e.preventDefault();execute()}}>
+    <label htmlFor="payment-delete-reason">Motivo (mínimo 10 caracteres)</label>
+    <textarea id="payment-delete-reason" rows={3} maxLength={500} value={reason} onChange={e=>setReason(e.target.value)} disabled={busy}/>
+    <label htmlFor="payment-delete-phrase">Escribe <b>ELIMINAR TIENDAS SELECCIONADAS</b></label>
+    <input id="payment-delete-phrase" value={phrase} onChange={e=>setPhrase(e.target.value)} disabled={busy} autoComplete="off"/>
+    <div className="storeDeleteDialogActions">
+     <button type="button" className="ghost" disabled={busy} onClick={()=>setModal(false)}>Cancelar</button>
+     <button type="submit" className="storeDeleteConfirm" disabled={busy||reason.trim().length<10||phrase!=="ELIMINAR TIENDAS SELECCIONADAS"}>{busy?"Procesando…":"Eliminar seleccionadas"}</button>
+    </div>
+   </form>
+  </div></div>}
+ </>;
+}
 function Summary(){const[data,setData]=useState(null);const[health,setHealth]=useState(null);const[error,setError]=useState("");useEffect(()=>{getPlatformSummary().then(setData).catch(e=>setError(e.message));getPlatformHealth().then(setHealth).catch(e=>setError(e.message))},[]);const m=data?.metrics||{};const i=health?.integrations||{};const states=[["API",health?.api==="online"],["Neon PostgreSQL",health?.database==="online"],["Stripe y Connect",Boolean(i.stripe?.configured)],["Multimedia",Boolean(i.media?.configured)],["Emails",Boolean(i.email?.configured)],["Dominios automáticos",Boolean(i.custom_domains?.configured)]];return <><header><div><small>BRAVOSHOP CONTROL PLANE</small><h1>Resumen de plataforma</h1><p className="adminLead">Supervisa tiendas, clientes, ingresos y operaciones desde un único centro de control.</p></div><div className="livePill"><span></span> Plataforma online</div></header>{error&&<div className="errorBox">{error}</div>}<section className="metricGrid"><Metric l="Tiendas activas" v={m.stores??0}/><Metric l="Usuarios" v={m.users??0}/><Metric l="Pedidos hoy" v={m.orders_today??0}/><Metric l="MRR" v={"€"+Number(m.mrr||0).toFixed(2)}/></section><section className="adminGrid"><article className="panel wide adminWelcome"><div><span className="eyebrow">OPERACIONES</span><h3>Todo BravoShop bajo control.</h3><p>Los datos de este panel provienen de la plataforma y se actualizan desde el backend.</p></div><div className="adminPulse"><b>{m.stores??0}</b><small>tiendas gestionadas</small></div></article><article className="panel wide"><h3>Salud del núcleo</h3>{states.map(([name,ok])=><div className="health" key={name}><span className={"dot "+(ok?"":"pending")}></span><b>{name}</b><em>{!health?"Comprobando":ok?"Preparado":"Pendiente"}</em></div>)}</article><article className="panel"><h3>Controles globales</h3>{(data?.controls||[]).slice(0,6).map(c=><div className="health" key={c.key}><b>{c.key.replaceAll("_"," ")}</b><em>{c.enabled?"Activo":"Desactivado"}</em></div>)}</article></section></>}
 function Stores(){return <AdminStores/>}
 function Users(){
