@@ -93,6 +93,105 @@ adminRouter.get("/launch/readiness",async(req,res)=>{
    "La lista contiene hasta 120 tiendas candidatas. Puedes buscar cualquier tienda por nombre, subdominio o ID; las métricas generales incluyen todas."]
  });
 });
+adminRouter.get("/cleanup/preview",async(req,res)=>{
+  const stores=await sql`select count(*)::int as total,
+    count(*) filter(where not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id))::int as eligible,
+    count(*) filter(where s.status='active' and not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id))::int as active_eligible
+    from stores s`;
+  const users=await sql`select count(*)::int as total,
+    count(*) filter(where u.role='merchant' and u.id<>${req.user.id}::uuid
+    and not exists(select 1 from store_members sm where sm.user_id=u.id))::int as eligible
+    from app_users u`;
+  res.json({stores:stores[0],users:users[0]});
+});
+adminRouter.post("/cleanup/stores",async(req,res)=>{
+  if(req.body?.confirmation!=="ELIMINAR TODAS LAS TIENDAS"||req.body?.acknowledge_active!==true)
+    return res.status(400).json({error:"Confirmación de borrado masivo no válida"});
+  const expectedTotal=req.body?.expected_total,expectedEligible=req.body?.expected_eligible;
+  if(!Number.isInteger(expectedTotal)||!Number.isInteger(expectedEligible)||expectedTotal<0||expectedEligible<1)
+    return res.status(400).json({error:"Actualiza la vista previa antes del borrado"});
+  const before=await sql`select count(*)::int as total,
+    count(*) filter(where not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id))::int as eligible
+    from stores s`;
+  if(before[0].total!==expectedTotal||before[0].eligible!==expectedEligible)
+    return res.status(409).json({error:"El listado de tiendas ha cambiado. Vuelve a revisar las cantidades antes de confirmar."});
+  const results=await sql.transaction([
+    sql`select s.id from stores s where not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id) for update`,
+    sql`delete from inventory_movements im where im.store_id in (select s.id from stores s where not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id))`,
+    sql`with removed as (
+      delete from stores s where not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id)
+      returning s.id,s.name,s.slug
+    ), recorded as (
+      insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
+      select ${req.user.id}::uuid,'super_admin','store.deleted','deleted_store',removed.id::text,
+             ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
+             jsonb_build_object('name',removed.name,'slug',removed.slug,'bulk',true)
+      from removed returning resource_id
+    )
+    select count(*)::int as deleted from recorded`
+  ]);
+  res.json({ok:true,deleted:results[2][0].deleted,eligible_at_preview:expectedEligible});
+});
+adminRouter.post("/cleanup/users",async(req,res)=>{
+  if(req.body?.confirmation!=="ELIMINAR TODOS LOS USUARIOS")
+    return res.status(400).json({error:"Confirmación de borrado masivo no válida"});
+  const expectedTotal=req.body?.expected_total,expectedEligible=req.body?.expected_eligible;
+  if(!Number.isInteger(expectedTotal)||!Number.isInteger(expectedEligible)||expectedTotal<0||expectedEligible<1)
+    return res.status(400).json({error:"Actualiza la vista previa antes del borrado"});
+  const before=await sql`select count(*)::int as total,
+    count(*) filter(where u.role='merchant' and u.id<>${req.user.id}::uuid
+    and not exists(select 1 from store_members sm where sm.user_id=u.id))::int as eligible from app_users u`;
+  if(before[0].total!==expectedTotal||before[0].eligible!==expectedEligible)
+    return res.status(409).json({error:"El listado de usuarios ha cambiado. Vuelve a revisar las cantidades antes de confirmar."});
+  const result=await sql`with removed as (
+    delete from app_users u where u.role='merchant' and u.id<>${req.user.id}::uuid
+    and not exists(select 1 from store_members sm where sm.user_id=u.id) returning u.id,u.email
+  ), recorded as (
+    insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
+    select ${req.user.id}::uuid,'super_admin','user.deleted','deleted_user',removed.id::text,
+           ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
+           jsonb_build_object('email',removed.email,'bulk',true)
+    from removed returning resource_id
+  )
+  select count(*)::int as deleted from recorded`;
+  res.json({ok:true,deleted:result[0].deleted,eligible_at_preview:expectedEligible});
+});
 adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=await Promise.all([sql`select count(*)::int as n from stores where status in ('active','trial')`,sql`select count(*)::int as n from app_users where status='active'`,sql`select count(*)::int as n from orders where created_at>=date_trunc('day',now())`,sql`select coalesce(sum(p.monthly_price),0)::numeric as n from store_subscriptions s join plans p on p.id=s.plan_id where s.status='active' and s.complimentary_reason is null`]);const controls=await sql`select key,enabled,reason,updated_at from platform_controls order by key`;res.json({metrics:{stores:stores[0].n,users:users[0].n,orders_today:orders[0].n,mrr:Number(mrr[0].n)},controls})});
 adminRouter.delete("/users/:id",async(req,res)=>{
   const id=req.params.id;
