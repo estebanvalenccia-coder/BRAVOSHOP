@@ -102,7 +102,7 @@ function Users(){
  const[error,setError]=useState(""),[notice,setNotice]=useState(""),[blocked,setBlocked]=useState([]),[failed,setFailed]=useState([]);
  const[mode,setMode]=useState(""),[target,setTarget]=useState(null),[phrase,setPhrase]=useState(""),[reason,setReason]=useState("");
  const[busy,setBusy]=useState(false),[progress,setProgress]=useState(null),[dialogError,setDialogError]=useState(""),[unlinkStores,setUnlinkStores]=useState(false);
- const batchPhrase=unlinkStores?"DESVINCULAR Y ELIMINAR USUARIOS":"ELIMINAR USUARIOS SELECCIONADOS;
+ const batchPhrase=unlinkStores?"DESVINCULAR Y ELIMINAR USUARIOS":"ELIMINAR USUARIOS SELECCIONADOS";
  const load=()=>listPlatformUsers().then(setItems).catch(e=>setError(e.message));
  useEffect(()=>{load()},[]);
  const visible=items.filter(u=>u.role==="merchant").map(u=>u.id);
