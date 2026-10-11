@@ -112,7 +112,7 @@ adminRouter.get("/stores",async(req,res)=>{
  and (${state}='all'
   or (${state}='retired' and s.status='scheduled_for_deletion')
   or (${state}='suspended' and s.status in ('suspended','maintenance'))
-  or (${state}='live' and s.status not in ('scheduled_for_deletion','suspended','maintenance')))
+  or (${state}='live' and s.status<>'scheduled_for_deletion'))
  order by s.created_at desc,s.id desc limit 30 offset ${offset}`;
  res.set("Cache-Control","no-store").json({stores:rows.map(({total,...store})=>store),total:rows[0]?.total??0,page,limit:30});
 });
