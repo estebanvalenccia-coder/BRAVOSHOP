@@ -220,6 +220,29 @@ adminRouter.get("/health",async(_req,res)=>{
 });
 adminRouter.get("/templates",async(_req,res)=>{const rows=await sql`select coalesce(theme->>'template','default') as template,count(*)::int as stores from store_theme group by coalesce(theme->>'template','default') order by stores desc,template`;res.json({templates:rows})});
 adminRouter.get("/modules",async(_req,res)=>{const rows=await sql`select feature_key,count(*) filter(where enabled=true)::int as enabled_stores,count(*)::int as configured_stores from store_features group by feature_key order by feature_key`;res.json({modules:rows})});
+adminRouter.get("/modules/:key/stores",async(req,res)=>{
+ const feature=String(req.params.key||"").trim();
+ if(!/^[a-z0-9_]{1,64}$/.test(feature))return res.status(400).json({error:"Módulo no válido"});
+ const state=String(req.query.state||"all");
+ if(!["all","enabled","disabled","unconfigured"].includes(state))return res.status(400).json({error:"Filtro no válido"});
+ const q=String(req.query.q||"").trim().slice(0,100);
+ const page=Math.min(10000,Math.max(1,Number.parseInt(req.query.page,10)||1));
+ const offset=(page-1)*20;
+ const search="%"+q+"%";
+ const rows=await sql`select s.id,s.name,s.slug,s.status,
+  (f.feature_key is not null) as configured,
+  coalesce(f.enabled,false) as enabled,
+  count(*) over()::int as total
+  from stores s
+  left join store_features f on f.store_id=s.id and f.feature_key=${feature}
+  where (s.name ilike ${search} or s.slug ilike ${search})
+  and (${state}='all'
+     or (${state}='enabled' and f.enabled=true)
+     or (${state}='disabled' and f.enabled=false)
+     or (${state}='unconfigured' and f.feature_key is null))
+  order by s.name asc,s.id asc limit 20 offset ${offset}`;
+ res.json({stores:rows.map(({total,...store})=>store),total:rows[0]?.total??0,page,limit:20});
+});
 adminRouter.get("/domains",async(_req,res)=>{const rows=await sql`select d.id,d.hostname,d.kind,d.status,d.verified_at,s.id as store_id,s.name as store_name,s.slug from domains d join stores s on s.id=d.store_id order by d.hostname limit 300`;res.json({domains:rows})});
 adminRouter.get("/settings",async(_req,res)=>{const plans=await sql`select count(*)::int as n from plans where status='active' and is_public=true`;const stores=await sql`select count(*)::int as n from stores`;res.json({settings:{commercial_model:"paid_only",public_plans:plans[0].n,stores:stores[0].n,ai_policy:"premium_or_owner_grant"}})});
 adminRouter.get("/audit",async(_req,res)=>{const rows=await sql`select a.*,u.email as actor_email from audit_log a left join app_users u on u.id=a.actor_user_id order by a.created_at desc limit 200`;res.json({audit:rows})});

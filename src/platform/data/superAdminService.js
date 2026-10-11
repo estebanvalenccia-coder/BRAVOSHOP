@@ -21,6 +21,8 @@ export async function setAccessCodeActive(id,active){const data=await api("/api/
 export async function listPlatformUsers(){const data=await api("/api/admin/users");return data.users??[]}
 
 export async function listPlatformModules(){const data=await api("/api/admin/modules");return data.modules??[]}
+export async function listPlatformModuleStores(key,{q="",state="all",page=1}={}){const params=new URLSearchParams({q,state,page:String(page)});return api("/api/admin/modules/"+encodeURIComponent(key)+"/stores?"+params)}
+
 export async function listPlatformDomains(){const data=await api("/api/admin/domains");return data.domains??[]}
 export async function getPlatformSettings(){const data=await api("/api/admin/settings");return data.settings??{}}
 
