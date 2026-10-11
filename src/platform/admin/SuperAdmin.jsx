@@ -13,7 +13,7 @@ function Stores(){
   const[busy,setBusy]=useState(false);
   const load=()=>listPlatformStores(q).then(setItems).catch(e=>setError(e.message));
   useEffect(()=>{load()},[]);
-  const closeDelete=()=>{if(busy)return;setDeleting(null);setConfirmation("")};
+  const closeDelete=()=>{if(busy)return;setDeleting(null);setConfirmation("");setError("")};
   const confirmDelete=async()=>{
     if(!deleting||busy||deleting.status!=="scheduled_for_deletion"||confirmation!==deleting.slug)return;
     setBusy(true);setError("");
@@ -46,6 +46,7 @@ function Stores(){
         <p id="delete-store-warning">Vas a eliminar <strong>{deleting.name}</strong> ({deleting.slug}). Esta operación no se puede deshacer.</p>
         {deleting.status!=="scheduled_for_deletion"&&<p className="storeDeleteWarning">Antes de eliminarla, cambia su estado a «Pendiente de borrado» en la tabla.</p>}
         <p>Por seguridad no se eliminarán tiendas con pedidos, pagos conectados o archivos multimedia pendientes de limpieza.</p>
+        {error&&<div className="errorBox" role="alert">{error}</div>}
         <form onSubmit={e=>{e.preventDefault();confirmDelete()}}>
           <label htmlFor="store-delete-slug">Escribe <strong>{deleting.slug}</strong> para confirmar</label>
           <input id="store-delete-slug" autoComplete="off" value={confirmation} onChange={e=>setConfirmation(e.target.value)} placeholder={deleting.slug} disabled={busy}/>
