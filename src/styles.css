@@ -340,3 +340,24 @@ body{background:#f7f4ed;color:#17221c}
 @media(max-width:480px){
  .shopV2 .shopCatalogV2[data-bravo-grid-columns] .storeGrid{grid-template-columns:1fr}
 }
+
+/* Eliminación segura de tiendas desde BravoShop Control */
+.storeAdminTable{overflow-x:auto}
+.storeAdminColsWithActions{grid-template-columns:minmax(170px,1fr) 160px 190px 120px;min-width:690px}
+.storeAdminColsWithActions select{width:100%;min-width:0;padding:9px 10px;border:1px solid #d7d9d3;border-radius:10px;background:#fff;color:#26342c}
+.storeDeleteButton{display:inline-flex;justify-content:center;align-items:center;gap:6px;padding:10px 9px;background:#fff5f3;border:1px solid #ecc1bb;color:#9b2e25;border-radius:9px;font-size:12px;font-weight:700}
+.storeDeleteButton:hover{background:#ffe6e1}
+.storeDeleteBackdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(12,28,20,.65)}
+.storeDeleteDialog{width:min(480px,100%);max-height:90vh;overflow-y:auto;background:#fff;border-radius:18px;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.22);color:#26342c}
+.storeDeleteDialog h2{font-family:Georgia,serif;font-size:26px;margin:0 0 16px}
+.storeDeleteDialog p{font-size:14px;line-height:1.55;color:#555f58}
+.storeDeleteDialog .storeDeleteWarning{background:#fff3eb;color:#89420b;padding:12px;border-radius:8px}
+.storeDeleteDialog form{display:grid;gap:12px;margin-top:22px}
+.storeDeleteDialog label{font-size:13px;font-weight:600}
+.storeDeleteDialog input{font:inherit;width:100%;padding:12px;border:1px solid #c6cbc5;border-radius:9px}
+.storeDeleteDialog input:focus{outline:2px solid #315d43;outline-offset:2px}
+.storeDeleteDialogActions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px;flex-wrap:wrap}
+.storeDeleteConfirm{background:#a33128;color:#fff;border-radius:9px}
+.storeDeleteConfirm:hover:not(:disabled){background:#83251e}
+.storeDeleteDialogActions button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:700px){.storeAdminColsWithActions{grid-template-columns:minmax(170px,1fr) 130px 155px 110px;min-width:650px}.storeDeleteDialog{padding:22px}.storeDeleteDialogActions button{flex:1;justify-content:center}}
