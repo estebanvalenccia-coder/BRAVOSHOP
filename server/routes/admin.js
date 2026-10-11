@@ -95,20 +95,34 @@ adminRouter.get("/launch/readiness",async(req,res)=>{
 });
 adminRouter.get("/cleanup/preview",async(req,res)=>{
   const stores=await sql`select count(*)::int as total,
-    count(*) filter(where not exists(select 1 from orders o where o.store_id=s.id)
+    count(*) filter(where s.status='scheduled_for_deletion'
+    and not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from checkout_sessions c where c.store_id=s.id)
+    and not exists(select 1 from customers c where c.store_id=s.id)
+    and not exists(select 1 from order_refunds r where r.store_id=s.id)
+    and not exists(select 1 from stripe_webhook_events w where w.store_id=s.id)
+    and not exists(select 1 from notification_outbox n where n.store_id=s.id)
+    and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
+    and not exists(select 1 from media_assets m where m.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id)
     and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
-    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
     and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
       (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
-    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
-    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id))::int as eligible,
-    count(*) filter(where s.status='active' and not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom'))::int as eligible,
+    count(*) filter(where s.status='active' and s.status='scheduled_for_deletion'
+    and not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from checkout_sessions c where c.store_id=s.id)
+    and not exists(select 1 from customers c where c.store_id=s.id)
+    and not exists(select 1 from order_refunds r where r.store_id=s.id)
+    and not exists(select 1 from stripe_webhook_events w where w.store_id=s.id)
+    and not exists(select 1 from notification_outbox n where n.store_id=s.id)
+    and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
+    and not exists(select 1 from media_assets m where m.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id)
     and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
-    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
     and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
       (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
-    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
-    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id))::int as active_eligible
+    and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom'))::int as active_eligible
     from stores s`;
   const users=await sql`select count(*)::int as total,
     count(*) filter(where u.role='merchant' and u.id<>${req.user.id}::uuid
@@ -117,45 +131,73 @@ adminRouter.get("/cleanup/preview",async(req,res)=>{
   res.json({stores:stores[0],users:users[0]});
 });
 adminRouter.post("/cleanup/stores",async(req,res)=>{
-  if(req.body?.confirmation!=="ELIMINAR TODAS LAS TIENDAS"||req.body?.acknowledge_active!==true)
+  if(req.body?.confirmation!=="ELIMINAR TODAS LAS TIENDAS"||req.body?.acknowledge_retired!==true)
     return res.status(400).json({error:"Confirmación de borrado masivo no válida"});
   const expectedTotal=req.body?.expected_total,expectedEligible=req.body?.expected_eligible;
   if(!Number.isInteger(expectedTotal)||!Number.isInteger(expectedEligible)||expectedTotal<0||expectedEligible<1)
     return res.status(400).json({error:"Actualiza la vista previa antes del borrado"});
   const before=await sql`select count(*)::int as total,
-    count(*) filter(where not exists(select 1 from orders o where o.store_id=s.id)
+    count(*) filter(where s.status='scheduled_for_deletion'
+    and not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from checkout_sessions c where c.store_id=s.id)
+    and not exists(select 1 from customers c where c.store_id=s.id)
+    and not exists(select 1 from order_refunds r where r.store_id=s.id)
+    and not exists(select 1 from stripe_webhook_events w where w.store_id=s.id)
+    and not exists(select 1 from notification_outbox n where n.store_id=s.id)
+    and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
+    and not exists(select 1 from media_assets m where m.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id)
     and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
-    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
     and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
       (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
-    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
-    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id))::int as eligible
+    and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom'))::int as eligible
     from stores s`;
   if(before[0].total!==expectedTotal||before[0].eligible!==expectedEligible)
     return res.status(409).json({error:"El listado de tiendas ha cambiado. Vuelve a revisar las cantidades antes de confirmar."});
   const results=await sql.transaction([
-    sql`select s.id from stores s where not exists(select 1 from orders o where o.store_id=s.id)
-    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
-    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
-    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
-      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
-    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
-    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id) for update`,
-    sql`delete from inventory_movements im where im.store_id in (select s.id from stores s where not exists(select 1 from orders o where o.store_id=s.id)
-    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
-    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
-    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
-      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
-    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
-    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id))`,
-    sql`with removed as (
-      delete from stores s where not exists(select 1 from orders o where o.store_id=s.id)
-    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
-    and not exists(select 1 from checkout_sessions cs where cs.store_id=s.id and cs.provider_payment_id is not null)
-    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
-      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
-    and not exists(select 1 from media_assets ma where ma.store_id=s.id)
+    sql`select s.id from stores s where s.status='scheduled_for_deletion'
+    and not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from checkout_sessions c where c.store_id=s.id)
+    and not exists(select 1 from customers c where c.store_id=s.id)
+    and not exists(select 1 from order_refunds r where r.store_id=s.id)
+    and not exists(select 1 from stripe_webhook_events w where w.store_id=s.id)
+    and not exists(select 1 from notification_outbox n where n.store_id=s.id)
+    and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
+    and not exists(select 1 from media_assets m where m.store_id=s.id)
     and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom') for update`,
+    sql`delete from inventory_movements im where im.store_id in (select s.id from stores s where s.status='scheduled_for_deletion'
+    and not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from checkout_sessions c where c.store_id=s.id)
+    and not exists(select 1 from customers c where c.store_id=s.id)
+    and not exists(select 1 from order_refunds r where r.store_id=s.id)
+    and not exists(select 1 from stripe_webhook_events w where w.store_id=s.id)
+    and not exists(select 1 from notification_outbox n where n.store_id=s.id)
+    and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
+    and not exists(select 1 from media_assets m where m.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom'))`,
+    sql`with removed as (
+      delete from stores s where s.status='scheduled_for_deletion'
+    and not exists(select 1 from orders o where o.store_id=s.id)
+    and not exists(select 1 from checkout_sessions c where c.store_id=s.id)
+    and not exists(select 1 from customers c where c.store_id=s.id)
+    and not exists(select 1 from order_refunds r where r.store_id=s.id)
+    and not exists(select 1 from stripe_webhook_events w where w.store_id=s.id)
+    and not exists(select 1 from notification_outbox n where n.store_id=s.id)
+    and not exists(select 1 from newsletter_subscribers n where n.store_id=s.id)
+    and not exists(select 1 from media_assets m where m.store_id=s.id)
+    and not exists(select 1 from media_upload_intents mi where mi.store_id=s.id)
+    and not exists(select 1 from store_payment_accounts pa where pa.store_id=s.id and pa.provider_account_id is not null)
+    and not exists(select 1 from store_subscriptions ss where ss.store_id=s.id and
+      (ss.provider_customer_id is not null or ss.provider_subscription_id is not null or ss.provider_checkout_session_id is not null))
+    and not exists(select 1 from domains d where d.store_id=s.id and d.kind='custom')
       returning s.id,s.name,s.slug
     ), recorded as (
       insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
