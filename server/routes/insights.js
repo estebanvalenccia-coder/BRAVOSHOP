@@ -85,10 +85,32 @@ insightsRouter.get("/inventory", requirePermission("analytics.read"), async (req
 
 insightsRouter.get("/analytics", requirePermission("analytics.read"), async (req, res) => {
 	const [daily, topProducts, statuses, repeatCustomers] = await Promise.all([
-		sql`select to_char(d::date,'YYYY-MM-DD') as day,coalesce(sum(greatest(0,o.total-o.refunded_total)) filter(where o.payment_status in ('paid','partially_refunded')),0)::numeric as sales,count(o.id) filter(where o.payment_status in ('paid','partially_refunded'))::int as orders from generate_series(current_date-29,current_date,'1 day') d left join orders o on o.store_id=${req.storeId}::uuid and o.created_at>=d and o.created_at<d+'1 day'::interval group by d order by d`,
-		sql`select oi.title,coalesce(sum(oi.quantity),0)::int as units,coalesce(sum(oi.total),0)::numeric as revenue from order_items oi join orders o on o.id=oi.order_id where o.store_id=${req.storeId}::uuid and o.payment_status in ('paid','partially_refunded') and o.created_at>=current_date-29 and o.created_at<current_date+interval '1 day' group by oi.title order by revenue desc limit 8`,
-		sql`select coalesce(fulfillment_status,'unfulfilled') as status,count(*)::int as value from orders where store_id=${req.storeId}::uuid and payment_status in ('paid','partially_refunded') and created_at>=current_date-29 and created_at<current_date+interval '1 day' group by fulfillment_status order by value desc`,
-		sql`select count(*)::int as value from (select lower(btrim(customer_email)) as email from orders where store_id=${req.storeId}::uuid and payment_status in ('paid','partially_refunded') and created_at>=current_date-29 and created_at<current_date+interval '1 day' and customer_email is not null and btrim(customer_email)<>'' group by lower(btrim(customer_email)) having count(*)>1) x`
+		sql`select to_char(d::date,'YYYY-MM-DD') as day,coalesce(sum(greatest(0,o.total-o.refunded_total)) filter(where o.payment_status in ('paid','partially_refunded')),0)::numeric as sales,count(o.id) filter(where o.payment_status in ('paid','partially_refunded'))::int as orders from generate_series(current_date-29,current_date,'1 day') d left join orders o on o.store_id=${req.storeId}::uuid and o.paid_at>=d and o.paid_at<d+'1 day'::interval group by d order by d`,
+		sql`select oi.product_id,oi.title,
+   coalesce(sum(greatest(0,oi.quantity-coalesce(returned.units,0))),0)::int as units,
+   coalesce(sum(greatest(0,round(
+    oi.total*greatest(0,o.subtotal-o.discount_total)/nullif(o.subtotal,0)
+    -coalesce(returned.refund_amount,0)
+      /case when o.tax_total>0 and o.subtotal>o.discount_total
+       then 1+o.tax_total/(o.subtotal-o.discount_total) else 1 end,2))),0)::numeric as revenue
+   from order_items oi
+   join orders o on o.id=oi.order_id
+   left join lateral (
+    select coalesce(sum(ri.quantity),0)::int as units,
+     coalesce(sum(ri.amount),0)::numeric as refund_amount
+    from order_refund_items ri
+    join order_refunds rr on rr.id=ri.refund_id and rr.order_id=o.id
+     and rr.store_id=o.store_id and rr.status='succeeded'
+    where ri.order_item_id=oi.id
+   ) returned on true
+   where o.store_id=${req.storeId}::uuid
+    and o.payment_status in ('paid','partially_refunded')
+    and o.paid_at>=current_date-29 and o.paid_at<current_date+interval '1 day'
+   group by oi.product_id,oi.title
+   having sum(greatest(0,oi.quantity-coalesce(returned.units,0)))>0
+   order by revenue desc limit 8`,
+		sql`select coalesce(fulfillment_status,'unfulfilled') as status,count(*)::int as value from orders where store_id=${req.storeId}::uuid and payment_status in ('paid','partially_refunded') and paid_at>=current_date-29 and paid_at<current_date+interval '1 day' group by fulfillment_status order by value desc`,
+		sql`select count(*)::int as value from (select lower(btrim(customer_email)) as email from orders where store_id=${req.storeId}::uuid and payment_status in ('paid','partially_refunded') and paid_at>=current_date-29 and paid_at<current_date+interval '1 day' and customer_email is not null and btrim(customer_email)<>'' group by lower(btrim(customer_email)) having count(*)>1) x`
 	]);
 	const sales30=daily.reduce((n,x)=>n+Number(x.sales),0),orders30=daily.reduce((n,x)=>n+Number(x.orders),0);
 	res.json({period_days:30,metrics:{sales:sales30,orders:orders30,average_order:orders30?sales30/orders30:0,repeat_customers:repeatCustomers[0].value},daily:daily.map(x=>({...x,sales:Number(x.sales)})),top_products:topProducts.map(x=>({...x,revenue:Number(x.revenue)})),order_statuses:statuses});
