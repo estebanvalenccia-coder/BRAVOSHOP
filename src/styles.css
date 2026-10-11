@@ -361,3 +361,20 @@ body{background:#f7f4ed;color:#17221c}
 .storeDeleteConfirm:hover:not(:disabled){background:#83251e}
 .storeDeleteDialogActions button:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:700px){.storeAdminColsWithActions{grid-template-columns:minmax(170px,1fr) 130px 155px 110px;min-width:650px}.storeDeleteDialog{padding:22px}.storeDeleteDialogActions button{flex:1;justify-content:center}}
+
+
+/* Selección y gestión masiva del control administrativo */
+.adminBatchToolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 14px;margin:8px 0 12px;background:#f7f8f5;border:1px solid #dfe5dc;border-radius:12px}
+.adminBatchToolbar label{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:650;color:#294b37}
+.adminBatchToolbar input[type="checkbox"],.userAdminSelectCols input[type="checkbox"],.paymentAdminSelectCols input[type="checkbox"]{width:18px;height:18px;accent-color:#1c6141;cursor:pointer;justify-self:center}
+.adminBatchToolbar strong{font-size:12px;color:#3e5946;margin-right:auto}
+.adminBatchToolbar button:disabled,.userAdminSelectCols button:disabled,.paymentAdminSelectCols button:disabled{opacity:.45;cursor:not-allowed}
+.adminBatchHint{font-size:12px;color:#617265;line-height:1.6;margin:0 0 16px}
+.adminBatchBlocked{padding:14px 18px;margin:12px 0;background:#fff6ec;color:#8c4d17;border:1px solid #ead5bf;border-radius:10px;font-size:12px}
+.adminBatchBlocked ul{margin:8px 0;padding-left:18px;max-height:250px;overflow-y:auto}
+.userAdminSelectCols{grid-template-columns:40px minmax(190px,1fr) 110px 110px 128px;min-width:720px}
+.paymentAdminSelectCols{grid-template-columns:40px minmax(160px,1fr) minmax(145px,200px) minmax(120px,175px) 135px;min-width:760px}
+.adminBatchDialog{width:min(560px,100%)}
+.adminBatchDialog textarea{width:100%;padding:12px;border:1px solid #c6cbc5;border-radius:9px;font:inherit;resize:vertical}
+.adminBatchDialog textarea:focus{outline:2px solid #315d43;outline-offset:2px}
+@media(max-width:760px){.adminBatchToolbar{gap:10px}.adminBatchToolbar strong{width:100%}}

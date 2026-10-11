@@ -235,6 +235,50 @@ adminRouter.post("/cleanup/users",async(req,res)=>{
   res.json({ok:true,deleted:result[0].deleted,eligible_at_preview:expectedEligible});
 });
 adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=await Promise.all([sql`select count(*)::int as n from stores where status in ('active','trial')`,sql`select count(*)::int as n from app_users where status='active'`,sql`select count(*)::int as n from orders where created_at>=date_trunc('day',now())`,sql`select coalesce(sum(p.monthly_price),0)::numeric as n from store_subscriptions s join plans p on p.id=s.plan_id where s.status='active' and s.complimentary_reason is null`]);const controls=await sql`select key,enabled,reason,updated_at from platform_controls order by key`;res.json({metrics:{stores:stores[0].n,users:users[0].n,orders_today:orders[0].n,mrr:Number(mrr[0].n)},controls})});
+
+adminRouter.get("/users/selection",async(req,res)=>{
+  const rows=await sql`select id,email from app_users where role='merchant' and id<>${req.user.id}::uuid order by created_at desc,id desc limit 2001`;
+  if(rows.length>2000)return res.status(413).json({error:"Hay más de 2.000 comerciantes. Debes usar una selección más pequeña."});
+  res.set("Cache-Control","no-store").json({users:rows,total:rows.length});
+});
+adminRouter.post("/users/batch-delete",async(req,res)=>{
+  const {ids,confirmation}=req.body||{};
+  const reason=typeof req.body?.reason==="string"?req.body.reason.trim().slice(0,500):"";
+  if(confirmation!=="ELIMINAR USUARIOS SELECCIONADOS")
+    return res.status(400).json({error:"Debes confirmar el borrado escribiendo la frase indicada"});
+  if(reason.length<10)return res.status(400).json({error:"Escribe un motivo de al menos 10 caracteres"});
+  if(!Array.isArray(ids)||ids.length<1||ids.length>15||new Set(ids).size!==ids.length||
+     ids.some(id=>typeof id!=="string"||!UUID.test(id)))
+    return res.status(400).json({error:"Selecciona de 1 a 15 usuarios válidos por lote"});
+  const details=[];
+  for(const id of ids){
+    try{
+      const users=await sql`select id,email,role from app_users where id=${id}::uuid limit 1`;
+      const user=users[0];
+      if(!user){details.push({id,status:"missing",reason:"La cuenta ya no existe"});continue}
+      if(user.role!=="merchant"||user.id===req.user.id){
+        details.push({id,status:"blocked",reason:"Cuenta administrativa protegida"});continue;
+      }
+      const rows=await sql`with removed as (
+        delete from app_users u where u.id=${id}::uuid and u.role='merchant' and u.id<>${req.user.id}::uuid
+          and not exists(select 1 from store_members m where m.user_id=u.id)
+        returning u.id,u.email
+      ), recorded as (
+        insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
+        select ${req.user.id}::uuid,'super_admin','user.deleted','deleted_user',removed.id::text,
+               ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
+               jsonb_build_object('email',removed.email,'bulk',true,'reason',${reason})
+        from removed returning resource_id
+      )
+      select removed.id from removed join recorded on recorded.resource_id=removed.id::text`;
+      details.push(rows.length?{id,status:"deleted"}:{id,status:"blocked",reason:"Tiene tiendas asociadas; elimina las tiendas o revoca su acceso primero"});
+    }catch(error){
+      console.error("Admin batch user deletion failed",{id,code:error.code});
+      details.push({id,status:"blocked",reason:error.code==="23503"?"Existen referencias protegidas a la cuenta":"Error al procesar el usuario"});
+    }
+  }
+  res.set("Cache-Control","no-store").json({ok:true,details});
+});
 adminRouter.delete("/users/:id",async(req,res)=>{
   const id=req.params.id;
   const email=typeof req.body?.confirm_email==="string"?req.body.confirm_email.trim():"";
