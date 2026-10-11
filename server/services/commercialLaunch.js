@@ -44,3 +44,31 @@ export function commercialPilotSummary(stores,{paidOrders=0,storesTotal=0,active
  return {storesTotal,activeProducts,connectedStripe,paidOrders,readyInSample:ready,checkedStores:stores.length,
   stripeOrdersRecorded:paidOrders>0,requiresManualCheckoutAndRefundProof:true};
 }
+
+/**
+ * Evidence is read directly from the actual connected Stripe payment, its
+ * processed webhook, the sent order confirmation and the successful refund.
+ * It is deliberately not a manual toggle and never means that the public
+ * storefront or tenant isolation was externally verified.
+ */
+export function evaluatePilotEvidence(row){
+ const r=row||{};
+ const orderId=r.pilot_paid_order_id||null;
+ const checks=[
+  {key:"paid_order",label:"Pedido con cobro Stripe registrado",ok:Boolean(orderId),
+   instruction:"Autoriza una compra controlada y comprueba el cargo en la cuenta Stripe del comercio."},
+  {key:"webhook",label:"Webhook de pago procesado",ok:Boolean(orderId&&r.pilot_webhook_processed===true),
+   instruction:"Comprueba el webhook firmado y el PaymentIntent de esa misma compra."},
+  {key:"email",label:"Confirmación de pedido enviada",ok:Boolean(orderId&&r.pilot_email_sent===true),
+   instruction:"Verifica el correo de confirmación del mismo pedido; revisa la entrega con el destinatario."},
+  {key:"refund",label:"Reembolso Stripe finalizado",ok:Boolean(orderId&&r.pilot_refund_success===true),
+   instruction:"Solicita un reembolso autorizado y verifica el estado final en Stripe."}
+ ];
+ return {order_id:orderId,checks,verified:checks.every(item=>item.ok),
+  requires_manual_browser_test:true,requires_manual_tenant_isolation_test:true,
+  manual_checks:[
+   "Compra desde otro navegador y comprueba HTTPS, stock, recibo e importes.",
+   "Verifica con una segunda cuenta que no pueda acceder a pedidos, clientes ni inventario de la primera tienda.",
+   "Confirma en Stripe el dinero cobrado y reembolsado, y en el buzón la entrega del email."
+  ]};
+}
