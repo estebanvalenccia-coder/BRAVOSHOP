@@ -113,7 +113,7 @@ test("order fulfillment, refunds and customer editing are hidden unless roles ar
  assert.ok(admin.includes('canEdit={privileges.has("customers.update")}'));
  assert.ok(orders.includes('const doRefund=async()=>{if(!canRefund)return;'));
  assert.ok(orders.includes('const save=async()=>{if(!canFulfill)return;'));
- assert.ok(orders.includes('{canFulfill&&<button disabled={busy}'));
+ assert.ok(orders.includes('{canFulfill&&<button disabled={busy||(!canPrepareOrder(order)'));
  assert.ok(orders.includes('{canRefund&&(["paid","partially_refunded"]'));
  assert.ok(customers.includes('const save=async()=>{if(!canEdit)return;'));
  assert.ok(customers.includes('{canEdit&&<button disabled={saving}'));
