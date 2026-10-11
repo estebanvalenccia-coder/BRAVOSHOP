@@ -267,14 +267,16 @@ adminRouter.post("/users/batch-delete",async(req,res)=>{
         insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
         select ${req.user.id}::uuid,'super_admin','user.deleted','deleted_user',removed.id::text,
                ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
-               jsonb_build_object('email',removed.email,'bulk',true,'reason',${reason})
+               jsonb_build_object('email',removed.email,'bulk',true,'reason',${reason}::text)
         from removed returning resource_id
       )
       select removed.id from removed join recorded on recorded.resource_id=removed.id::text`;
       details.push(rows.length?{id,status:"deleted"}:{id,status:"blocked",reason:"Tiene tiendas asociadas; elimina las tiendas o revoca su acceso primero"});
     }catch(error){
       console.error("Admin batch user deletion failed",{id,code:error.code});
-      details.push({id,status:"blocked",reason:error.code==="23503"?"Existen referencias protegidas a la cuenta":"Error al procesar el usuario"});
+      details.push(error.code==="23503"
+        ?{id,status:"blocked",reason:"Existen referencias protegidas a la cuenta"}
+        :{id,status:"error",reason:"Error técnico al procesar el usuario"});
     }
   }
   res.set("Cache-Control","no-store").json({ok:true,details});

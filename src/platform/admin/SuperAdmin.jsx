@@ -99,7 +99,7 @@ function Summary(){const[data,setData]=useState(null);const[health,setHealth]=us
 function Stores(){return <AdminStores/>}
 function Users(){
  const[items,setItems]=useState([]),[selected,setSelected]=useState([]),[allSelected,setAllSelected]=useState(false),[selecting,setSelecting]=useState(false);
- const[error,setError]=useState(""),[notice,setNotice]=useState(""),[blocked,setBlocked]=useState([]);
+ const[error,setError]=useState(""),[notice,setNotice]=useState(""),[blocked,setBlocked]=useState([]),[failed,setFailed]=useState([]);
  const[mode,setMode]=useState(""),[target,setTarget]=useState(null),[phrase,setPhrase]=useState(""),[reason,setReason]=useState("");
  const[busy,setBusy]=useState(false),[progress,setProgress]=useState(null),[dialogError,setDialogError]=useState("");
  const load=()=>listPlatformUsers().then(setItems).catch(e=>setError(e.message));
@@ -121,7 +121,7 @@ function Users(){
  };
  const deleteBatch=async()=>{
    if(busy||!selected.length||phrase!=="ELIMINAR USUARIOS SELECCIONADOS"||reason.trim().length<10)return;
-   setBusy(true);setDialogError("");const ids=[...selected],results=[];setProgress({done:0,total:ids.length});
+   setBusy(true);setDialogError("");setBlocked([]);setFailed([]);const ids=[...selected],results=[];setProgress({done:0,total:ids.length});
    try{
      for(let i=0;i<ids.length;i+=15){
        const response=await batchDeletePlatformUsers(ids.slice(i,i+15),reason.trim());
@@ -131,13 +131,14 @@ function Users(){
      }
      const removed=results.filter(d=>d.status==="deleted").map(d=>d.id);
      const failures=results.filter(d=>d.status==="blocked");
-     setSelected(v=>v.filter(id=>!removed.includes(id)));setAllSelected(false);setBlocked(failures);
-     setNotice(removed.length+" usuarios eliminados, "+failures.length+" protegidos o asociados a tiendas.");
+     const technicalErrors=results.filter(d=>d.status==="error");
+     setSelected(v=>v.filter(id=>!removed.includes(id)));setAllSelected(false);setBlocked(failures);setFailed(technicalErrors);
+     setNotice(removed.length+" usuarios eliminados, "+failures.length+" protegidos o asociados a tiendas, "+technicalErrors.length+" errores técnicos.");
      setMode("");await load();
    }catch(e){
      const removed=results.filter(d=>d.status==="deleted").map(d=>d.id);
      setSelected(v=>v.filter(id=>!removed.includes(id)));setAllSelected(false);
-     setBlocked(results.filter(d=>d.status==="blocked"));
+     setBlocked(results.filter(d=>d.status==="blocked"));setFailed(results.filter(d=>d.status==="error"));
      setDialogError(e.message+". Procesados "+results.length+" de "+ids.length+". Revisa antes de reintentar.");
      await load();
    }finally{setBusy(false)}
@@ -164,7 +165,8 @@ function Users(){
    <p className="adminBatchHint">La selección general incluye todas las cuentas de comerciantes, también las que no aparecen en esta página. Se protegerán siempre los administradores y los usuarios con tiendas vinculadas.</p>
    {notice&&<div role="status" className="astSuccess">{notice}</div>}
    {error&&<div role="alert" className="errorBox">{error}</div>}
-   {blocked.length>0&&<div role="status" className="adminBatchBlocked"><strong>{blocked.length} usuarios protegidos:</strong><ul>{blocked.slice(0,10).map(d=><li key={d.id}>{d.reason||d.id}</li>)}</ul>{blocked.length>10&&<p>Y {blocked.length-10} más.</p>}</div>}
+   {blocked.length>0&&<div role="status" className="adminBatchBlocked"><strong>{blocked.length} usuarios protegidos o con tiendas asociadas:</strong><ul>{blocked.slice(0,10).map(d=><li key={d.id}>{d.reason||d.id}</li>)}</ul>{blocked.length>10&&<p>Y {blocked.length-10} más.</p>}</div>}
+   {failed.length>0&&<div role="alert" className="errorBox"><strong>{failed.length} usuarios no procesados por errores técnicos.</strong><p>No se han eliminado esas cuentas. Revisa el servicio antes de volver a intentarlo.</p></div>}
    <div className="productTable storeAdminTable">
     <div className="tableHead userAdminSelectCols"><span>☑</span><span>Cliente</span><span>Tiendas</span><span>Estado</span><span>Acciones</span></div>
     {items.map(u=><div className="productRow userAdminSelectCols" key={u.id}>
