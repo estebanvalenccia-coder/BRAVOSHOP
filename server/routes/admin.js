@@ -94,6 +94,32 @@ adminRouter.get("/launch/readiness",async(req,res)=>{
  });
 });
 adminRouter.get("/summary",async(_req,res)=>{const[stores,users,orders,mrr]=await Promise.all([sql`select count(*)::int as n from stores where status in ('active','trial')`,sql`select count(*)::int as n from app_users where status='active'`,sql`select count(*)::int as n from orders where created_at>=date_trunc('day',now())`,sql`select coalesce(sum(p.monthly_price),0)::numeric as n from store_subscriptions s join plans p on p.id=s.plan_id where s.status='active' and s.complimentary_reason is null`]);const controls=await sql`select key,enabled,reason,updated_at from platform_controls order by key`;res.json({metrics:{stores:stores[0].n,users:users[0].n,orders_today:orders[0].n,mrr:Number(mrr[0].n)},controls})});
+adminRouter.delete("/users/:id",async(req,res)=>{
+  const id=req.params.id;
+  const email=typeof req.body?.confirm_email==="string"?req.body.confirm_email.trim():"";
+  const rows=await sql`select id,email,role from app_users where id=${id}::uuid limit 1`;
+  if(!rows.length)return res.status(404).json({error:"Usuario no encontrado"});
+  const user=rows[0];
+  if(user.role!=="merchant"||user.id===req.user.id)return res.status(403).json({error:"Las cuentas administrativas y la cuenta propia no se pueden eliminar"});
+  if(email!==user.email)return res.status(400).json({error:"Confirma el correo exacto del usuario"});
+  const deleted=await sql`
+    with removed as (
+      delete from app_users u where u.id=${id}::uuid and u.email=${email}
+        and u.role='merchant' and u.id<>${req.user.id}::uuid
+        and not exists(select 1 from store_members m where m.user_id=u.id)
+      returning u.id,u.email,u.name
+    ), recorded as (
+      insert into audit_log(actor_user_id,actor_type,action,resource_type,resource_id,request_id,ip,user_agent,details)
+      select ${req.user.id}::uuid,'super_admin','user.deleted','deleted_user',removed.id::text,
+             ${req.requestId||null},${req.ip||null},${req.get("user-agent")||null},
+             jsonb_build_object('email',removed.email,'bulk',false)
+      from removed returning resource_id
+    )
+    select removed.id,removed.email from removed join recorded on recorded.resource_id=removed.id::text
+  `;
+  if(!deleted.length)return res.status(409).json({error:"No puedes borrar un usuario que todavía pertenece a alguna tienda. Elimina antes esas tiendas o revoca su acceso."});
+  res.json({ok:true,deleted_user:deleted[0]});
+});
 adminRouter.get("/users",async(_req,res)=>{const rows=await sql`select u.id,u.email,u.name,u.role,u.status,u.created_at,count(distinct sm.store_id)::int as stores from app_users u left join store_members sm on sm.user_id=u.id group by u.id order by u.created_at desc limit 250`;res.json({users:rows})});
 adminRouter.get("/stores",async(req,res)=>{
  const q=String(req.query.q||"").trim().slice(0,100);
