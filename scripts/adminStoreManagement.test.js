@@ -14,7 +14,7 @@ test("Super Admin store list offers management, retirement, recovery and conditi
   "reason.trim().length>=10", 'rel="noopener noreferrer"',
   "No se public", "No se pueden"
  ].slice(0,11))assert.ok(code.includes(fragment),fragment);
- assert.ok(code.includes('filter]=useState("live")'));
+ assert.ok(code.includes('filter,setFilter]=useState("live")'));
  assert.ok(code.includes("status")||code.includes("STATUSES"));
 });
 
@@ -51,7 +51,7 @@ test("Retired stores are excluded from the ordinary management list, but retaine
 
 test("Admin management does not silently sign in to a merchant store",async()=>{
  const ui=await read("../src/platform/admin/AdminStores.jsx");
- assert.ok(ui.includes("https://"+'"'+store.slug+".bravoshop.online"'));
+ assert.ok(ui.includes('href={"https://"+store.slug+".bravoshop.online"}'));
  assert.ok(!ui.includes("impersonate"));
  assert.ok(!ui.includes("preview_token"));
 });
