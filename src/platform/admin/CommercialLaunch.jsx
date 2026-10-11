@@ -1,6 +1,7 @@
 import React,{useEffect,useMemo,useState}from"react";
 import{RefreshCcw,AlertTriangle,CheckCircle2,ExternalLink}from"lucide-react";
 import{getCommercialLaunchReadiness}from"../data/superAdminService.js";
+import{summarizePilotStages}from"./pilotStages.js";
 function Metric({label,value}){return <article className="panel" style={{padding:14}}><small>{label}</small><h2 style={{margin:"6px 0 0"}}>{value??"—"}</h2></article>}
 const probeName=s=>/^smoke-|^test-/i.test(s||"");
 export function CommercialLaunch(){
@@ -19,6 +20,7 @@ export function CommercialLaunch(){
  const m=data?.summary||{};
  const platform=data?.integrations||{};
  const pilot=chosen?.pilotEvidence||{checks:[],manual_checks:[]};
+ const stages=summarizePilotStages(chosen);
  return <>
   <header><div><small>LANZAMIENTO CONTROLADO</small><h1>Preparar primera tienda piloto</h1><p>Diagnóstico real de los bloqueos para vender. Este panel nunca publica tiendas ni inicia cobros por sí mismo.</p></div><button className="ghost" disabled={loading} onClick={()=>refresh(appliedFilter)}><RefreshCcw size={16}/> {loading?"Comprobando…":"Actualizar"}</button></header>
   {error&&<div className="errorBox" role="alert">{error}</div>}
@@ -60,6 +62,13 @@ export function CommercialLaunch(){
    <article className="panel">
     <h2>{chosen?.name||"Requisitos del comercio"}</h2>
     {chosen?<><p><b>{chosen.ready?"Cumple los requisitos técnicos":"Aún no puede considerarse lista para vender"}</b> · {chosen.completed} de {chosen.total} comprobaciones. Esto no demuestra un cobro real.</p>
+     <h3>Los 7 bloques para lanzar la beta</h3>
+     {stages.map(stage=><div className="health" key={stage.id} style={{gap:10,alignItems:"start"}}>
+       {stage.ready?<CheckCircle2 size={18} color="#267c51"/>:<AlertTriangle size={18}/>}
+       <div style={{flex:1}}><b>{stage.id}. {stage.title}</b><small>{stage.done} de {stage.total} requisitos con evidencia {stage.manual_required?"· Requiere además validación humana":""}</small></div>
+       <span>{stage.ready?"Verificado":stage.recordsComplete&&stage.manual_required?"Falta validación externa":"Pendiente"}</span>
+      </div>)}
+     <h3>11 condiciones comerciales</h3>
      {chosen.checks.map(item=><div className="health" key={item.key} style={{gap:10,alignItems:"start"}}>
       {item.ok?<CheckCircle2 size={18} color="#267c51"/>:<AlertTriangle size={18}/>}
       <div style={{flex:1}}><b>{item.label}</b><small>{item.ok?"Requisito comprobado":item.instruction}</small></div>
