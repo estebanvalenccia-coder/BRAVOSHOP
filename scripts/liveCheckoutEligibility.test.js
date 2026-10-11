@@ -61,7 +61,7 @@ test("existing checkout rechecks platform controls and connected account before 
   "checkoutControlEnabled(controls)",
   "merchantStripeAccountReady({...c,status:c.account_status})",
   "!meetsStripeMinimumCharge(Math.round(Number(c.total)*100),c.currency)",
-  "publicFeatureEnabled(c.store_id,\"checkout\")"
+  "publicCommerceFeaturesEnabled(c.store_id)"
  ])assert.ok(block.includes(guard),guard);
  const reservation=block.indexOf("bravoshop_reserve_checkout_inventory(");
  const stripe=block.indexOf("stripe.paymentIntents.create(");
@@ -76,7 +76,7 @@ test("public Stripe configuration respects global checkout and merchant settleme
  const start=src.indexOf('publicRouter.get("/payment-config"');
  const end=src.indexOf('publicRouter.get("/blog/posts"',start);
  const block=src.slice(start,end);
- assert.ok(block.includes("publicFeatureEnabled(req.publicStore.id,\"checkout\")"));
+ assert.ok(block.includes("publicCommerceFeaturesEnabled(req.publicStore.id)"));
  assert.ok(block.includes("checkoutControlEnabled(controls)"));
  assert.ok(block.includes("merchantStripeAccountReady(p)"));
  assert.ok(block.includes("payouts_enabled"));
