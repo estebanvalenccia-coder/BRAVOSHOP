@@ -126,3 +126,23 @@ Every new tenant endpoint must:
 6. Scope all reads and writes by `req.storeId`, directly or through an ownership-checked join.
 7. Audit sensitive changes with the request ID.
 8. Add a cross-tenant denial test and, for financial or stock changes, a concurrency test.
+
+
+## Barrera para tests destructivos (producción)
+
+La suite `npm run test:smoke` crea cuentas, tiendas, productos y checkouts. El script
+rechaza siempre dominios de producción `*.bravoshop.online` y despliegues Railway
+`bravoshop-*-production.up.railway.app`, aunque se pasen flags de confirmación.
+Para ejecutar tests sobre una API local o staging **que esté conectada a una base
+Neon separada de producción**, configurar en el proceso de prueba:
+
+```
+SMOKE_API_URL=https://isolated-api.example.com
+SMOKE_ALLOW_DESTRUCTIVE=1
+SMOKE_DATABASE_ISOLATED=1
+```
+
+Los flags representan una declaración operativa de que la API usa datos aislados;
+no se puede certificar una conexión Neon privada solamente con un nombre DNS.
+Comprobar manualmente la base de datos detrás del endpoint antes de ejecutarlos.
+No añadir la suite destructiva al flujo automático de CI ni a la producción.
