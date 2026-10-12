@@ -1,4 +1,5 @@
 import { resolve4, resolve6, resolveCname, resolveNs } from "node:dns/promises";
+import {verifyStorefrontDns} from "./storefrontDnsProbe.js";
 import{inspectStorefrontShell}from"./storefrontShellCheck.js";
 import {missingCommercialEvidence} from "./commercialEvidence.js";
 const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");
@@ -53,9 +54,9 @@ const storefrontHost=process.env.SMOKE_STOREFRONT_HOST||"mi-tienda-3.bravoshop.o
 const requireStorefrontDns=process.env.REQUIRE_STOREFRONT_DNS!=="0";
 let storefrontDns="unverified";
 try {
- const addresses=await Promise.any([resolve4(storefrontHost),resolve6(storefrontHost)]);
- if(!addresses.length)throw new Error("No DNS addresses returned");
+ const probe=await verifyStorefrontDns(storefrontHost,{lookup4:resolve4,lookup6:resolve6});
  storefrontDns="resolved";
+ console.log(JSON.stringify({storefront_dns_attempts:probe.attempts,addresses_found:probe.addresses.length}));
 } catch(error) {
  storefrontDns="failed";
  // Separate wildcard/CNAME failures from a Railway target without A/AAAA.
@@ -65,7 +66,7 @@ try {
  const diagnostics=Object.fromEntries(["merchant_cname","railway_target_ipv4","authoritative_nameservers"].map((name,i)=>{
   const r=lookups[i];return[name,r.status==="fulfilled"?r.value:({error:r.reason?.code||r.reason?.message||"UNKNOWN"})];
  }));
- console.error(JSON.stringify({warning:"MERCHANT_STOREFRONT_DNS_UNRESOLVED",hostname:storefrontHost,error:error.message,diagnostics}));
+ console.error(JSON.stringify({warning:"MERCHANT_STOREFRONT_DNS_UNRESOLVED",hostname:storefrontHost,error:error.message,attempts:error.diagnostics||[],diagnostics}));
  if(requireStorefrontDns)throw new Error("Merchant storefront DNS failed for "+storefrontHost+": "+error.message+"; check CNAME, target and NS diagnostics above");
 }
 console.log(JSON.stringify({storefront_hostname:storefrontHost,storefront_dns:storefrontDns,strict_dns:requireStorefrontDns}));
