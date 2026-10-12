@@ -46,7 +46,36 @@ app.get("/api/ready",async(_req,res)=>{
   if(!visualEditorMigration.length)return res.status(503).json({ok:false,database:"frontend_revision_migration_incomplete"});
   const rollbackMigration=await sql`select 1 from _bravoshop_migrations where name='0077_frontend_rollbacks.sql' limit 1`;
   if(!rollbackMigration.length)return res.status(503).json({ok:false,database:"frontend_rollback_migration_incomplete"});
-  res.json({ok:true,database:"ready",schema:"ready",integrations:{media:mediaReady(),payments:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET),notifications:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),custom_domains:railwayDomainsReady()},commit:process.env.RAILWAY_GIT_COMMIT_SHA||null});
+  // Read-only commercial signals. These do NOT prove live/test Stripe mode or email delivery.
+  // The separate human pilot still has to verify Stripe LIVE and complete an actual purchase.
+  const evidenceRows=await sql`
+    select
+      exists(select 1 from store_payment_accounts a
+             join stores s on s.id=a.store_id
+             where s.status not in ('scheduled_for_deletion','suspended')
+               and a.provider='stripe' and a.provider_account_id is not null
+               and a.status='active' and a.charges_enabled and a.payouts_enabled) as connected_payouts,
+      exists(select 1 from orders o where o.paid_at is not null and o.provider_payment_id is not null) as paid_order,
+      exists(select 1 from stripe_webhook_events e
+             join orders o on o.store_id=e.store_id
+             where e.status='processed' and e.event_type in ('payment_intent.succeeded','checkout.session.completed')
+               and o.paid_at is not null and o.provider_payment_id is not null) as processed_payment_webhook,
+      exists(select 1 from order_refunds r join orders o on o.id=r.order_id
+             where r.status='succeeded' and r.processed_at is not null
+               and o.provider_payment_id is not null) as successful_refund,
+      exists(select 1 from store_subscriptions ss join stores s on s.id=ss.store_id
+             where ss.provider_subscription_id is not null and ss.status='active'
+               and s.status not in ('scheduled_for_deletion','suspended')) as recurring_billing
+  `;
+  const evidence=evidenceRows[0]||{};
+  const commercial_evidence={
+    connected_payouts:Boolean(evidence.connected_payouts),
+    paid_order:Boolean(evidence.paid_order),
+    processed_payment_webhook:Boolean(evidence.processed_payment_webhook),
+    successful_refund:Boolean(evidence.successful_refund),
+    recurring_billing:Boolean(evidence.recurring_billing)
+  };
+  res.json({ok:true,database:"ready",schema:"ready",integrations:{media:mediaReady(),payments:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET),notifications:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),custom_domains:railwayDomainsReady()},commercial_evidence,commit:process.env.RAILWAY_GIT_COMMIT_SHA||null});
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
 });
 app.use("/api/public",publicRouter);app.use("/api/auth",authRouter);app.use("/api/admin",adminRouter);app.use("/api/admin/frontends",frontendsRouter);app.use("/api/stores",storesRouter);app.use("/api/stores/:storeId/theme",themeDraftRouter);app.use("/api/stores/:storeId",teamMembersRouter);app.use("/api/stores/:storeId",domainsRouter);app.use("/api/stores/:storeId",commerceRouter);app.use("/api/stores/:storeId/blog",blogRouter);app.use("/api/stores/:storeId/exports",exportsRouter);app.use("/api/stores/:storeId",mediaRouter);app.use("/api/stores/:storeId",insightsRouter);

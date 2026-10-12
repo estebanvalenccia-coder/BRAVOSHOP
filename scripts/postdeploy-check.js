@@ -1,5 +1,6 @@
 import { resolve4, resolve6, resolveCname, resolveNs } from "node:dns/promises";
 import{inspectStorefrontShell}from"./storefrontShellCheck.js";
+import {missingCommercialEvidence} from "./commercialEvidence.js";
 const API=(process.env.SMOKE_API_URL||"https://api.bravoshop.online").replace(/\/$/,"");
 const MEDIA=(process.env.MEDIA_HEALTH_URL||"https://bravoshop-media-production.up.railway.app").replace(/\/$/,"");
 async function request(path,options={}){
@@ -27,6 +28,10 @@ if(ready.ok!==true||ready.database!=="ready"||ready.schema!=="ready")throw new E
 if(!ready.integrations||ready.integrations.media!==true||typeof ready.integrations.payments!=="boolean"||typeof ready.integrations.notifications!=="boolean"||typeof ready.integrations.custom_domains!=="boolean")throw new Error("Integration readiness missing or invalid: "+JSON.stringify(ready.integrations));
 const requireLive=process.env.REQUIRE_LIVE_INTEGRATIONS==="1";
 if(requireLive&&(!ready.integrations.payments||!ready.integrations.notifications))throw new Error("Commercial integrations are not ready: "+JSON.stringify(ready.integrations));
+if(requireLive){
+ const missing=missingCommercialEvidence(ready.commercial_evidence);
+ if(missing.length)throw new Error("Commercial launch BLOCKED. Missing real pilot evidence: "+missing.join(", ")+". Stripe LIVE account and delivered emails still require external verification.");
+}
 const expected=process.env.EXPECTED_COMMIT_SHA||"";
 if(expected&&ready.commit!==expected)throw new Error("Production commit mismatch: expected "+expected+" got "+(ready.commit||"none"));
 
@@ -40,7 +45,7 @@ await expectStatus(
  {headers:{Origin:"https://tenant-a.bravoshop.online"}}
 );
 
-console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,media:mediaHealth.storage,integrations:ready.integrations,commercial_gate:requireLive?"strict":"technical",commit:ready.commit||null,tenant_routing_guards:true}));
+console.log(JSON.stringify({ok:true,health:health.ok,database:ready.database,schema:ready.schema,media:mediaHealth.storage,integrations:ready.integrations,commercial_gate:requireLive?"strict":"technical",commercial_evidence:ready.commercial_evidence||null,commit:ready.commit||null,tenant_routing_guards:true}));
 
 // DNS is a separate operational dependency: a healthy Railway service does not
 // imply that newly provisioned merchant subdomains resolve publicly.
