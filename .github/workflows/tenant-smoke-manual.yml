@@ -25,4 +25,6 @@ jobs:
       - name: Run tenant isolation smoke suite
         env:
           SMOKE_API_URL: ${{ inputs.api_url }}
+          SMOKE_ALLOW_DESTRUCTIVE: "1"
+          SMOKE_DATABASE_ISOLATED: "1"
         run: node scripts/smoke.js
