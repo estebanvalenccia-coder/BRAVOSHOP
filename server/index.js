@@ -65,7 +65,36 @@ app.get("/api/ready",async(_req,res)=>{
                and o.provider_payment_id is not null) as successful_refund,
       exists(select 1 from store_subscriptions ss join stores s on s.id=ss.store_id
              where ss.provider_subscription_id is not null and ss.status='active'
-               and s.status not in ('scheduled_for_deletion','suspended')) as recurring_billing
+               and s.status not in ('scheduled_for_deletion','suspended')) as recurring_billing,
+      -- A launch pilot must be ONE tenant with a matching paid Stripe order,
+      -- processed Connect webhook and successful refund for that same order.
+      -- Aggregate platform-wide signals above are diagnostic, not proof of a pilot.
+      exists(
+        select 1
+        from orders o
+        join stores s on s.id=o.store_id
+        join store_payment_accounts a on a.store_id=o.store_id
+        join store_subscriptions ss on ss.store_id=o.store_id
+        where s.status not in ('scheduled_for_deletion','suspended')
+          and a.provider='stripe' and a.provider_account_id is not null
+          and a.status='active' and a.charges_enabled and a.payouts_enabled
+          and ss.status='active' and ss.provider_subscription_id is not null
+          and o.payment_provider='stripe'
+          and o.paid_at is not null and o.provider_payment_id is not null
+          and exists(
+            select 1 from stripe_webhook_events e
+            where e.store_id=o.store_id
+              and e.payment_intent_id=o.provider_payment_id
+              and e.account_id=a.provider_account_id
+              and e.status='processed' and e.event_type='payment_intent.succeeded'
+          )
+          and exists(
+            select 1 from order_refunds r
+            where r.order_id=o.id
+              and r.provider_refund_id is not null
+              and r.status='succeeded' and r.processed_at is not null
+          )
+      ) as coherent_pilot
   `;
   const evidence=evidenceRows[0]||{};
   const commercial_evidence={
@@ -73,7 +102,8 @@ app.get("/api/ready",async(_req,res)=>{
     paid_order:Boolean(evidence.paid_order),
     processed_payment_webhook:Boolean(evidence.processed_payment_webhook),
     successful_refund:Boolean(evidence.successful_refund),
-    recurring_billing:Boolean(evidence.recurring_billing)
+    recurring_billing:Boolean(evidence.recurring_billing),
+    coherent_pilot:Boolean(evidence.coherent_pilot)
   };
   res.json({ok:true,database:"ready",schema:"ready",integrations:{media:mediaReady(),payments:Boolean(process.env.STRIPE_SECRET_KEY&&process.env.STRIPE_PUBLISHABLE_KEY&&process.env.STRIPE_WEBHOOK_SECRET&&process.env.STRIPE_CONNECT_WEBHOOK_SECRET),notifications:Boolean(process.env.RESEND_API_KEY&&process.env.BRAVOSHOP_EMAIL_FROM),custom_domains:railwayDomainsReady()},commercial_evidence,commit:process.env.RAILWAY_GIT_COMMIT_SHA||null});
  }catch(e){console.error("BravoShop readiness failed",e);res.status(503).json({ok:false,database:"unavailable"})}
