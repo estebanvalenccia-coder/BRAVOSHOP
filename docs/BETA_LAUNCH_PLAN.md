@@ -27,7 +27,7 @@
 
 - `npm run check`: sintaxis backend, pruebas y build.
 - `npm run test:postdeploy`: salud, planes, DNS, SPA y rutas de aislamiento (técnico).
-- Workflow manual `commercial-readiness.yml`: exige credenciales de pagos y emails de plataforma, pero **no demuestra una compra real**.
+- Workflow manual `commercial-readiness.yml`: exige credenciales de pagos y emails, cinco indicadores comerciales y `coherent_pilot=true`, que relaciona una cuenta Connect y una suscripción activa con el webhook y el reembolso de un mismo pedido Stripe de la misma tienda. **No demuestra por sí solo que Stripe esté en modo LIVE ni sustituye la revisión de pago, email o aislamiento.**
 - Panel **Lanzamiento beta**: solo indica requisitos técnicos por tienda. Un pedido Stripe registrado no sustituye la comprobación humana del pago, webhook, reembolso y conciliación.
 - No habilitar una beta abierta sin los puntos 6, 7, 8 y 9. Registrar manualmente la fecha y los resultados del ensayo.
 
