@@ -34,6 +34,8 @@ Estos indicadores **no** sustituyen comprobar el pago en Stripe ni la recepción
 
 Si el último pedido es posterior a uno verificado previamente, el panel puede mostrar una prueba parcial nueva. No mezcla evidencias de varios pedidos para declararlas completas.
 
+El endpoint de estado `/api/ready` incluye `commercial_evidence.coherent_pilot`. Solo se vuelve verdadero cuando los registros de Connect, suscripción y un pedido Stripe con su webhook y reembolso corresponden a una misma tienda y a un mismo pedido. Es una verificación de **consistencia de registros**, no una certificación externa de Stripe LIVE.
+
 ### Condiciones que siempre requieren comprobación externa
 
 - Navegador de comprador independiente: acceso HTTPS al dominio real, carrito, país/tarifa correcta, totales e impuestos, redirecciones, pago y visualización del recibo.
