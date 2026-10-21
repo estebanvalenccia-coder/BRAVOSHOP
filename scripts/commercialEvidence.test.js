@@ -19,7 +19,7 @@ test("successful checkout without refund or recurring billing does not qualify",
   assert.deepEqual(missingCommercialEvidence({
     connected_payouts:true,paid_order:true,processed_payment_webhook:true,
     successful_refund:false,recurring_billing:false
-  }),["successful_refund","recurring_billing"]);
+  }),["successful_refund","recurring_billing","coherent_pilot"]);
 });
 test("unrelated paid orders, webhooks and refunds cannot authorize launch",()=>{
   const aggregateSignals={
